@@ -3,6 +3,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Tbox.Core;
 using Windows.Graphics;
 using Windows.UI;
@@ -17,10 +18,16 @@ internal static class CaptureFramePalette
     internal static readonly Color Recording = Color.FromArgb(255, 255, 59, 48);
 }
 
+internal static class CaptureSelectionVisualStyle
+{
+    internal const double StrokeThickness = 2;
+    internal const double HandleSize = 8;
+    internal const double HandleStrokeThickness = 1.5;
+    internal const double HandleCornerRadius = 1;
+}
+
 internal sealed class CaptureRegionFrame : IDisposable
 {
-    private const double LogicalThickness = 2;
-    private const double LogicalHandleSize = 8;
     private readonly FramePart[] _parts;
     private bool _disposed;
 
@@ -29,8 +36,12 @@ internal sealed class CaptureRegionFrame : IDisposable
         var probe = new FramePart(color, isHandle: false);
         CaptureModeWindowPlacement.PrepareOnTargetDisplay(probe.WindowHandle, bounds);
         var dpi = Math.Max(96u, NativeMethods.GetDpiForWindow(probe.WindowHandle));
-        var thickness = WindowDpiScalePolicy.LogicalToPhysicalPixels(LogicalThickness, dpi);
-        var handleSize = WindowDpiScalePolicy.LogicalToPhysicalPixels(LogicalHandleSize, dpi);
+        var thickness = WindowDpiScalePolicy.LogicalToPhysicalPixels(
+            CaptureSelectionVisualStyle.StrokeThickness,
+            dpi);
+        var handleSize = WindowDpiScalePolicy.LogicalToPhysicalPixels(
+            CaptureSelectionVisualStyle.HandleSize,
+            dpi);
         var halfThickness = thickness / 2;
 
         var parts = new List<FramePart>
@@ -91,22 +102,33 @@ internal sealed class CaptureRegionFrame : IDisposable
     private sealed class FramePart
     {
         private readonly Window _window;
-        private readonly Border _root;
+        private readonly Grid _root;
+        private readonly Rectangle? _handleVisual;
         private readonly AppWindow _appWindow;
-        private readonly bool _isHandle;
 
         internal FramePart(Color color, bool isHandle)
         {
-            _isHandle = isHandle;
             _window = new Window { Title = "Tbox 捕获边框" };
-            _root = new Border
+            _root = new Grid
             {
                 Background = new SolidColorBrush(isHandle ? Colors.White : color),
-                BorderBrush = new SolidColorBrush(isHandle ? color : Colors.Transparent),
-                BorderThickness = isHandle ? new Thickness(1.5) : new Thickness(0),
-                CornerRadius = isHandle ? new CornerRadius(1) : new CornerRadius(0),
                 IsHitTestVisible = false
             };
+            if (isHandle)
+            {
+                _handleVisual = new Rectangle
+                {
+                    Fill = new SolidColorBrush(Colors.White),
+                    Stroke = new SolidColorBrush(color),
+                    StrokeThickness = CaptureSelectionVisualStyle.HandleStrokeThickness,
+                    RadiusX = CaptureSelectionVisualStyle.HandleCornerRadius,
+                    RadiusY = CaptureSelectionVisualStyle.HandleCornerRadius,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    VerticalAlignment = VerticalAlignment.Stretch,
+                    IsHitTestVisible = false
+                };
+                _root.Children.Add(_handleVisual);
+            }
             _window.Content = _root;
             var hwnd = WindowNative.GetWindowHandle(_window);
             NativeMethods.DisableWindowTransitions(hwnd);
@@ -121,6 +143,7 @@ internal sealed class CaptureRegionFrame : IDisposable
                 presenter.IsMinimizable = false;
             }
             _appWindow.IsShownInSwitchers = false;
+            NativeMethods.RemoveWindowBorderAndRounding(hwnd);
         }
 
         internal IntPtr WindowHandle => WindowNative.GetWindowHandle(_window);
@@ -131,7 +154,7 @@ internal sealed class CaptureRegionFrame : IDisposable
 
         internal void SetColor(Color color)
         {
-            if (_isHandle) _root.BorderBrush = new SolidColorBrush(color);
+            if (_handleVisual is not null) _handleVisual.Stroke = new SolidColorBrush(color);
             else _root.Background = new SolidColorBrush(color);
         }
 

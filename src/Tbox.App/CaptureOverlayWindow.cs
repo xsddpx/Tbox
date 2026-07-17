@@ -40,7 +40,6 @@ internal readonly record struct CaptureModeRequest(CaptureModeKind Kind, RectInt
 
 internal sealed class CaptureOverlayWindow : Window
 {
-    private const double SelectionHandleSize = 8;
     private const double SelectionHandleHitTolerance = 7;
     private const double MinimumAdjustedSelectionSize = 8;
     private readonly CapturedScreen _screen;
@@ -125,7 +124,7 @@ internal sealed class CaptureOverlayWindow : Window
         _selection = new Rectangle
         {
             Stroke = new SolidColorBrush(CaptureFramePalette.Screenshot),
-            StrokeThickness = 2,
+            StrokeThickness = CaptureSelectionVisualStyle.StrokeThickness,
             Visibility = Visibility.Collapsed
         };
         _canvas.Children.Add(_topShade);
@@ -338,13 +337,13 @@ internal sealed class CaptureOverlayWindow : Window
 
     private static Rectangle CreateSelectionHandle() => new()
     {
-        Width = SelectionHandleSize,
-        Height = SelectionHandleSize,
+        Width = CaptureSelectionVisualStyle.HandleSize,
+        Height = CaptureSelectionVisualStyle.HandleSize,
         Fill = new SolidColorBrush(Colors.White),
         Stroke = new SolidColorBrush(CaptureFramePalette.Screenshot),
-        StrokeThickness = 1.5,
-        RadiusX = 1,
-        RadiusY = 1,
+        StrokeThickness = CaptureSelectionVisualStyle.HandleStrokeThickness,
+        RadiusX = CaptureSelectionVisualStyle.HandleCornerRadius,
+        RadiusY = CaptureSelectionVisualStyle.HandleCornerRadius,
         IsHitTestVisible = false,
         Visibility = Visibility.Collapsed
     };
@@ -544,8 +543,8 @@ internal sealed class CaptureOverlayWindow : Window
     {
         var visual = _selectionHandles[handle];
         visual.Visibility = Visibility.Visible;
-        Canvas.SetLeft(visual, centerX - (SelectionHandleSize / 2));
-        Canvas.SetTop(visual, centerY - (SelectionHandleSize / 2));
+        Canvas.SetLeft(visual, centerX - (CaptureSelectionVisualStyle.HandleSize / 2));
+        Canvas.SetTop(visual, centerY - (CaptureSelectionVisualStyle.HandleSize / 2));
     }
 
     private void HideSelectionHandles()

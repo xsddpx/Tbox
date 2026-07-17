@@ -28,7 +28,15 @@ public static class OcrLineNumberPolicy
         var starts = new List<int> { 0 };
         for (var index = 0; index < text.Length; index++)
         {
-            if (text[index] == '\n') starts.Add(index + 1);
+            if (text[index] == '\r')
+            {
+                if (index + 1 < text.Length && text[index + 1] == '\n') index++;
+                starts.Add(index + 1);
+            }
+            else if (text[index] == '\n')
+            {
+                starts.Add(index + 1);
+            }
         }
         return starts;
     }

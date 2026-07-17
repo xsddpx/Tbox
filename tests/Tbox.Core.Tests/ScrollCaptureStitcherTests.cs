@@ -199,6 +199,46 @@ public sealed class ScrollCaptureStitcherTests
         Assert.False(ScrollCaptureStitcher.AreFramesVisuallyStable(first, broadMovement));
     }
 
+    [Fact]
+    public void MovingPointerAcrossStaticContentDoesNotGrowOutput()
+    {
+        const int width = 320;
+        const int height = 200;
+        var first = CreateSolidFrame(width, height, 245);
+        var second = (byte[])first.Clone();
+        PaintPointer(first, width, 70, 80);
+        PaintPointer(second, width, 220, 110);
+        var stitcher = new ScrollCaptureStitcher(width, height);
+        stitcher.AddFrame(first);
+
+        var result = stitcher.AddFrame(second);
+
+        Assert.Equal(ScrollCaptureFrameDecision.Duplicate, result.Decision);
+        Assert.Equal(0, result.AddedRows);
+        Assert.Equal(height, stitcher.Height);
+        Assert.Equal(first, stitcher.Complete());
+    }
+
+    [Fact]
+    public void MovingHoverBetweenFileRowsDoesNotGrowOutput()
+    {
+        const int width = 320;
+        const int height = 200;
+        var first = CreateSolidFrame(width, height, 248);
+        var second = (byte[])first.Clone();
+        PaintBlock(first, width, 0, 40, width, 24, 224);
+        PaintBlock(second, width, 0, 104, width, 24, 224);
+        var stitcher = new ScrollCaptureStitcher(width, height);
+        stitcher.AddFrame(first);
+
+        var result = stitcher.AddFrame(second);
+
+        Assert.Equal(ScrollCaptureFrameDecision.Duplicate, result.Decision);
+        Assert.Equal(0, result.AddedRows);
+        Assert.Equal(height, stitcher.Height);
+        Assert.Equal(first, stitcher.Complete());
+    }
+
     private static byte[] CreateDocument(int width, int height)
     {
         var pixels = new byte[width * height * 4];
@@ -274,6 +314,21 @@ public sealed class ScrollCaptureStitcherTests
             frame[index] = value;
             frame[index + 1] = value;
             frame[index + 2] = value;
+        }
+    }
+
+    private static void PaintPointer(byte[] frame, int width, int left, int top)
+    {
+        for (var y = 0; y < 24; y++)
+        {
+            var rowWidth = Math.Max(2, 12 - (y / 2));
+            for (var x = 0; x < rowWidth; x++)
+            {
+                var index = ((top + y) * width + left + x) * 4;
+                frame[index] = 20;
+                frame[index + 1] = 20;
+                frame[index + 2] = 20;
+            }
         }
     }
 

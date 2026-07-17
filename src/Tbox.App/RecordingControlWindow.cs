@@ -2,10 +2,12 @@ using System.Diagnostics;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Tbox.Core;
 using Windows.Graphics;
 using Windows.System;
@@ -26,6 +28,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
     private readonly CaptureRegionFrame _frame;
     private readonly RecordingWorkspace _workspace;
     private readonly AppWindow _appWindow;
+    private readonly IntPtr _windowHandle;
     private readonly Border _root;
     private readonly TextBlock _timeText;
     private readonly TextBlock _statusText;
@@ -52,14 +55,33 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         Title = "Tbox 区域录屏";
 
         _timeText = Label("00:00");
-        _timeText.FontSize = 17;
+        _timeText.FontSize = TboxUi.BodyFontSize;
+        _timeText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        var timeMetric = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        timeMetric.Children.Add(new Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = TboxUi.Brush(TboxUi.RecordingModeColor),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        timeMetric.Children.Add(_timeText);
         _frameRateButton = new Button
         {
             Content = $"{_selectedFrameRate} FPS",
-            Height = 32,
+            Height = TboxUi.StandardControlHeight,
             MinWidth = 72,
+            Padding = new Thickness(8, 0, 8, 0),
+            CornerRadius = new CornerRadius(TboxUi.ControlCornerRadius),
             Flyout = CreateFrameRateFlyout()
         };
+        TboxUi.ApplyTaskButtonVisual(_frameRateButton, false);
+        AutomationProperties.SetName(_frameRateButton, "选择录制帧率");
         ToolTipService.SetToolTip(_frameRateButton, "选择录制帧率；默认 10 FPS");
         _startButton = IconButton("●", "开始录制");
         _startButton.Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 59, 48));
@@ -73,47 +95,56 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         _pauseButton.Click += (_, _) => TogglePause();
         _audioButton = new ToggleButton
         {
-            Content = "声音关",
-            Height = 32,
-            MinWidth = 72,
-            IsChecked = false
+            Content = new FontIcon { Glyph = "\uE767", FontSize = 16 },
+            Width = TboxUi.TaskButtonWidth,
+            Height = TboxUi.TaskButtonHeight,
+            IsChecked = false,
+            Padding = new Thickness(0),
+            CornerRadius = new CornerRadius(4)
         };
-        ToolTipService.SetToolTip(_audioButton, "录制系统播放声音；默认关闭");
-        _audioButton.Checked += (_, _) => _audioButton.Content = "声音开";
-        _audioButton.Unchecked += (_, _) => _audioButton.Content = "声音关";
+        TboxUi.ApplyTaskToggleVisual(_audioButton, false);
+        UpdateAudioAccessibility(false);
+        _audioButton.Checked += (_, _) =>
+        {
+            TboxUi.ApplyTaskToggleVisual(_audioButton, true);
+            UpdateAudioAccessibility(true);
+        };
+        _audioButton.Unchecked += (_, _) =>
+        {
+            TboxUi.ApplyTaskToggleVisual(_audioButton, false);
+            UpdateAudioAccessibility(false);
+        };
         _cancelButton = IconButton("×", "取消录屏");
         _cancelButton.Click += async (_, _) => await CancelAsync();
-        _statusText = Label("点击红色圆点开始");
-        _statusText.MinWidth = 120;
+        _statusText = Label("就绪");
+        _statusText.MaxWidth = 144;
+        _statusText.FontSize = TboxUi.CaptionFontSize;
+        _statusText.Foreground = TboxUi.Brush(Color.FromArgb(255, 224, 224, 224));
+        _statusText.TextTrimming = TextTrimming.CharacterEllipsis;
 
         var tools = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 7,
-            Padding = new Thickness(10, 8, 10, 8)
+            Spacing = 2
         };
-        tools.Children.Add(_timeText);
+        tools.Children.Add(timeMetric);
         tools.Children.Add(_frameRateButton);
+        tools.Children.Add(Separator());
         tools.Children.Add(_startButton);
         tools.Children.Add(_stopButton);
         tools.Children.Add(_pauseButton);
+        tools.Children.Add(Separator());
         tools.Children.Add(_audioButton);
         tools.Children.Add(_statusText);
+        tools.Children.Add(Separator());
         tools.Children.Add(_cancelButton);
-        _root = new Border
-        {
-            Background = new SolidColorBrush(Color.FromArgb(248, 32, 32, 32)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 112, 112, 112)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(7),
-            Child = tools
-        };
+        _root = TboxUi.CreateTaskSurface(tools);
         Content = _root;
 
-        var hwnd = WindowNative.GetWindowHandle(this);
-        NativeMethods.DisableWindowTransitions(hwnd);
-        NativeMethods.ExcludeWindowFromCapture(hwnd);
-        _appWindow = AppWindow.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(hwnd));
+        _windowHandle = WindowNative.GetWindowHandle(this);
+        NativeMethods.DisableWindowTransitions(_windowHandle);
+        NativeMethods.ExcludeWindowFromCapture(_windowHandle);
+        _appWindow = AppWindow.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(_windowHandle));
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.SetBorderAndTitleBar(false, false);
@@ -123,7 +154,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
             presenter.IsMinimizable = false;
         }
         _appWindow.IsShownInSwitchers = false;
-        CaptureModeWindowPlacement.PrepareOnTargetDisplay(hwnd, region);
+        CaptureModeWindowPlacement.PrepareOnTargetDisplay(_windowHandle, region);
 
         _frame = new CaptureRegionFrame(region, CaptureFramePalette.Recording);
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
@@ -156,10 +187,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
     {
         _frame.Show();
         _appWindow.Show(activateWindow: true);
-        CaptureModeWindowPlacement.PositionAdjacent(
-            WindowNative.GetWindowHandle(this),
-            _root,
-            _region);
+        RefreshPlacement();
     }
 
     private async Task StartRecordingAsync()
@@ -212,6 +240,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         }
         _elapsed.Restart();
         _timer.Start();
+        QueuePlacementRefresh();
     }
 
     private void SetStartingState()
@@ -221,6 +250,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         _audioButton.IsEnabled = false;
         _frameRateButton.IsEnabled = false;
         _cancelButton.IsEnabled = false;
+        QueuePlacementRefresh();
     }
 
     private void FailStart(Exception exception)
@@ -235,6 +265,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         _audioButton.IsEnabled = true;
         _frameRateButton.IsEnabled = true;
         _cancelButton.IsEnabled = true;
+        QueuePlacementRefresh();
     }
 
     private void TogglePause()
@@ -249,6 +280,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
                 _state = RecordingSessionState.Paused;
                 _pauseButton.Content = "▶";
                 ToolTipService.SetToolTip(_pauseButton, "继续录制");
+                AutomationProperties.SetName(_pauseButton, "继续录制");
                 _statusText.Text = "已暂停";
             }
             else if (_state == RecordingSessionState.Paused)
@@ -258,8 +290,10 @@ internal sealed class RecordingControlWindow : Window, IDisposable
                 _state = RecordingSessionState.Recording;
                 _pauseButton.Content = "Ⅱ";
                 ToolTipService.SetToolTip(_pauseButton, "暂停录制");
+                AutomationProperties.SetName(_pauseButton, "暂停录制");
                 _statusText.Text = "录制中";
             }
+            QueuePlacementRefresh();
         }
         catch (Exception exception)
         {
@@ -278,6 +312,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         _pauseButton.IsEnabled = false;
         _cancelButton.IsEnabled = false;
         _statusText.Text = "正在完成录制…";
+        QueuePlacementRefresh();
         try
         {
             var path = await _recorder.StopAsync();
@@ -299,6 +334,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
             _state = RecordingSessionState.Failed;
             _statusText.Text = "录制未能完成，请取消后重试";
             _cancelButton.IsEnabled = true;
+            QueuePlacementRefresh();
         }
     }
 
@@ -336,8 +372,30 @@ internal sealed class RecordingControlWindow : Window, IDisposable
     {
         Text = text,
         Foreground = new SolidColorBrush(Colors.White),
+        FontSize = TboxUi.BodyFontSize,
         VerticalAlignment = VerticalAlignment.Center
     };
+
+    private void UpdateAudioAccessibility(bool enabled)
+    {
+        var name = enabled ? "录制系统声音（已开启）" : "录制系统声音（已关闭）";
+        AutomationProperties.SetName(_audioButton, name);
+        ToolTipService.SetToolTip(_audioButton, name);
+    }
+
+    private void QueuePlacementRefresh()
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!_completed && !_disposed) RefreshPlacement();
+        });
+    }
+
+    private void RefreshPlacement()
+    {
+        _root.UpdateLayout();
+        CaptureModeWindowPlacement.PositionAdjacent(_windowHandle, _root, _region);
+    }
 
     private MenuFlyout CreateFrameRateFlyout()
     {
@@ -364,13 +422,25 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         var button = new Button
         {
             Content = content,
-            Width = 34,
-            Height = 32,
-            Padding = new Thickness(0)
+            Width = TboxUi.TaskButtonWidth,
+            Height = TboxUi.TaskButtonHeight,
+            Padding = new Thickness(0),
+            CornerRadius = new CornerRadius(4),
+            Foreground = TboxUi.Brush(Colors.White)
         };
+        TboxUi.ApplyTaskButtonVisual(button, false);
+        AutomationProperties.SetName(button, tooltip);
         ToolTipService.SetToolTip(button, tooltip);
         return button;
     }
+
+    private static Border Separator() => new()
+    {
+        Width = 1,
+        Height = 22,
+        Margin = new Thickness(4),
+        Background = TboxUi.Brush(TboxUi.TaskDividerColor)
+    };
 
     private static string FormatDuration(TimeSpan duration) => duration.TotalHours >= 1
         ? duration.ToString(@"hh\:mm\:ss")

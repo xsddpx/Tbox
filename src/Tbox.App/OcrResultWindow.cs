@@ -82,6 +82,7 @@ internal sealed class OcrResultWindow : Window
     private CancellationTokenSource? _recognitionCancellation;
     private CapturedScreen? _screen;
     private ScrollViewer? _editorScrollViewer;
+    private bool _lineNumberUpdateQueued;
     private bool _isRecognizing;
     private bool _isClosed;
 
@@ -92,25 +93,27 @@ internal sealed class OcrResultWindow : Window
         _recognitionService = recognitionService;
         Title = "Tbox 文字识别";
 
-        var dark = Application.Current.RequestedTheme == ApplicationTheme.Dark;
-        var background = dark ? Color.FromArgb(255, 32, 32, 32) : Color.FromArgb(255, 247, 245, 242);
-        var card = dark ? Color.FromArgb(255, 42, 42, 42) : Colors.White;
-        var border = dark ? Color.FromArgb(255, 72, 72, 72) : Color.FromArgb(255, 210, 205, 199);
-        var subtle = dark ? Color.FromArgb(255, 194, 194, 194) : Color.FromArgb(255, 98, 94, 90);
+        var palette = TboxUi.Palette;
+        var dark = palette.IsDark;
+        var background = palette.Background;
+        var card = palette.SurfacePrimary;
+        var border = palette.BorderDefault;
+        var subtle = palette.TextSecondary;
 
         _root = new Grid
         {
+            RequestedTheme = TboxUi.RequestedTheme,
             Background = new SolidColorBrush(background),
             RowDefinitions =
             {
-                new RowDefinition { Height = new GridLength(44) },
+                new RowDefinition { Height = new GridLength(52) },
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
             }
         };
 
         var titleBar = new Grid
         {
-            Height = 44,
+            Height = 52,
             Padding = new Thickness(8, 0, 140, 0),
             Background = new SolidColorBrush(background),
             ColumnDefinitions =
@@ -126,10 +129,10 @@ internal sealed class OcrResultWindow : Window
         var title = new TextBlock
         {
             Text = "文字识别",
-            Margin = new Thickness(10, 0, 0, 0),
+            Margin = new Thickness(12, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            FontSize = 13
+            FontSize = TboxUi.SectionTitleFontSize
         };
         Grid.SetColumn(title, 1);
         titleBar.Children.Add(title);
@@ -137,11 +140,11 @@ internal sealed class OcrResultWindow : Window
 
         var body = new Grid
         {
-            Padding = new Thickness(10, 4, 10, 10),
+            Padding = new Thickness(12, 4, 12, 12),
             RowDefinitions =
             {
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
-                new RowDefinition { Height = new GridLength(44) }
+                new RowDefinition { Height = new GridLength(48) }
             }
         };
         Grid.SetRow(body, 1);
@@ -166,7 +169,7 @@ internal sealed class OcrResultWindow : Window
             BorderBrush = new SolidColorBrush(border),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(6)
+            Padding = new Thickness(8)
         };
         _contentGrid.Children.Add(previewBorder);
 
@@ -192,9 +195,7 @@ internal sealed class OcrResultWindow : Window
         editorBorder.Child = editorGrid;
         var gutter = new Border
         {
-            Background = new SolidColorBrush(dark
-                ? Color.FromArgb(255, 36, 36, 36)
-                : Color.FromArgb(255, 248, 247, 245)),
+            Background = new SolidColorBrush(palette.SurfaceSecondary),
             BorderBrush = new SolidColorBrush(border),
             BorderThickness = new Thickness(0, 0, 1, 0),
             Padding = new Thickness(0)
@@ -208,8 +209,8 @@ internal sealed class OcrResultWindow : Window
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             IsSpellCheckEnabled = true,
-            FontSize = 18,
-            Padding = new Thickness(10, 8, 10, 8),
+            FontSize = TboxUi.BodyFontSize,
+            Padding = new Thickness(12, 8, 12, 8),
             Background = new SolidColorBrush(Colors.Transparent),
             BorderThickness = new Thickness(0),
             IsEnabled = false
@@ -220,7 +221,7 @@ internal sealed class OcrResultWindow : Window
         Grid.SetColumn(_editor, 1);
         editorGrid.Children.Add(_editor);
         _editor.TextChanged += OnEditorTextChanged;
-        _editor.SizeChanged += (_, _) => UpdateLineNumbers();
+        _editor.SizeChanged += (_, _) => ScheduleLineNumberUpdate();
         _editor.Loaded += (_, _) => AttachEditorScrollViewer();
 
         var bottomBar = new Grid
@@ -249,6 +250,7 @@ internal sealed class OcrResultWindow : Window
             Visibility = Visibility.Collapsed,
             VerticalAlignment = VerticalAlignment.Center
         };
+        TboxUi.StyleStandardButton(_retryButton, "重新识别当前原图");
         AutomationProperties.SetName(_retryButton, "重新识别");
         ToolTipService.SetToolTip(_retryButton, "重新识别当前原图");
         _retryButton.Click += (_, _) => RetryRecognition();
@@ -267,7 +269,7 @@ internal sealed class OcrResultWindow : Window
         {
             Text = "等待识别",
             Foreground = new SolidColorBrush(subtle),
-            FontSize = 12,
+            FontSize = TboxUi.CaptionFontSize,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxWidth = 430,
             VerticalAlignment = VerticalAlignment.Center
@@ -282,7 +284,7 @@ internal sealed class OcrResultWindow : Window
             Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 7,
+                Spacing = 8,
                 Children =
                 {
                     new FontIcon { Glyph = "\uE8C8", FontSize = 15 },
@@ -292,6 +294,7 @@ internal sealed class OcrResultWindow : Window
             IsEnabled = false,
             VerticalAlignment = VerticalAlignment.Center
         };
+        TboxUi.StyleStandardButton(_copyButton, "复制编辑器中的全部文字", primary: true);
         AutomationProperties.SetName(_copyButton, "复制全部文字");
         ToolTipService.SetToolTip(_copyButton, "复制编辑器中的全部文字");
         _copyButton.Click += (_, _) => CopyAllText();
@@ -312,7 +315,7 @@ internal sealed class OcrResultWindow : Window
             presenter.IsMinimizable = true;
             presenter.SetBorderAndTitleBar(true, true);
         }
-        ConfigureTitleBar(dark);
+        TboxUi.ConfigureTitleBar(_appWindow, dark);
         PlaceNearSource(sourceBounds);
 
         var copyAccelerator = new Microsoft.UI.Xaml.Input.KeyboardAccelerator
@@ -369,7 +372,7 @@ internal sealed class OcrResultWindow : Window
         _progressRing.Visibility = Visibility.Visible;
         _statusText.Text = "识别中…";
         SetEditorText(string.Empty);
-        UpdateLineNumbers();
+        ScheduleLineNumberUpdate();
 
         try
         {
@@ -411,7 +414,7 @@ internal sealed class OcrResultWindow : Window
                 _isRecognizing = false;
                 _progressRing.IsActive = false;
                 _progressRing.Visibility = Visibility.Collapsed;
-                UpdateLineNumbers();
+                ScheduleLineNumberUpdate();
             }
         }
     }
@@ -447,7 +450,7 @@ internal sealed class OcrResultWindow : Window
     private void OnEditorTextChanged(object sender, TextChangedEventArgs e)
     {
         _copyButton.IsEnabled = _editor.Text.Length > 0;
-        UpdateLineNumbers();
+        ScheduleLineNumberUpdate();
     }
 
     private void AttachEditorScrollViewer()
@@ -455,9 +458,22 @@ internal sealed class OcrResultWindow : Window
         _editorScrollViewer = FindDescendant<ScrollViewer>(_editor);
         if (_editorScrollViewer is not null)
         {
-            _editorScrollViewer.ViewChanged += (_, _) => UpdateLineNumbers();
+            _editorScrollViewer.ViewChanged += (_, _) => ScheduleLineNumberUpdate();
         }
-        UpdateLineNumbers();
+        ScheduleLineNumberUpdate();
+    }
+
+    private void ScheduleLineNumberUpdate()
+    {
+        if (_lineNumberUpdateQueued) return;
+        _lineNumberUpdateQueued = true;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            _lineNumberUpdateQueued = false;
+            if (_isClosed) return;
+            _editor.UpdateLayout();
+            UpdateLineNumbers();
+        });
     }
 
     private void UpdateLineNumbers()
@@ -474,7 +490,7 @@ internal sealed class OcrResultWindow : Window
                 Text = (lineIndex + 1).ToString(),
                 Width = 38,
                 TextAlignment = TextAlignment.Right,
-                FontSize = 15,
+                FontSize = TboxUi.CaptionFontSize,
                 Opacity = 0.42,
                 IsHitTestVisible = false
             };
@@ -542,24 +558,17 @@ internal sealed class OcrResultWindow : Window
         }
     }
 
-    private void ConfigureTitleBar(bool dark)
-    {
-        if (_appWindow.TitleBar is not { } titleBar) return;
-        titleBar.ButtonBackgroundColor = Colors.Transparent;
-        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
-        titleBar.ButtonForegroundColor = dark ? Colors.White : Colors.Black;
-        titleBar.ButtonInactiveForegroundColor = dark ? Colors.White : Colors.Black;
-    }
-
     private static ToggleButton CreateTitleToggle(string glyph, string toolTip)
     {
         var button = new ToggleButton
         {
-            Width = 34,
-            Height = 32,
+            RequestedTheme = TboxUi.RequestedTheme,
+            Width = TboxUi.TaskButtonWidth,
+            Height = TboxUi.StandardControlHeight,
             Padding = new Thickness(0),
             Background = new SolidColorBrush(Colors.Transparent),
             BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(4),
             Content = new FontIcon { Glyph = glyph, FontSize = 16 },
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -572,16 +581,20 @@ internal sealed class OcrResultWindow : Window
     {
         var button = new ToggleButton
         {
+            RequestedTheme = TboxUi.RequestedTheme,
             Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                Spacing = 7,
+                Spacing = 8,
                 Children =
                 {
                     new FontIcon { Glyph = glyph, FontSize = 15 },
                     new TextBlock { Text = text }
                 }
             },
+            MinHeight = TboxUi.StandardControlHeight,
+            FontSize = TboxUi.BodyFontSize,
+            CornerRadius = new CornerRadius(TboxUi.ControlCornerRadius),
             VerticalAlignment = VerticalAlignment.Center
         };
         AutomationProperties.SetName(button, toolTip);

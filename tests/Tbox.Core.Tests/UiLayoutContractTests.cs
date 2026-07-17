@@ -6,7 +6,7 @@ namespace Tbox.Core.Tests;
 public sealed class UiLayoutContractTests
 {
     [Fact]
-    public void SettingsPagesDisableHorizontalScrollingAndCenterTheirContent()
+    public void SettingsPagesDisableHorizontalScrollingAndBindToTheViewportWidth()
     {
         var document = XDocument.Load(RepositoryFile("src", "Tbox.App", "MainWindow.xaml"));
         var xaml = XNamespace.Get("http://schemas.microsoft.com/winfx/2006/xaml");
@@ -20,12 +20,15 @@ public sealed class UiLayoutContractTests
             Assert.Equal("Stretch", (string?)panel.Attribute("HorizontalContentAlignment"));
             Assert.Equal("Disabled", (string?)panel.Attribute("HorizontalScrollMode"));
             Assert.Equal("Disabled", (string?)panel.Attribute("HorizontalScrollBarVisibility"));
-            Assert.Equal("Center", (string?)panel.Elements().Single().Attribute("HorizontalAlignment"));
+            var content = panel.Elements().Single();
+            Assert.Equal("Center", (string?)content.Attribute("HorizontalAlignment"));
+            Assert.Equal("1120", (string?)content.Attribute("MaxWidth"));
+            Assert.Contains("ViewportWidth", (string?)content.Attribute("Width"), StringComparison.Ordinal);
         }
     }
 
     [Fact]
-    public void DisplayModeHandlerDoesNotForcePaneStateDuringNavigationTransition()
+    public void DisplayModeHandlerRestoresTheRequiredFixedPaneAtWideWidths()
     {
         var source = File.ReadAllText(RepositoryFile("src", "Tbox.App", "MainWindow.xaml.cs"));
         var handlerStart = source.IndexOf("private void OnNavigationDisplayModeChanged", StringComparison.Ordinal);
@@ -33,7 +36,9 @@ public sealed class UiLayoutContractTests
 
         Assert.True(handlerStart >= 0 && nextHandler > handlerStart);
         var handler = source[handlerStart..nextHandler];
-        Assert.DoesNotContain("IsPaneOpen", handler, StringComparison.Ordinal);
+        Assert.Contains("args.DisplayMode == NavigationViewDisplayMode.Expanded", handler, StringComparison.Ordinal);
+        Assert.Contains("RootNavigation.IsPaneOpen = true", handler, StringComparison.Ordinal);
+        Assert.DoesNotContain("RootNavigation.IsPaneOpen = false", handler, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -92,8 +97,11 @@ public sealed class UiLayoutContractTests
         var toolbar = File.ReadAllText(RepositoryFile("src", "Tbox.App", "AnnotationToolbar.cs"));
 
         Assert.Contains("new MenuFlyoutItem { Text = \"显示工具条\" }", source, StringComparison.Ordinal);
+        Assert.Contains("new MenuFlyoutItem { Text = \"恢复完整贴图\" }", source, StringComparison.Ordinal);
         Assert.Contains("new MenuFlyoutItem { Text = \"文字识别\" }", source, StringComparison.Ordinal);
-        Assert.Contains("_recognizeText(_screen, CurrentBounds())", source, StringComparison.Ordinal);
+        Assert.Contains("RecognizeVisibleText", source, StringComparison.Ordinal);
+        Assert.Contains("PinCropPolicy.TryCreate", source, StringComparison.Ordinal);
+        Assert.Contains("_screen.Crop(", source, StringComparison.Ordinal);
         Assert.Contains("VirtualKey.Space", source, StringComparison.Ordinal);
         Assert.Contains("new AnnotationToolbar(", source, StringComparison.Ordinal);
         Assert.Contains("PinnedAnnotationToolbarWindow", source, StringComparison.Ordinal);
@@ -180,12 +188,21 @@ public sealed class UiLayoutContractTests
         Assert.Contains("RecordingFrameRatePolicy.DefaultFrameRate", recordingControl, StringComparison.Ordinal);
 
         var longCapture = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureWindow.cs"));
-        Assert.Contains("完成并预览", longCapture, StringComparison.Ordinal);
         Assert.Contains("缓慢向上或向下滚动", longCapture, StringComparison.Ordinal);
         Assert.Contains("LongCaptureCompletionAction.Copy", longCapture, StringComparison.Ordinal);
         Assert.Contains("LongCaptureCompletionAction.Pin", longCapture, StringComparison.Ordinal);
         Assert.Contains("LongCaptureCompletionAction.Save", longCapture, StringComparison.Ordinal);
         Assert.Contains("LongCaptureCompletionAction.Fullscreen", longCapture, StringComparison.Ordinal);
+        Assert.Contains("AnnotationToolbar.CreateToolbarRoot(Visibility.Visible)", longCapture, StringComparison.Ordinal);
+        Assert.Contains("AnnotationToolbar.CreateButton", longCapture, StringComparison.Ordinal);
+        Assert.Contains("AnnotationToolbar.CreateSeparator()", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("立即贴图并打开截图工具栏", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("PinAndOpenToolbar", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"\\uE70F\"", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text = \"⠿\"", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("new ComboBox", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("查看长截图状态与操作说明", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"✂\"", longCapture, StringComparison.Ordinal);
         Assert.Contains("ScrollBarVisibility.Disabled", longCapture, StringComparison.Ordinal);
         Assert.DoesNotContain("ToggleAutoScroll", longCapture, StringComparison.Ordinal);
         Assert.DoesNotContain("SendMouseWheel", longCapture, StringComparison.Ordinal);
@@ -200,12 +217,23 @@ public sealed class UiLayoutContractTests
         var overlay = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureOverlayWindow.cs"));
         var longCapture = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureWindow.cs"));
         var recording = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingControlWindow.cs"));
+        var native = File.ReadAllText(RepositoryFile("src", "Tbox.App", "NativeMethods.cs"));
 
         Assert.Contains("Screenshot = Color.FromArgb(255, 0, 120, 212)", frame, StringComparison.Ordinal);
         Assert.Contains("LongCapture = Color.FromArgb(255, 255, 204, 0)", frame, StringComparison.Ordinal);
         Assert.Contains("Recording = Color.FromArgb(255, 255, 59, 48)", frame, StringComparison.Ordinal);
         Assert.Contains("var centers = new[]", frame, StringComparison.Ordinal);
-        Assert.Contains("BorderThickness = isHandle ? new Thickness(1.5)", frame, StringComparison.Ordinal);
+        Assert.Contains("private readonly Grid _root", frame, StringComparison.Ordinal);
+        Assert.Contains("private readonly Rectangle? _handleVisual", frame, StringComparison.Ordinal);
+        Assert.Contains("Background = new SolidColorBrush(isHandle ? Colors.White : color)", frame, StringComparison.Ordinal);
+        Assert.Contains("CaptureSelectionVisualStyle.HandleStrokeThickness", frame, StringComparison.Ordinal);
+        Assert.Contains("CaptureSelectionVisualStyle.HandleStrokeThickness", overlay, StringComparison.Ordinal);
+        Assert.Contains("NativeMethods.RemoveWindowBorderAndRounding(hwnd)", frame, StringComparison.Ordinal);
+        Assert.Contains("DwmwaWindowCornerPreference = 33", native, StringComparison.Ordinal);
+        Assert.Contains("DwmwaBorderColor = 34", native, StringComparison.Ordinal);
+        Assert.Contains("GwlStyle = -16", native, StringComparison.Ordinal);
+        Assert.Contains("WsCaption = 0x00C00000L", native, StringComparison.Ordinal);
+        Assert.Contains("SwpFramechanged = 0x0020", native, StringComparison.Ordinal);
         Assert.Contains("CaptureFramePalette.Screenshot", overlay, StringComparison.Ordinal);
         Assert.Contains("CaptureFramePalette.LongCapture", longCapture, StringComparison.Ordinal);
         Assert.Contains("CaptureFramePalette.Recording", recording, StringComparison.Ordinal);
@@ -226,7 +254,9 @@ public sealed class UiLayoutContractTests
         Assert.DoesNotContain("SendMouseWheel", longCapture, StringComparison.Ordinal);
         Assert.Contains("实时预览", preview, StringComparison.Ordinal);
         Assert.Contains("_viewportMarker", preview, StringComparison.Ordinal);
-        Assert.Contains("CaptureFramePalette.LongCapture", preview, StringComparison.Ordinal);
+        Assert.DoesNotContain("CaptureFramePalette.LongCapture", preview, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.CreateTaskSurface", preview, StringComparison.Ordinal);
+        Assert.DoesNotContain("CaptureFramePalette.LongCapture", preview, StringComparison.Ordinal);
         Assert.Contains("PositionSidePreview", placement, StringComparison.Ordinal);
     }
 
@@ -253,7 +283,7 @@ public sealed class UiLayoutContractTests
         Assert.Contains("PrepareOnTargetDisplay", placement, StringComparison.Ordinal);
         Assert.Contains("GetDpiForWindow(hwnd)", placement, StringComparison.Ordinal);
         Assert.Contains("PrepareOnTargetDisplay(_windowHandle, region)", longCapture, StringComparison.Ordinal);
-        Assert.Contains("PrepareOnTargetDisplay(hwnd, region)", recording, StringComparison.Ordinal);
+        Assert.Contains("PrepareOnTargetDisplay(_windowHandle, region)", recording, StringComparison.Ordinal);
 
         var longStart = longCapture.IndexOf("internal async Task StartAsync", StringComparison.Ordinal);
         var longShow = longCapture.IndexOf("_appWindow.Show", longStart, StringComparison.Ordinal);
@@ -302,6 +332,101 @@ public sealed class UiLayoutContractTests
         Assert.Contains("DecodePixelHeight = decodeHeight", capturedScreen, StringComparison.Ordinal);
         Assert.Contains("OcrEngine.TryCreateFromUserProfileLanguages()", service, StringComparison.Ordinal);
         Assert.Contains("OcrEngine.MaxImageDimension", service, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnifiedUiPrototypeUsesApprovedTokensAndCoversPrimarySurfaces()
+    {
+        var styles = File.ReadAllText(RepositoryFile("docs", "ui-prototypes", "styles.css"));
+        var prototype = File.ReadAllText(RepositoryFile("docs", "ui-prototypes", "prototype.js"));
+        var specification = File.ReadAllText(RepositoryFile("docs", "ui-design-system.md"));
+
+        Assert.Contains("--type-page-title: 28px", styles, StringComparison.Ordinal);
+        Assert.Contains("--type-section-title: 16px", styles, StringComparison.Ordinal);
+        Assert.Contains("--type-body: 14px", styles, StringComparison.Ordinal);
+        Assert.Contains("--type-caption: 12px", styles, StringComparison.Ordinal);
+        Assert.Contains("@media (max-width: 1080px)", styles, StringComparison.Ordinal);
+        Assert.Contains("@media (max-width: 720px)", styles, StringComparison.Ordinal);
+        Assert.Contains(".task-toolbar", styles, StringComparison.Ordinal);
+        Assert.Contains("designSystemShowcase", prototype, StringComparison.Ordinal);
+        Assert.Contains("captureToolbar", prototype, StringComparison.Ordinal);
+        Assert.Contains("longCaptureToolbar", prototype, StringComparison.Ordinal);
+        Assert.Contains("recordingToolbar", prototype, StringComparison.Ordinal);
+        Assert.Contains("ocrSample", prototype, StringComparison.Ordinal);
+        Assert.Contains("recordingReviewSample", prototype, StringComparison.Ordinal);
+        Assert.Contains("28 / 36", specification, StringComparison.Ordinal);
+        Assert.Contains("30×32", specification, StringComparison.Ordinal);
+        Assert.Contains("WCAG AA", specification, StringComparison.Ordinal);
+
+        var preview = new FileInfo(RepositoryFile(
+            "docs",
+            "ui-prototypes",
+            "screenshots",
+            "tbox-ui-system-overview.webp"));
+        Assert.True(preview.Exists);
+        Assert.InRange(preview.Length, 1, (250 * 1024) - 1);
+    }
+
+    [Fact]
+    public void WinUiSurfacesUseTheApprovedSharedDesignSystem()
+    {
+        var tokens = File.ReadAllText(RepositoryFile("src", "Tbox.App", "TboxUi.cs"));
+        var resources = File.ReadAllText(RepositoryFile("src", "Tbox.App", "App.xaml"));
+        var settings = File.ReadAllText(RepositoryFile("src", "Tbox.App", "MainWindow.xaml"));
+        var settingsCode = File.ReadAllText(RepositoryFile("src", "Tbox.App", "MainWindow.xaml.cs"));
+        var toolbar = File.ReadAllText(RepositoryFile("src", "Tbox.App", "AnnotationToolbar.cs"));
+        var longControl = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureWindow.cs"));
+        var longPreview = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCapturePreviewWindow.cs"));
+        var longReview = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureReviewWindow.cs"));
+        var recordingControl = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingControlWindow.cs"));
+        var recordingReview = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingReviewWindow.cs"));
+        var ocr = File.ReadAllText(RepositoryFile("src", "Tbox.App", "OcrResultWindow.cs"));
+
+        Assert.Contains("PageTitleFontSize = 28", tokens, StringComparison.Ordinal);
+        Assert.Contains("SectionTitleFontSize = 16", tokens, StringComparison.Ordinal);
+        Assert.Contains("BodyFontSize = 14", tokens, StringComparison.Ordinal);
+        Assert.Contains("CaptionFontSize = 12", tokens, StringComparison.Ordinal);
+        Assert.Contains("TaskButtonWidth = 30", tokens, StringComparison.Ordinal);
+        Assert.Contains("TaskButtonHeight = 32", tokens, StringComparison.Ordinal);
+        Assert.Contains("TaskIconBoxSize = 20", tokens, StringComparison.Ordinal);
+        Assert.Contains("CreateTaskSurface", tokens, StringComparison.Ordinal);
+        Assert.Contains("ApplyTaskButtonVisual", tokens, StringComparison.Ordinal);
+        Assert.Contains("ConfigureTitleBar", tokens, StringComparison.Ordinal);
+
+        Assert.Contains("<Setter Property=\"FontSize\" Value=\"28\"/>", resources, StringComparison.Ordinal);
+        Assert.Contains("<Setter Property=\"FontSize\" Value=\"16\"/>", resources, StringComparison.Ordinal);
+        Assert.Contains("<Setter Property=\"FontSize\" Value=\"14\"/>", resources, StringComparison.Ordinal);
+        Assert.Contains("<Setter Property=\"FontSize\" Value=\"12\"/>", resources, StringComparison.Ordinal);
+        Assert.Contains("CompactModeThresholdWidth=\"1080\"", settings, StringComparison.Ordinal);
+        Assert.Contains("ExpandedModeThresholdWidth=\"1080\"", settings, StringComparison.Ordinal);
+        Assert.Contains("RootGrid.ActualWidth < 720", settingsCode, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.SetThemePreference(theme)", settingsCode, StringComparison.Ordinal);
+        foreach (var offScaleSpacing in new[] { 3, 5, 6, 7, 9, 10, 14, 18, 20, 28 })
+        {
+            Assert.DoesNotContain($"Spacing=\"{offScaleSpacing}\"", settings, StringComparison.Ordinal);
+            Assert.DoesNotContain($"ColumnSpacing=\"{offScaleSpacing}\"", settings, StringComparison.Ordinal);
+            Assert.DoesNotContain($"RowSpacing=\"{offScaleSpacing}\"", settings, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("TboxUi.CreateTaskSurface", toolbar, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.ApplyTaskButtonVisual", toolbar, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.CaptionFontSize", longControl, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.CreateTaskSurface", longPreview, StringComparison.Ordinal);
+        Assert.Contains("RequestedTheme = TboxUi.RequestedTheme", longReview, StringComparison.Ordinal);
+        Assert.Contains("RequestedTheme = TboxUi.RequestedTheme", ocr, StringComparison.Ordinal);
+        Assert.Contains("RequestedTheme = TboxUi.RequestedTheme", recordingReview, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.CreateTaskSurface", recordingControl, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.RecordingModeColor", recordingControl, StringComparison.Ordinal);
+        Assert.Contains("QueuePlacementRefresh()", recordingControl, StringComparison.Ordinal);
+        Assert.Contains("AutomationProperties.SetName(_pauseButton, \"继续录制\")", recordingControl, StringComparison.Ordinal);
+        Assert.Contains("录制系统声音（已开启）", recordingControl, StringComparison.Ordinal);
+        Assert.DoesNotContain("_statusText.MinWidth", recordingControl, StringComparison.Ordinal);
+        Assert.Contains("TboxUi.LongCaptureModeColor", longControl, StringComparison.Ordinal);
+        Assert.Contains("ScheduleLineNumberUpdate", ocr, StringComparison.Ordinal);
+        Assert.Contains("_editor.UpdateLayout()", ocr, StringComparison.Ordinal);
+        Assert.Contains("presenter.SetBorderAndTitleBar(true, true)", recordingReview, StringComparison.Ordinal);
+        Assert.Contains("_appWindow.IsShownInSwitchers = true", recordingReview, StringComparison.Ordinal);
+        Assert.DoesNotContain("BorderThickness = new Thickness(2)", recordingReview, StringComparison.Ordinal);
     }
 
     private static string RepositoryFile(params string[] relativeSegments)

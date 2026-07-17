@@ -23,11 +23,11 @@ internal sealed record AnnotationToolbarActions(
 
 internal sealed class AnnotationToolbar : IDisposable
 {
-    internal const double ButtonWidth = 30;
-    internal const double ButtonHeight = 32;
+    internal const double ButtonWidth = TboxUi.TaskButtonWidth;
+    internal const double ButtonHeight = TboxUi.TaskButtonHeight;
     internal const double SymbolIconSize = 17;
     internal const double FluentIconSize = 14;
-    internal const double IconBoxSize = 20;
+    internal const double IconBoxSize = TboxUi.TaskIconBoxSize;
 
     private readonly CaptureAnnotationController _annotations;
     private readonly Border _view;
@@ -44,17 +44,7 @@ internal sealed class AnnotationToolbar : IDisposable
         Visibility initialVisibility)
     {
         _annotations = annotations;
-        _view = new Border
-        {
-            RequestedTheme = ElementTheme.Dark,
-            Background = new SolidColorBrush(Color.FromArgb(245, 32, 32, 32)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 112, 112, 112)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(4),
-            Visibility = initialVisibility,
-            Margin = new Thickness(0)
-        };
+        _view = CreateToolbarRoot(initialVisibility);
 
         var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         AddToolButton(tools, AnnotationTool.Rectangle, "□", "矩形（Shift：正方形）");
@@ -72,8 +62,8 @@ internal sealed class AnnotationToolbar : IDisposable
         var colors = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 2,
-            Padding = new Thickness(6)
+            Spacing = 4,
+            Padding = new Thickness(8)
         };
         foreach (var choice in new (uint Value, string Name)[]
                  {
@@ -85,7 +75,7 @@ internal sealed class AnnotationToolbar : IDisposable
                      (0xFFFFFFFF, "白色")
                  })
         {
-            var swatch = CreateButton("●", choice.Name, 26, false, 26, 12, 16);
+            var swatch = CreateButton("●", choice.Name, 32, false, 32, 16, 20);
             SetIconColor(swatch, ToColor(choice.Value));
             swatch.Click += (_, _) =>
             {
@@ -189,7 +179,10 @@ internal sealed class AnnotationToolbar : IDisposable
         panel.Children.Add(button);
     }
 
-    private static Button CreateButton(
+    internal static Border CreateToolbarRoot(Visibility visibility) =>
+        TboxUi.CreateTaskSurface(visibility: visibility);
+
+    internal static Button CreateButton(
         string glyph,
         string tooltip,
         double width = ButtonWidth,
@@ -224,7 +217,7 @@ internal sealed class AnnotationToolbar : IDisposable
             Background = new SolidColorBrush(Colors.Transparent),
             BorderBrush = new SolidColorBrush(Colors.Transparent),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
+            CornerRadius = new CornerRadius(4),
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center
         };
@@ -242,19 +235,7 @@ internal sealed class AnnotationToolbar : IDisposable
             return;
         }
 
-        var normal = selected ? Color.FromArgb(255, 0, 120, 212) : Colors.Transparent;
-        var hover = selected ? Color.FromArgb(255, 20, 135, 230) : Color.FromArgb(255, 58, 58, 58);
-        var pressed = selected ? Color.FromArgb(255, 0, 96, 170) : Color.FromArgb(255, 76, 76, 76);
-        var hoverBorder = selected ? Color.FromArgb(255, 96, 180, 240) : Color.FromArgb(255, 105, 105, 105);
-        button.Background = new SolidColorBrush(normal);
-        button.BorderBrush = new SolidColorBrush(Colors.Transparent);
-        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(hover);
-        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(pressed);
-        button.Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(hoverBorder);
-        button.Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(hoverBorder);
-        button.Resources["ButtonBackgroundDisabled"] = new SolidColorBrush(Colors.Transparent);
-        button.Resources["ButtonBorderBrushDisabled"] = new SolidColorBrush(Colors.Transparent);
-        button.Resources["ButtonForegroundDisabled"] = new SolidColorBrush(Color.FromArgb(255, 105, 105, 105));
+        TboxUi.ApplyTaskButtonVisual(button, selected);
     }
 
     private sealed class StableToolbarButton : Button
@@ -268,19 +249,7 @@ internal sealed class AnnotationToolbar : IDisposable
             if (_selected == selected) return;
             _selected = selected;
 
-            var normal = selected ? Color.FromArgb(255, 0, 120, 212) : Colors.Transparent;
-            var hover = selected ? Color.FromArgb(255, 20, 135, 230) : Color.FromArgb(255, 58, 58, 58);
-            var pressed = selected ? Color.FromArgb(255, 0, 96, 170) : Color.FromArgb(255, 76, 76, 76);
-            var hoverBorder = selected ? Color.FromArgb(255, 96, 180, 240) : Color.FromArgb(255, 105, 105, 105);
-            Background = new SolidColorBrush(normal);
-            BorderBrush = new SolidColorBrush(Colors.Transparent);
-            Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(hover);
-            Resources["ButtonBackgroundPressed"] = new SolidColorBrush(pressed);
-            Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(hoverBorder);
-            Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(hoverBorder);
-            Resources["ButtonBackgroundDisabled"] = new SolidColorBrush(Colors.Transparent);
-            Resources["ButtonBorderBrushDisabled"] = new SolidColorBrush(Colors.Transparent);
-            Resources["ButtonForegroundDisabled"] = new SolidColorBrush(Color.FromArgb(255, 105, 105, 105));
+            TboxUi.ApplyTaskButtonVisual(this, selected);
         }
     }
 
@@ -292,12 +261,12 @@ internal sealed class AnnotationToolbar : IDisposable
         }
     }
 
-    private static Border CreateSeparator() => new()
+    internal static Border CreateSeparator() => new()
     {
         Width = 1,
         Height = 22,
-        Margin = new Thickness(3, 5, 3, 5),
-        Background = new SolidColorBrush(Color.FromArgb(255, 90, 90, 90))
+        Margin = new Thickness(4),
+        Background = TboxUi.Brush(TboxUi.TaskDividerColor)
     };
 
     private static Style CreateCompactFlyoutPresenterStyle()

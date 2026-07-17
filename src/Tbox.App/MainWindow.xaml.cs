@@ -212,6 +212,10 @@ public sealed partial class MainWindow : Window
         PaneToggleButton.Visibility = expanded
             ? Visibility.Collapsed
             : Visibility.Visible;
+        if (expanded)
+        {
+            RootNavigation.IsPaneOpen = true;
+        }
     }
 
     private void OnSearchQuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
@@ -245,11 +249,11 @@ public sealed partial class MainWindow : Window
 
     private void UpdateResponsiveLayout(double width)
     {
-        var compactTitle = RootGrid.ActualWidth < 700;
+        var compactTitle = RootGrid.ActualWidth < 720;
         AppTitleBar.ColumnDefinitions[0].Width = new GridLength(compactTitle ? 76 : 240);
         TitleBrandText.Visibility = compactTitle ? Visibility.Collapsed : Visibility.Visible;
 
-        var stackedHome = width < 760;
+        var stackedHome = width < 720;
         HomeMainGrid.ColumnDefinitions[1].Width = stackedHome ? new GridLength(0) : new GridLength(340);
         HomeMainGrid.RowDefinitions[1].Height = stackedHome ? GridLength.Auto : new GridLength(0);
         Grid.SetColumn(HomeUtilitiesCard, stackedHome ? 0 : 1);
@@ -266,7 +270,7 @@ public sealed partial class MainWindow : Window
         QuickActionGrid.ColumnDefinitions[1].Width = stackedActions ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
         QuickActionGrid.ColumnDefinitions[2].Width = stackedActions ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
 
-        var stackedSettings = width < 620;
+        var stackedSettings = width < 720;
         ConfigureAdaptiveRow(VersionRowGrid, CheckUpdateButton, stackedSettings, true);
         ConfigureAdaptiveRow(LanguageRowGrid, LanguageComboBox, stackedSettings, true, 250);
         ConfigureAdaptiveRow(ThemeRowGrid, ThemeComboBox, stackedSettings, true, 250);
@@ -282,7 +286,7 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(control, column);
         Grid.SetRow(control, row);
         control.HorizontalAlignment = HorizontalAlignment.Stretch;
-        control.MinHeight = stacked ? 76 : 108;
+        control.MinHeight = stacked ? 80 : 112;
     }
 
     private static void ConfigureAdaptiveRow(
@@ -469,12 +473,8 @@ public sealed partial class MainWindow : Window
 
     private void ApplyTheme(string theme)
     {
-        var elementTheme = theme.ToLowerInvariant() switch
-        {
-            "light" => ElementTheme.Light,
-            "dark" => ElementTheme.Dark,
-            _ => ElementTheme.Default
-        };
+        TboxUi.SetThemePreference(theme);
+        var elementTheme = TboxUi.RequestedTheme;
         RootGrid.RequestedTheme = elementTheme;
         ConfigureTitleBar(elementTheme);
     }
@@ -494,14 +494,9 @@ public sealed partial class MainWindow : Window
 
     private void ConfigureTitleBar(ElementTheme theme)
     {
-        if (_appWindow?.TitleBar is not { } titleBar) return;
-        titleBar.ButtonBackgroundColor = Colors.Transparent;
-        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
         var dark = theme == ElementTheme.Dark ||
                    theme == ElementTheme.Default && Application.Current.RequestedTheme == ApplicationTheme.Dark;
-        var foreground = dark ? Colors.White : Colors.Black;
-        titleBar.ButtonForegroundColor = foreground;
-        titleBar.ButtonInactiveForegroundColor = foreground;
+        TboxUi.ConfigureTitleBar(_appWindow, dark);
     }
 
     private void OnCheckUpdateClicked(object sender, RoutedEventArgs e)

@@ -32,12 +32,24 @@ internal static partial class NativeMethods
     private const int DwmwaTransitionsForcedisabled = 3;
     private const int DwmwaExtendedFrameBounds = 9;
     private const int DwmwaCloaked = 14;
+    private const int DwmwaWindowCornerPreference = 33;
+    private const int DwmwaBorderColor = 34;
+    private const int DwmwcpDoNotRound = 1;
+    private const int DwmColorNone = unchecked((int)0xFFFFFFFE);
     private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoMove = 0x0002;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const uint SwpFramechanged = 0x0020;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const int GwlpHwndParent = -8;
+    private const int GwlStyle = -16;
     private const int GwlExstyle = -20;
+    private const long WsCaption = 0x00C00000L;
+    private const long WsThickframe = 0x00040000L;
+    private const long WsSysmenu = 0x00080000L;
+    private const long WsMinimizebox = 0x00020000L;
+    private const long WsMaximizebox = 0x00010000L;
     private const long WsExTransparent = 0x00000020L;
     private const long WsExToolwindow = 0x00000080L;
     private const long WsExNoactivate = 0x08000000L;
@@ -62,6 +74,39 @@ internal static partial class NativeMethods
             hwnd,
             DwmwaTransitionsForcedisabled,
             ref disabled,
+            Marshal.SizeOf<int>());
+    }
+
+    internal static void RemoveWindowBorderAndRounding(IntPtr hwnd)
+    {
+        var style = GetWindowLongPtr(hwnd, GwlStyle).ToInt64();
+        var borderlessStyle = style & ~(
+            WsCaption |
+            WsThickframe |
+            WsSysmenu |
+            WsMinimizebox |
+            WsMaximizebox);
+        _ = SetWindowLongPtr(hwnd, GwlStyle, new IntPtr(borderlessStyle));
+        _ = SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFramechanged);
+
+        var cornerPreference = DwmwcpDoNotRound;
+        _ = DwmSetWindowAttribute(
+            hwnd,
+            DwmwaWindowCornerPreference,
+            ref cornerPreference,
+            Marshal.SizeOf<int>());
+        var borderColor = DwmColorNone;
+        _ = DwmSetWindowAttribute(
+            hwnd,
+            DwmwaBorderColor,
+            ref borderColor,
             Marshal.SizeOf<int>());
     }
 

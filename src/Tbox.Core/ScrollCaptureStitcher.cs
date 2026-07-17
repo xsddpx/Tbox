@@ -33,6 +33,8 @@ public sealed class ScrollCaptureStitcher
     private const double ExactDuplicateErrorThreshold = 0.18;
     private const double SimilarFrameErrorThreshold = 2.5;
     private const double MatchErrorThreshold = 13;
+    private const int DifferenceVerticalBandCount = 16;
+    private const int MaximumLocalizedChangeBands = 6;
     private readonly int _width;
     private readonly int _frameHeight;
     private readonly int _maximumHeight;
@@ -91,6 +93,17 @@ public sealed class ScrollCaptureStitcher
 
         var difference = CalculateFrameDifference(_lastFrame, bgraPixels);
         if (difference.MeanError <= ExactDuplicateErrorThreshold || difference.ChangedRatio <= 0.0015)
+        {
+            return new ScrollCaptureFrameResult(
+                ScrollCaptureFrameDecision.Duplicate,
+                0,
+                Height,
+                difference.MeanError,
+                ScrollCaptureDirection.None,
+                ViewportTop);
+        }
+
+        if (difference.ChangedVerticalBandCount <= MaximumLocalizedChangeBands)
         {
             return new ScrollCaptureFrameResult(
                 ScrollCaptureFrameDecision.Duplicate,
@@ -164,11 +177,12 @@ public sealed class ScrollCaptureStitcher
             throw new ArgumentException("画面像素数据尺寸不一致。", nameof(second));
         }
 
-        if (first.IsEmpty) return new FrameDifference(0, 0);
+        if (first.IsEmpty) return new FrameDifference(0, 0, 0);
         long difference = 0;
         var pixelCount = first.Length / 4;
         var sampleCount = Math.Min(pixelCount, 20_000);
         var changedSamples = 0;
+        Span<bool> changedVerticalBands = stackalloc bool[DifferenceVerticalBandCount];
         for (var sample = 0; sample < sampleCount; sample++)
         {
             var cellStart = (int)((long)sample * pixelCount / sampleCount);
@@ -179,11 +193,24 @@ public sealed class ScrollCaptureStitcher
             var index = pixel * 4;
             var sampleDifference = Math.Abs(Luma(first, index) - Luma(second, index));
             difference += sampleDifference;
-            if (sampleDifference >= 8) changedSamples++;
+            if (sampleDifference >= 8)
+            {
+                changedSamples++;
+                var band = Math.Min(
+                    DifferenceVerticalBandCount - 1,
+                    (int)((long)pixel * DifferenceVerticalBandCount / pixelCount));
+                changedVerticalBands[band] = true;
+            }
+        }
+        var changedVerticalBandCount = 0;
+        foreach (var changed in changedVerticalBands)
+        {
+            if (changed) changedVerticalBandCount++;
         }
         return new FrameDifference(
             difference / (double)sampleCount,
-            changedSamples / (double)sampleCount);
+            changedSamples / (double)sampleCount,
+            changedVerticalBandCount);
     }
 
     private ScrollMatch FindBestShift(
@@ -391,7 +418,10 @@ public sealed class ScrollCaptureStitcher
             ViewportTop);
     }
 
-    private readonly record struct FrameDifference(double MeanError, double ChangedRatio);
+    private readonly record struct FrameDifference(
+        double MeanError,
+        double ChangedRatio,
+        int ChangedVerticalBandCount);
     private readonly record struct ScrollMatch(
         ScrollCaptureDirection Direction,
         int Shift,

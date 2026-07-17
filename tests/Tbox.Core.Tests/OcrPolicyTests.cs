@@ -30,6 +30,14 @@ public sealed class OcrPolicyTests
     }
 
     [Fact]
+    public void LogicalLineNumbersSupportTextBoxCarriageReturnNormalization()
+    {
+        const string text = "first\rsecond\rthird";
+
+        Assert.Equal([0, 6, 13], OcrLineNumberPolicy.GetLogicalLineStarts(text));
+    }
+
+    [Fact]
     public void InvalidImageDimensionsAreRejected()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>

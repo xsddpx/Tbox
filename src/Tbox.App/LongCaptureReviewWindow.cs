@@ -19,6 +19,7 @@ internal sealed class LongCaptureReviewWindow : Window
     private readonly Action _recognizeText;
     private readonly Action<LongCaptureReviewWindow> _dismissed;
     private readonly AppWindow _appWindow;
+    private readonly TextBlock _statusText;
     private bool _closed;
 
     private LongCaptureReviewWindow(
@@ -37,23 +38,43 @@ internal sealed class LongCaptureReviewWindow : Window
         _recognizeText = recognizeText;
         _dismissed = dismissed;
         Title = "Tbox 长截图预览";
+        var palette = TboxUi.Palette;
 
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Right,
             Spacing = 8,
-            Padding = new Thickness(12, 9, 12, 9)
+            VerticalAlignment = VerticalAlignment.Center
         };
         actions.Children.Add(CreateButton("文字识别", () => { _recognizeText(); return Task.CompletedTask; }));
-        actions.Children.Add(CreateButton("保存", SaveAsync));
+        actions.Children.Add(CreateButton("另存为…", SaveAsync));
         actions.Children.Add(CreateButton("复制", _copy));
         actions.Children.Add(CreateButton("贴图", _pin));
         actions.Children.Add(CreateButton("关闭", () => { Close(); return Task.CompletedTask; }));
 
+        _statusText = TboxUi.CreateText("可滚动或缩放查看长截图", TboxUi.CaptionFontSize, secondary: true);
+        _statusText.TextTrimming = TextTrimming.CharacterEllipsis;
+        var footer = new Grid
+        {
+            Padding = new Thickness(12, 8, 12, 8),
+            Background = TboxUi.Brush(palette.SurfaceSecondary),
+            BorderBrush = TboxUi.Brush(palette.BorderDefault),
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto }
+            }
+        };
+        footer.Children.Add(_statusText);
+        Grid.SetColumn(actions, 1);
+        footer.Children.Add(actions);
+
         var root = new Grid
         {
-            Background = new SolidColorBrush(Color.FromArgb(255, 24, 24, 24)),
+            RequestedTheme = TboxUi.RequestedTheme,
+            Background = TboxUi.Brush(palette.Background),
             RowDefinitions =
             {
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
@@ -63,6 +84,7 @@ internal sealed class LongCaptureReviewWindow : Window
         var viewer = new ScrollViewer
         {
             Content = image,
+            Background = TboxUi.Brush(Color.FromArgb(255, 18, 18, 18)),
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             ZoomMode = ZoomMode.Enabled,
@@ -73,20 +95,22 @@ internal sealed class LongCaptureReviewWindow : Window
         image.HorizontalAlignment = HorizontalAlignment.Center;
         image.VerticalAlignment = VerticalAlignment.Top;
         root.Children.Add(viewer);
-        Grid.SetRow(actions, 1);
-        root.Children.Add(actions);
+        Grid.SetRow(footer, 1);
+        root.Children.Add(footer);
         Content = root;
 
         var hwnd = WindowNative.GetWindowHandle(this);
         NativeMethods.DisableWindowTransitions(hwnd);
         _appWindow = AppWindow.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(hwnd));
+        _appWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Tbox.ico"));
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.IsAlwaysOnTop = true;
+            presenter.IsAlwaysOnTop = false;
             presenter.IsResizable = true;
             presenter.IsMaximizable = true;
             presenter.IsMinimizable = true;
         }
+        TboxUi.ConfigureTitleBar(_appWindow, palette.IsDark);
         var center = new PointInt32(screen.Left + screen.Width / 2, screen.Top + Math.Min(screen.Height, 600) / 2);
         var work = DisplayArea.GetFromPoint(center, DisplayAreaFallback.Primary).WorkArea;
         var width = Math.Min(820, Math.Max(480, work.Width - 80));
@@ -151,16 +175,19 @@ internal sealed class LongCaptureReviewWindow : Window
             output.SetLength(0);
             await source.CopyToAsync(output);
             await output.FlushAsync();
+            _statusText.Text = $"已保存：{destination.Path}";
         }
         catch (Exception exception)
         {
             AppLog.Write($"Save long screenshot failed: {exception}");
+            _statusText.Text = "保存失败，请检查目标位置后重试。";
         }
     }
 
     private static Button CreateButton(string text, Func<Task> action)
     {
         var button = new Button { Content = text, MinWidth = 72 };
+        TboxUi.StyleStandardButton(button, text);
         button.Click += async (_, _) => await action();
         return button;
     }

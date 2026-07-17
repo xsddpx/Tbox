@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Tbox.Core;
 using Windows.Graphics;
 using Windows.System;
@@ -32,9 +33,8 @@ internal sealed class LongCaptureWindow : Window, IDisposable
     private readonly ScrollCaptureStitcher _stitcher;
     private readonly DispatcherTimer _timer;
     private readonly Border _root;
-    private readonly TextBlock _status;
     private readonly TextBlock _sizeText;
-    private readonly Button _finishButton;
+    private readonly Button _pinButton;
     private readonly AppWindow _appWindow;
     private readonly IntPtr _windowHandle;
     private byte[]? _pendingFrame;
@@ -56,100 +56,49 @@ internal sealed class LongCaptureWindow : Window, IDisposable
         _stitcher = new ScrollCaptureStitcher(region.Width, region.Height);
         Title = "Tbox 长截图";
 
-        _status = new TextBlock
-        {
-            Text = "正在准备长截图…",
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 32, 32, 32)),
-            Width = 280,
-            TextWrapping = TextWrapping.Wrap
-        };
         _sizeText = new TextBlock
         {
             Text = $"{region.Width:N0} × {region.Height:N0}",
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 45, 45, 45)),
+            Foreground = new SolidColorBrush(Colors.White),
             VerticalAlignment = VerticalAlignment.Center,
             MinWidth = 94,
             TextAlignment = TextAlignment.Center,
-            FontSize = 13
+            FontSize = TboxUi.CaptionFontSize
         };
 
         var tools = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 2,
-            Padding = new Thickness(7, 6, 7, 6)
+            Spacing = 2
         };
-        tools.Children.Add(new TextBlock
+        var sizeMetric = new StackPanel
         {
-            Text = "⠿",
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 128, 128, 128)),
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 17,
-            Margin = new Thickness(0, 0, 2, 0)
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        sizeMetric.Children.Add(new Ellipse
+        {
+            Width = 8,
+            Height = 8,
+            Fill = TboxUi.Brush(TboxUi.LongCaptureModeColor),
+            VerticalAlignment = VerticalAlignment.Center
         });
-        tools.Children.Add(_sizeText);
-        tools.Children.Add(new TextBlock
-        {
-            Text = "↕",
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 45, 45, 45)),
-            VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 18,
-            Margin = new Thickness(2, 0, 0, 0)
-        });
-        var direction = new ComboBox
-        {
-            Width = 72,
-            Height = 32,
-            Padding = new Thickness(8, 0, 4, 0)
-        };
-        direction.Items.Add(new ComboBoxItem { Content = "纵向" });
-        direction.Items.Add(new ComboBoxItem { Content = "横向", IsEnabled = false });
-        direction.SelectedIndex = 0;
-        ToolTipService.SetToolTip(direction, "纵向手动滚动，支持向上和向下；横向暂不支持");
-        AutomationProperties.SetName(direction, "滚动方向：纵向");
-        tools.Children.Add(direction);
-        tools.Children.Add(Separator());
+        sizeMetric.Children.Add(_sizeText);
+        tools.Children.Add(sizeMetric);
+        tools.Children.Add(AnnotationToolbar.CreateSeparator());
 
-        var info = IconButton("\uE946", "查看长截图状态与操作说明", null);
-        info.Flyout = new Flyout
-        {
-            Content = new StackPanel
-            {
-                Spacing = 6,
-                Padding = new Thickness(4),
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = "在黄色框内手动向上或向下滚动；停止滚动后会自动拼接稳定画面。",
-                        Width = 280,
-                        TextWrapping = TextWrapping.Wrap,
-                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-                    },
-                    _status
-                }
-            }
-        };
-        tools.Children.Add(info);
-        _finishButton = IconButton("✂", "完成并预览", () => Finish(LongCaptureCompletionAction.Preview), useFluentIcon: false);
-        _finishButton.IsEnabled = false;
-        tools.Children.Add(_finishButton);
-        tools.Children.Add(IconButton("\uE70F", "完成并打开预览工具", () => Finish(LongCaptureCompletionAction.Preview)));
-        tools.Children.Add(IconButton("\uE718", "完成并贴图", () => Finish(LongCaptureCompletionAction.Pin)));
-        tools.Children.Add(IconButton("\uE792", "完成并另存为", () => Finish(LongCaptureCompletionAction.Save)));
-        tools.Children.Add(IconButton("\uE740", "完成并全屏预览", () => Finish(LongCaptureCompletionAction.Fullscreen)));
-        tools.Children.Add(IconButton("\uE711", "取消长截图", Cancel));
-        tools.Children.Add(IconButton("\uE8C8", "完成并复制", () => Finish(LongCaptureCompletionAction.Copy)));
+        _pinButton = AddActionButton(tools, "\uE718", "完成并贴图", LongCaptureCompletionAction.Pin);
+        _pinButton.IsEnabled = false;
+        AddActionButton(tools, "\uE792", "完成并另存为", LongCaptureCompletionAction.Save);
+        AddActionButton(tools, "\uE740", "完成并全屏预览", LongCaptureCompletionAction.Fullscreen);
+        var cancelButton = AnnotationToolbar.CreateButton("\uE711", "取消长截图", useFluentIcon: true);
+        cancelButton.Click += (_, _) => Cancel();
+        tools.Children.Add(cancelButton);
+        AddActionButton(tools, "\uE8C8", "完成并复制", LongCaptureCompletionAction.Copy);
 
-        _root = new Border
-        {
-            RequestedTheme = ElementTheme.Light,
-            Background = new SolidColorBrush(Color.FromArgb(252, 250, 250, 250)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 190, 190, 190)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(8),
-            Child = tools
-        };
+        _root = AnnotationToolbar.CreateToolbarRoot(Visibility.Visible);
+        _root.Child = tools;
         ScrollViewer.SetHorizontalScrollBarVisibility(_root, ScrollBarVisibility.Disabled);
         ScrollViewer.SetVerticalScrollBarVisibility(_root, ScrollBarVisibility.Disabled);
         Content = _root;
@@ -200,7 +149,7 @@ internal sealed class LongCaptureWindow : Window, IDisposable
         {
             var first = ScreenCaptureService.CaptureRegion(_region);
             _stitcher.AddFrame(first.Pixels);
-            _finishButton.IsEnabled = true;
+            _pinButton.IsEnabled = true;
             UpdateSize();
             SetStatus($"已捕获 {_stitcher.Height:N0}px；请在黄色框内缓慢向上或向下滚动。");
             await _preview.UpdateImageAsync(first, 0, _region.Height, ScrollCaptureDirection.None);
@@ -354,8 +303,8 @@ internal sealed class LongCaptureWindow : Window, IDisposable
 
     private void SetStatus(string text)
     {
-        _status.Text = text;
         ToolTipService.SetToolTip(_root, text);
+        AutomationProperties.SetHelpText(_root, text);
     }
 
     private static string DirectionText(ScrollCaptureDirection direction) => direction switch
@@ -365,39 +314,17 @@ internal sealed class LongCaptureWindow : Window, IDisposable
         _ => "画面已稳定"
     };
 
-    private static Button IconButton(string glyph, string tooltip, Action? action, bool useFluentIcon = true)
+    private Button AddActionButton(
+        StackPanel tools,
+        string glyph,
+        string tooltip,
+        LongCaptureCompletionAction action)
     {
-        var button = new Button
-        {
-            Content = new FontIcon
-            {
-                Glyph = glyph,
-                FontFamily = new FontFamily(useFluentIcon ? "Segoe Fluent Icons" : "Segoe UI Symbol"),
-                FontSize = 15
-            },
-            Width = 32,
-            Height = 32,
-            Padding = new Thickness(0),
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 35, 35, 35)),
-            Background = new SolidColorBrush(Colors.Transparent),
-            BorderBrush = new SolidColorBrush(Colors.Transparent),
-            CornerRadius = new CornerRadius(4)
-        };
-        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(Color.FromArgb(255, 225, 225, 225));
-        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(Color.FromArgb(255, 205, 205, 205));
-        if (action is not null) button.Click += (_, _) => action();
-        ToolTipService.SetToolTip(button, tooltip);
-        AutomationProperties.SetName(button, tooltip);
+        var button = AnnotationToolbar.CreateButton(glyph, tooltip, useFluentIcon: true);
+        button.Click += (_, _) => Finish(action);
+        tools.Children.Add(button);
         return button;
     }
-
-    private static Border Separator() => new()
-    {
-        Width = 1,
-        Height = 22,
-        Margin = new Thickness(4, 5, 4, 5),
-        Background = new SolidColorBrush(Color.FromArgb(255, 205, 205, 205))
-    };
 
     public void Dispose()
     {

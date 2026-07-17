@@ -38,17 +38,17 @@ internal sealed class LongCapturePreviewWindow : Window, IDisposable
         };
         _viewportMarker = new Border
         {
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 52, 199, 89)),
+            BorderBrush = TboxUi.Brush(TboxUi.SuccessColor),
             BorderThickness = new Thickness(2),
-            Background = new SolidColorBrush(Color.FromArgb(32, 52, 199, 89)),
+            Background = TboxUi.Brush(Color.FromArgb(32, 52, 199, 89)),
             IsHitTestVisible = false,
             HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Top
         };
         _imageHost = new Grid
         {
-            Background = new SolidColorBrush(Color.FromArgb(255, 24, 24, 24)),
-            Margin = new Thickness(6)
+            Background = TboxUi.Brush(Color.FromArgb(255, 24, 24, 24)),
+            Margin = new Thickness(4)
         };
         _imageHost.Children.Add(_image);
         _imageHost.Children.Add(_viewportMarker);
@@ -57,14 +57,14 @@ internal sealed class LongCapturePreviewWindow : Window, IDisposable
         _directionText = new TextBlock
         {
             Text = "等待手动滚动",
-            Foreground = new SolidColorBrush(Color.FromArgb(255, 224, 224, 224)),
+            Foreground = TboxUi.Brush(Color.FromArgb(255, 224, 224, 224)),
             VerticalAlignment = VerticalAlignment.Center,
             HorizontalAlignment = HorizontalAlignment.Right,
-            FontSize = 12
+            FontSize = TboxUi.CaptionFontSize
         };
         var header = new Grid
         {
-            Height = 34,
+            Height = TboxUi.StandardControlHeight,
             Padding = new Thickness(8, 0, 8, 0),
             ColumnDefinitions =
             {
@@ -75,8 +75,9 @@ internal sealed class LongCapturePreviewWindow : Window, IDisposable
         header.Children.Add(new TextBlock
         {
             Text = "实时预览",
-            Foreground = new SolidColorBrush(Colors.White),
+            Foreground = TboxUi.Brush(Colors.White),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontSize = TboxUi.BodyFontSize,
             VerticalAlignment = VerticalAlignment.Center
         });
         Grid.SetColumn(_directionText, 1);
@@ -93,16 +94,9 @@ internal sealed class LongCapturePreviewWindow : Window, IDisposable
         content.Children.Add(header);
         Grid.SetRow(_imageHost, 1);
         content.Children.Add(_imageHost);
-        _root = new Border
-        {
-            Width = 236,
-            Height = 520,
-            Background = new SolidColorBrush(Color.FromArgb(250, 38, 38, 38)),
-            BorderBrush = new SolidColorBrush(CaptureFramePalette.LongCapture),
-            BorderThickness = new Thickness(2),
-            CornerRadius = new CornerRadius(7),
-            Child = content
-        };
+        _root = TboxUi.CreateTaskSurface(content);
+        _root.Width = 236;
+        _root.Height = 520;
         Content = _root;
 
         _windowHandle = WindowNative.GetWindowHandle(this);

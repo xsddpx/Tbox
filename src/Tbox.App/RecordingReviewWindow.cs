@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
@@ -50,6 +51,7 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
     {
         _result = result;
         Title = "Tbox 录屏回放";
+        var palette = TboxUi.Palette;
 
         _mediaPlayer = new MediaPlayer
         {
@@ -76,14 +78,14 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
             Minimum = 0,
             Maximum = 1,
             Value = 1,
-            Width = 80,
-            Header = "音量"
+            Width = 96
         };
         volume.ValueChanged += (_, args) => _mediaPlayer.Volume = args.NewValue;
 
         _formatButton = Button("MP4", "选择导出格式");
         _formatButton.Flyout = CreateFormatFlyout();
-        _saveButton = Button("保存", "导出录屏");
+        _saveButton = Button("另存为…", "导出录屏");
+        TboxUi.StyleStandardButton(_saveButton, "导出录屏", primary: true);
         _saveButton.Click += async (_, _) =>
         {
             if (_exportCancellation is not null)
@@ -107,33 +109,44 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
             Height = 3
         };
 
-        var actionRow = new StackPanel
+        var playbackRow = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Spacing = 8,
             VerticalAlignment = VerticalAlignment.Center
         };
-        actionRow.Children.Add(_playButton);
-        actionRow.Children.Add(_timeText);
-        actionRow.Children.Add(volume);
-        actionRow.Children.Add(_formatButton);
-        actionRow.Children.Add(_saveButton);
-        actionRow.Children.Add(_rerecordButton);
-        actionRow.Children.Add(_closeButton);
+        playbackRow.Children.Add(_playButton);
+        playbackRow.Children.Add(_timeText);
+        playbackRow.Children.Add(TboxUi.CreateText("音量", TboxUi.CaptionFontSize, secondary: true));
+        playbackRow.Children.Add(volume);
+
+        var exportRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        exportRow.Children.Add(_formatButton);
+        exportRow.Children.Add(_saveButton);
+        exportRow.Children.Add(_rerecordButton);
+        exportRow.Children.Add(_closeButton);
 
         var controls = new StackPanel
         {
-            Spacing = 5,
-            Padding = new Thickness(12, 8, 12, 10),
-            Background = new SolidColorBrush(Color.FromArgb(255, 32, 32, 32))
+            Spacing = 4,
+            Padding = new Thickness(12, 8, 12, 12),
+            Background = TboxUi.Brush(palette.SurfaceSecondary)
         };
         controls.Children.Add(_positionSlider);
-        controls.Children.Add(actionRow);
+        controls.Children.Add(playbackRow);
+        controls.Children.Add(exportRow);
         controls.Children.Add(_statusText);
         controls.Children.Add(_exportProgress);
 
         var root = new Grid
         {
+            RequestedTheme = TboxUi.RequestedTheme,
             Background = new SolidColorBrush(Colors.Black),
             RowDefinitions =
             {
@@ -144,25 +157,22 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         root.Children.Add(_playerElement);
         Grid.SetRow(controls, 1);
         root.Children.Add(controls);
-        Content = new Border
-        {
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)),
-            BorderThickness = new Thickness(2),
-            Child = root
-        };
+        Content = root;
 
         var hwnd = WindowNative.GetWindowHandle(this);
         NativeMethods.DisableWindowTransitions(hwnd);
         _appWindow = AppWindow.GetFromWindowId(Win32Interop.GetWindowIdFromWindow(hwnd));
+        _appWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Tbox.ico"));
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.SetBorderAndTitleBar(false, false);
-            presenter.IsAlwaysOnTop = true;
+            presenter.SetBorderAndTitleBar(true, true);
+            presenter.IsAlwaysOnTop = false;
             presenter.IsResizable = true;
             presenter.IsMaximizable = true;
             presenter.IsMinimizable = true;
         }
-        _appWindow.IsShownInSwitchers = false;
+        _appWindow.IsShownInSwitchers = true;
+        TboxUi.ConfigureTitleBar(_appWindow, palette.IsDark);
         PositionWindow(hwnd, result.Region);
         _appWindow.Closing += OnWindowClosing;
 
@@ -277,7 +287,7 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         _exportProgress.Visibility = exporting ? Visibility.Visible : Visibility.Collapsed;
         _exportProgress.Value = 0;
         _formatButton.IsEnabled = !exporting;
-        _saveButton.Content = exporting ? "取消导出" : "保存";
+        _saveButton.Content = exporting ? "取消导出" : "另存为…";
         _rerecordButton.IsEnabled = !exporting;
         _statusText.Text = exporting ? "正在导出…" : _statusText.Text;
     }
@@ -431,7 +441,7 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         var work = DisplayArea.GetFromPoint(center, DisplayAreaFallback.Primary).WorkArea;
         var width = Math.Clamp(region.Width, 480, Math.Max(480, work.Width - 60));
         var previewHeight = Math.Clamp(region.Height, 270, Math.Max(270, work.Height - 190));
-        var height = Math.Min(work.Height - 40, previewHeight + 140);
+        var height = Math.Min(work.Height - 40, previewHeight + 190);
         NativeMethods.MoveAndResizeWindow(hwnd, new RectInt32(
             Math.Clamp(region.X, work.X, work.X + work.Width - width),
             Math.Clamp(region.Y, work.Y, work.Y + work.Height - height),
@@ -442,14 +452,16 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
     private static TextBlock Text(string value) => new()
     {
         Text = value,
-        Foreground = new SolidColorBrush(Colors.White),
+        FontSize = TboxUi.BodyFontSize,
+        Foreground = TboxUi.Brush(TboxUi.Palette.TextPrimary),
         VerticalAlignment = VerticalAlignment.Center
     };
 
     private static Button Button(string content, string tooltip)
     {
-        var button = new Button { Content = content, MinWidth = 56, Height = 32 };
-        ToolTipService.SetToolTip(button, tooltip);
+        var button = new Button { Content = content, MinWidth = 56 };
+        TboxUi.StyleStandardButton(button, tooltip);
+        AutomationProperties.SetName(button, tooltip);
         return button;
     }
 

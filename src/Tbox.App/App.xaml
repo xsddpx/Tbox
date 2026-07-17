@@ -10,37 +10,49 @@
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F4F1EE"/>
-                    <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="#F6F3F0"/>
+                    <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="#F7F4F1"/>
                     <SolidColorBrush x:Key="PaneBackgroundBrush" Color="#F7F4F1"/>
                     <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FFFEFC"/>
+                    <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="#F7F4F1"/>
+                    <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#EAE7E4"/>
                     <SolidColorBrush x:Key="CardBorderBrush" Color="#DED9D4"/>
+                    <SolidColorBrush x:Key="PrimaryTextBrush" Color="#202020"/>
                     <SolidColorBrush x:Key="SubtleTextBrush" Color="#625E5A"/>
+                    <SolidColorBrush x:Key="DisabledTextBrush" Color="#9A9692"/>
                     <SolidColorBrush x:Key="DividerBrush" Color="#E9E4DF"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Default">
                     <SolidColorBrush x:Key="AppBackgroundBrush" Color="#202020"/>
-                    <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="#252525"/>
-                    <SolidColorBrush x:Key="PaneBackgroundBrush" Color="#252525"/>
+                    <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="#323232"/>
+                    <SolidColorBrush x:Key="PaneBackgroundBrush" Color="#292929"/>
                     <SolidColorBrush x:Key="CardBackgroundBrush" Color="#292929"/>
+                    <SolidColorBrush x:Key="SurfaceSecondaryBrush" Color="#323232"/>
+                    <SolidColorBrush x:Key="SurfaceHoverBrush" Color="#3A3A3A"/>
                     <SolidColorBrush x:Key="CardBorderBrush" Color="#414141"/>
+                    <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F5F5F5"/>
                     <SolidColorBrush x:Key="SubtleTextBrush" Color="#C2C2C2"/>
+                    <SolidColorBrush x:Key="DisabledTextBrush" Color="#777777"/>
                     <SolidColorBrush x:Key="DividerBrush" Color="#363636"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
+            <Style TargetType="TextBlock">
+                <Setter Property="FontFamily" Value="Segoe UI Variable Text"/>
+            </Style>
             <Style x:Key="PageTitleStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="30"/>
+                <Setter Property="FontFamily" Value="Segoe UI Variable Display"/>
+                <Setter Property="FontSize" Value="28"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
             </Style>
             <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="FontSize" Value="16"/>
                 <Setter Property="FontWeight" Value="SemiBold"/>
             </Style>
             <Style x:Key="BodyTextStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="FontSize" Value="14"/>
             </Style>
             <Style x:Key="CaptionTextStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="10"/>
+                <Setter Property="FontSize" Value="12"/>
                 <Setter Property="Foreground" Value="{ThemeResource SubtleTextBrush}"/>
             </Style>
             <Style x:Key="CardStyle" TargetType="Border">
@@ -56,16 +68,18 @@
                 <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="Padding" Value="12,0"/>
-                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="CornerRadius" Value="5"/>
             </Style>
             <Style x:Key="QuickActionButtonStyle" TargetType="Button">
-                <Setter Property="MinHeight" Value="108"/>
+                <Setter Property="MinHeight" Value="112"/>
                 <Setter Property="Padding" Value="12"/>
+                <Setter Property="FontSize" Value="14"/>
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                 <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
                 <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}"/>
                 <Setter Property="BorderThickness" Value="1"/>
-                <Setter Property="CornerRadius" Value="7"/>
+                <Setter Property="CornerRadius" Value="8"/>
             </Style>
         </ResourceDictionary>
     </Application.Resources>
