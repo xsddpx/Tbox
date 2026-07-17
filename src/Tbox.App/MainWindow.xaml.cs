@@ -88,9 +88,12 @@ public sealed partial class MainWindow : Window
         ApplyTheme(_settings.AppTheme);
         SelectThemeItem(_settings.AppTheme);
 
+        var localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         _cacheDirectory = CaptureCachePathPolicy.Resolve(
             _settings.ScreenCaptureCacheDirectory,
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+            localApplicationData);
+        var cacheFallbackMessage = EnsureCaptureCacheDirectory(localApplicationData);
         _folderJump = new FolderJumpModule(
             _messageRouter.Handle,
             _messageRouter,
@@ -112,12 +115,41 @@ public sealed partial class MainWindow : Window
         HomeFolderHotkeyButton.Content = _settings.FolderJumpHotkey.DisplayText;
         GeneralHotkeyButton.Content = _settings.FolderJumpHotkey.DisplayText;
         CacheDirectoryTextBox.Text = _cacheDirectory;
+        if (cacheFallbackMessage is not null)
+        {
+            ShowScreenPasteInfo(cacheFallbackMessage);
+        }
         VersionText.Text = $"Tbox {AppVersion.Current}";
         HomeVersionText.Text = AppVersion.Current;
         UpdateStatus();
         SelectNavigationItem("home");
         UpdateResponsiveLayout(PageHost.ActualWidth);
         _initializing = false;
+    }
+
+    private string? EnsureCaptureCacheDirectory(string localApplicationData)
+    {
+        try
+        {
+            Directory.CreateDirectory(_cacheDirectory);
+            return null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            AppLog.Write($"Create capture cache directory failed: {exception}");
+            var fallback = CaptureCachePathPolicy.GetFallbackPath(localApplicationData);
+            _cacheDirectory = fallback;
+            try
+            {
+                Directory.CreateDirectory(fallback);
+            }
+            catch (Exception fallbackException)
+            {
+                AppLog.Write($"Create fallback capture cache directory failed: {fallbackException}");
+            }
+
+            return $"无法使用首选截图缓存文件夹，本次运行已改用 {_cacheDirectory}。";
+        }
     }
 
     internal void ShowSettings()

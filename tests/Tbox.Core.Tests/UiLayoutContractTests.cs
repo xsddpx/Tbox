@@ -153,6 +153,126 @@ public sealed class UiLayoutContractTests
     }
 
     [Fact]
+    public void CaptureToolbarAddsLongCaptureAndRecordingWithoutAddingThemToPinnedMode()
+    {
+        var overlay = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureOverlayWindow.cs"));
+        var pinned = File.ReadAllText(RepositoryFile("src", "Tbox.App", "PinnedImageWindow.cs"));
+        var toolbar = File.ReadAllText(RepositoryFile("src", "Tbox.App", "AnnotationToolbar.cs"));
+        var recording = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingReviewWindow.cs"));
+
+        Assert.Contains("StartLongCapture: StartLongCaptureAsync", overlay, StringComparison.Ordinal);
+        Assert.Contains("StartRecording: StartRecordingAsync", overlay, StringComparison.Ordinal);
+        Assert.Contains("滚动长截图（手动滚动）", toolbar, StringComparison.Ordinal);
+        Assert.DoesNotContain("支持自动或手动滚动", toolbar, StringComparison.Ordinal);
+        Assert.Contains("区域录屏", toolbar, StringComparison.Ordinal);
+        Assert.DoesNotContain("StartLongCapture:", pinned, StringComparison.Ordinal);
+        Assert.DoesNotContain("StartRecording:", pinned, StringComparison.Ordinal);
+        Assert.Contains("RecordingExportFormat _format = RecordingExportFormat.Mp4", recording, StringComparison.Ordinal);
+        Assert.Contains("图像格式不包含声音", recording, StringComparison.Ordinal);
+        Assert.Contains("PickerLocationId.VideosLibrary", recording, StringComparison.Ordinal);
+        Assert.Contains("PickerLocationId.PicturesLibrary", recording, StringComparison.Ordinal);
+        Assert.Contains("_playerElement.SetMediaPlayer(null!)", recording, StringComparison.Ordinal);
+        Assert.Contains("await Task.Delay(150)", recording, StringComparison.Ordinal);
+        Assert.Contains("if (rerecord is { } region) RerecordRequested?.Invoke(region)", recording, StringComparison.Ordinal);
+
+        var recordingControl = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingControlWindow.cs"));
+        Assert.Contains("RecordingFrameRatePolicy.AllowedFrameRates", recordingControl, StringComparison.Ordinal);
+        Assert.Contains("RecordingFrameRatePolicy.DefaultFrameRate", recordingControl, StringComparison.Ordinal);
+
+        var longCapture = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureWindow.cs"));
+        Assert.Contains("完成并预览", longCapture, StringComparison.Ordinal);
+        Assert.Contains("缓慢向上或向下滚动", longCapture, StringComparison.Ordinal);
+        Assert.Contains("LongCaptureCompletionAction.Copy", longCapture, StringComparison.Ordinal);
+        Assert.Contains("LongCaptureCompletionAction.Pin", longCapture, StringComparison.Ordinal);
+        Assert.Contains("LongCaptureCompletionAction.Save", longCapture, StringComparison.Ordinal);
+        Assert.Contains("LongCaptureCompletionAction.Fullscreen", longCapture, StringComparison.Ordinal);
+        Assert.Contains("ScrollBarVisibility.Disabled", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("ToggleAutoScroll", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("SendMouseWheel", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("_autoScrollTimer", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("Color.FromArgb(255, 32, 201, 87)", longCapture, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CaptureModesShareEightHandleFrameStyleAndUseDistinctColors()
+    {
+        var frame = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureRegionFrame.cs"));
+        var overlay = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureOverlayWindow.cs"));
+        var longCapture = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureWindow.cs"));
+        var recording = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingControlWindow.cs"));
+
+        Assert.Contains("Screenshot = Color.FromArgb(255, 0, 120, 212)", frame, StringComparison.Ordinal);
+        Assert.Contains("LongCapture = Color.FromArgb(255, 255, 204, 0)", frame, StringComparison.Ordinal);
+        Assert.Contains("Recording = Color.FromArgb(255, 255, 59, 48)", frame, StringComparison.Ordinal);
+        Assert.Contains("var centers = new[]", frame, StringComparison.Ordinal);
+        Assert.Contains("BorderThickness = isHandle ? new Thickness(1.5)", frame, StringComparison.Ordinal);
+        Assert.Contains("CaptureFramePalette.Screenshot", overlay, StringComparison.Ordinal);
+        Assert.Contains("CaptureFramePalette.LongCapture", longCapture, StringComparison.Ordinal);
+        Assert.Contains("CaptureFramePalette.Recording", recording, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LongCaptureUsesManualBidirectionalStitchingAndRightSidePreview()
+    {
+        var longCapture = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureWindow.cs"));
+        var preview = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCapturePreviewWindow.cs"));
+        var placement = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureModeWindowPlacement.cs"));
+
+        Assert.Contains("ScrollCaptureFrameDecision.Moved", longCapture, StringComparison.Ordinal);
+        Assert.Contains("ScrollCaptureDirection.Up", longCapture, StringComparison.Ordinal);
+        Assert.Contains("ScrollCaptureDirection.Down", longCapture, StringComparison.Ordinal);
+        Assert.Contains("_preview.UpdateViewport", longCapture, StringComparison.Ordinal);
+        Assert.Contains("new LongCapturePreviewWindow(region)", longCapture, StringComparison.Ordinal);
+        Assert.DoesNotContain("SendMouseWheel", longCapture, StringComparison.Ordinal);
+        Assert.Contains("实时预览", preview, StringComparison.Ordinal);
+        Assert.Contains("_viewportMarker", preview, StringComparison.Ordinal);
+        Assert.Contains("CaptureFramePalette.LongCapture", preview, StringComparison.Ordinal);
+        Assert.Contains("PositionSidePreview", placement, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CaptureDragAndToolbarHoverDoNotRequantizeOrRestartStableStates()
+    {
+        var overlay = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureOverlayWindow.cs"));
+        var toolbar = File.ReadAllText(RepositoryFile("src", "Tbox.App", "AnnotationToolbar.cs"));
+
+        Assert.Contains("PreviewAdjustedSelection", overlay, StringComparison.Ordinal);
+        Assert.Contains("CommitAdjustedSelection", overlay, StringComparison.Ordinal);
+        Assert.Contains("new Rect(bounds.Left, bounds.Top, bounds.Width, bounds.Height)", overlay, StringComparison.Ordinal);
+        Assert.Contains("private sealed class StableToolbarButton", toolbar, StringComparison.Ordinal);
+        Assert.Contains("if (_selected == selected) return;", toolbar, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CaptureModeControlsUseTargetDisplayDpiAfterShowing()
+    {
+        var placement = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureModeWindowPlacement.cs"));
+        var longCapture = File.ReadAllText(RepositoryFile("src", "Tbox.App", "LongCaptureWindow.cs"));
+        var recording = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingControlWindow.cs"));
+
+        Assert.Contains("PrepareOnTargetDisplay", placement, StringComparison.Ordinal);
+        Assert.Contains("GetDpiForWindow(hwnd)", placement, StringComparison.Ordinal);
+        Assert.Contains("PrepareOnTargetDisplay(_windowHandle, region)", longCapture, StringComparison.Ordinal);
+        Assert.Contains("PrepareOnTargetDisplay(hwnd, region)", recording, StringComparison.Ordinal);
+
+        var longStart = longCapture.IndexOf("internal async Task StartAsync", StringComparison.Ordinal);
+        var longShow = longCapture.IndexOf("_appWindow.Show", longStart, StringComparison.Ordinal);
+        var longPosition = longCapture.IndexOf(
+            "CaptureModeWindowPlacement.PositionAdjacent",
+            longShow,
+            StringComparison.Ordinal);
+        Assert.True(longStart >= 0 && longShow > longStart && longPosition > longShow);
+
+        var recordingShowMethod = recording.IndexOf("internal void Show()", StringComparison.Ordinal);
+        var recordingShow = recording.IndexOf("_appWindow.Show", recordingShowMethod, StringComparison.Ordinal);
+        var recordingPosition = recording.IndexOf(
+            "CaptureModeWindowPlacement.PositionAdjacent",
+            recordingShow,
+            StringComparison.Ordinal);
+        Assert.True(recordingShowMethod >= 0 && recordingShow > recordingShowMethod && recordingPosition > recordingShow);
+    }
+
+    [Fact]
     public void OcrEntrypointsUseOriginalPixelsAndResultWindowSupportsRequiredStates()
     {
         var overlay = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureOverlayWindow.cs"));
@@ -176,8 +296,10 @@ public sealed class UiLayoutContractTests
             "src", "Tbox.App", "ScreenPasteModule.cs")), StringComparison.Ordinal);
         var capturedScreen = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CapturedScreen.cs"));
         Assert.Contains("DecodePixelType = DecodePixelType.Physical", capturedScreen, StringComparison.Ordinal);
-        Assert.Contains("DecodePixelWidth = Width", capturedScreen, StringComparison.Ordinal);
-        Assert.Contains("DecodePixelHeight = Height", capturedScreen, StringComparison.Ordinal);
+        Assert.Contains("var decodeWidth = Width", capturedScreen, StringComparison.Ordinal);
+        Assert.Contains("var decodeHeight = Height", capturedScreen, StringComparison.Ordinal);
+        Assert.Contains("DecodePixelWidth = decodeWidth", capturedScreen, StringComparison.Ordinal);
+        Assert.Contains("DecodePixelHeight = decodeHeight", capturedScreen, StringComparison.Ordinal);
         Assert.Contains("OcrEngine.TryCreateFromUserProfileLanguages()", service, StringComparison.Ordinal);
         Assert.Contains("OcrEngine.MaxImageDimension", service, StringComparison.Ordinal);
     }

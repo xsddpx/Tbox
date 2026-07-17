@@ -22,6 +22,10 @@ internal sealed class ScreenPasteModule : ITboxModule
     private readonly List<PinnedImageWindow> _pins = [];
     private Task _pendingCaptureSaveTask = Task.CompletedTask;
     private readonly List<CaptureOverlayWindow> _captureOverlays = [];
+    private LongCaptureWindow? _longCaptureWindow;
+    private LongCaptureReviewWindow? _longCaptureReview;
+    private RecordingControlWindow? _recordingControl;
+    private RecordingReviewWindow? _recordingReview;
     private CaptureTargetBounds? _lastSuccessfulCaptureBounds;
     private bool _captureStarting;
     private bool _disposed;
@@ -45,6 +49,7 @@ internal sealed class ScreenPasteModule : ITboxModule
         _messageSubscription = messageRouter.Subscribe(OnWindowMessage);
         _captureCache = new CaptureCache(cacheDirectory);
         _ocrWindows = new OcrResultWindowManager(new WindowsTextRecognitionService());
+        RecordingWorkspace.CleanupExpired();
     }
 
     internal string CacheDirectory => _captureCache.DirectoryPath;
@@ -234,6 +239,17 @@ internal sealed class ScreenPasteModule : ITboxModule
                         QueueCapture(result);
                     }
                 };
+                overlay.ModeRequested += request =>
+                {
+                    if (sessionCompleted) return;
+                    sessionCompleted = true;
+                    _captureOverlays.Clear();
+                    foreach (var peer in overlays)
+                    {
+                        if (!ReferenceEquals(peer, overlay)) peer.Close();
+                    }
+                    _dispatcher.TryEnqueue(async () => await StartCaptureModeAsync(request));
+                };
             }
 
             var cursor = ScreenCaptureService.GetCursorPosition();
@@ -356,6 +372,131 @@ internal sealed class ScreenPasteModule : ITboxModule
         }
     }
 
+    private Task StartCaptureModeAsync(CaptureModeRequest request) => request.Kind switch
+    {
+        CaptureModeKind.LongCapture => StartLongCaptureAsync(request.Bounds),
+        CaptureModeKind.Recording => StartRecordingAsync(request.Bounds),
+        _ => Task.CompletedTask
+    };
+
+    private async Task StartLongCaptureAsync(RectInt32 bounds)
+    {
+        if (_disposed || !IsEnabled) return;
+        _longCaptureWindow?.Close();
+        var window = new LongCaptureWindow(bounds);
+        _longCaptureWindow = window;
+        window.Completed += result =>
+        {
+            if (ReferenceEquals(_longCaptureWindow, window)) _longCaptureWindow = null;
+            if (result is not null)
+            {
+                _dispatcher.TryEnqueue(async () => await ShowLongCaptureResultAsync(result, bounds));
+            }
+        };
+        await window.StartAsync();
+    }
+
+    private async Task ShowLongCaptureResultAsync(LongCaptureResult result, RectInt32 sourceBounds)
+    {
+        try
+        {
+            var cache = _captureCache;
+            var cacheFilePath = await cache.SaveAsync(await result.Screen.CreatePngBytesAsync());
+            PruneCache(cache, cacheFilePath);
+            if (_disposed || !IsEnabled) return;
+
+            if (result.Action == LongCaptureCompletionAction.Copy)
+            {
+                await ClipboardImageService.CopyFileAsync(cacheFilePath);
+                _notify("长截图已复制到剪贴板。");
+                return;
+            }
+            if (result.Action == LongCaptureCompletionAction.Pin)
+            {
+                await CreatePinAsync(cacheFilePath);
+                return;
+            }
+
+            _longCaptureReview?.Close();
+            LongCaptureReviewWindow? review = null;
+            review = await LongCaptureReviewWindow.CreateAsync(
+                result.Screen,
+                cacheFilePath,
+                () => ClipboardImageService.CopyFileAsync(cacheFilePath),
+                () => CreatePinAsync(cacheFilePath),
+                () => _ocrWindows.Show(result.Screen, sourceBounds),
+                dismissed =>
+                {
+                    if (ReferenceEquals(_longCaptureReview, dismissed)) _longCaptureReview = null;
+                });
+            _longCaptureReview = review;
+            review.Activate();
+            if (result.Action == LongCaptureCompletionAction.Fullscreen) review.Maximize();
+            if (result.Action == LongCaptureCompletionAction.Save) await review.SaveToFileAsync();
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write($"Show long screenshot result failed: {exception}");
+            _notify("长截图已完成，但无法保存或打开预览。");
+        }
+    }
+
+    private Task StartRecordingAsync(RectInt32 bounds)
+    {
+        if (_disposed || !IsEnabled) return Task.CompletedTask;
+        try
+        {
+            var normalized = RecordingRegionPolicy.NormalizeForVideo(
+                new PixelRegion(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+            var region = new RectInt32(
+                normalized.Left,
+                normalized.Top,
+                normalized.Width,
+                normalized.Height);
+            _recordingControl?.Close();
+            var control = new RecordingControlWindow(region);
+            _recordingControl = control;
+            control.Completed += result =>
+            {
+                if (ReferenceEquals(_recordingControl, control)) _recordingControl = null;
+                if (result is not null)
+                {
+                    _dispatcher.TryEnqueue(() => ShowRecordingReview(result));
+                }
+            };
+            control.Show();
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write($"Open recording controls failed: {exception}");
+            _notify("无法进入区域录屏；选区至少需要 16×16 像素。");
+        }
+        return Task.CompletedTask;
+    }
+
+    private void ShowRecordingReview(RecordingResult result)
+    {
+        if (_disposed || !IsEnabled)
+        {
+            result.Workspace.Dispose();
+            return;
+        }
+
+        _recordingReview?.CloseWithoutPrompt();
+        var review = new RecordingReviewWindow(result);
+        _recordingReview = review;
+        review.RerecordRequested += region =>
+        {
+            if (ReferenceEquals(_recordingReview, review)) _recordingReview = null;
+            _dispatcher.TryEnqueue(async () => await StartRecordingAsync(region));
+        };
+        review.Dismissed += dismissed =>
+        {
+            if (ReferenceEquals(_recordingReview, dismissed)) _recordingReview = null;
+        };
+        review.Activate();
+    }
+
     private void TogglePinsVisibility()
     {
         if (_pins.Count == 0)
@@ -401,7 +542,12 @@ internal sealed class ScreenPasteModule : ITboxModule
     {
         try
         {
-            cache.Prune(_pins.Select(pin => pin.CacheFilePath).Append(newestFilePath));
+            var protectedPaths = _pins.Select(pin => pin.CacheFilePath).Append(newestFilePath);
+            if (_longCaptureReview is not null)
+            {
+                protectedPaths = protectedPaths.Append(_longCaptureReview.CacheFilePath);
+            }
+            cache.Prune(protectedPaths);
         }
         catch (Exception exception)
         {
@@ -419,6 +565,14 @@ internal sealed class ScreenPasteModule : ITboxModule
     {
         foreach (var overlay in _captureOverlays.ToArray()) overlay.Close();
         _captureOverlays.Clear();
+        _longCaptureWindow?.Close();
+        _longCaptureWindow = null;
+        _longCaptureReview?.Close();
+        _longCaptureReview = null;
+        _recordingControl?.Close();
+        _recordingControl = null;
+        _recordingReview?.CloseWithoutPrompt();
+        _recordingReview = null;
         ClosePins();
         _ocrWindows.CloseAll();
     }

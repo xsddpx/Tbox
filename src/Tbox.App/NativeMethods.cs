@@ -14,12 +14,14 @@ internal static partial class NativeMethods
     internal const uint EventSystemForeground = 0x0003;
     internal const uint WineventOutofcontext = 0;
     internal const uint KeyeventfKeyup = 0x0002;
+    internal const uint InputMouse = 0;
     internal const ushort VkControl = 0x11;
     internal const ushort VkShift = 0x10;
     internal const ushort VkG = 0x47;
     internal const ushort VkL = 0x4C;
     internal const ushort VkReturn = 0x0D;
     internal const uint InputKeyboard = 1;
+    private const uint MouseeventfWheel = 0x0800;
     internal const uint WmSetText = 0x000C;
     internal const uint WmKeyDown = 0x0100;
     internal const uint WmKeyUp = 0x0101;
@@ -35,6 +37,11 @@ internal static partial class NativeMethods
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const int GwlpHwndParent = -8;
+    private const int GwlExstyle = -20;
+    private const long WsExTransparent = 0x00000020L;
+    private const long WsExToolwindow = 0x00000080L;
+    private const long WsExNoactivate = 0x08000000L;
+    private const uint WdaExcludefromcapture = 0x00000011;
 
     internal delegate void WinEventDelegate(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time);
     internal delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
@@ -93,6 +100,41 @@ internal static partial class NativeMethods
         _ = SetWindowLongPtr(hwnd, GwlpHwndParent, owner);
     }
 
+    internal static bool SendMouseWheel(int delta)
+    {
+        var inputs = new[]
+        {
+            new INPUT
+            {
+                type = InputMouse,
+                union = new InputUnion
+                {
+                    mouse = new MOUSEINPUT
+                    {
+                        mouseData = unchecked((uint)delta),
+                        flags = MouseeventfWheel
+                    }
+                }
+            }
+        };
+        return SendInput(1, inputs, Marshal.SizeOf<INPUT>()) == 1;
+    }
+
+    internal static void MakeWindowClickThroughAndExcludedFromCapture(IntPtr hwnd)
+    {
+        var style = GetWindowLongPtr(hwnd, GwlExstyle).ToInt64();
+        _ = SetWindowLongPtr(
+            hwnd,
+            GwlExstyle,
+            new IntPtr(style | WsExTransparent | WsExToolwindow | WsExNoactivate));
+        _ = SetWindowDisplayAffinity(hwnd, WdaExcludefromcapture);
+    }
+
+    internal static void ExcludeWindowFromCapture(IntPtr hwnd)
+    {
+        _ = SetWindowDisplayAffinity(hwnd, WdaExcludefromcapture);
+    }
+
     internal static bool TryGetExtendedFrameBounds(IntPtr hwnd, out Rect bounds)
     {
         return DwmGetWindowAttributeRect(
@@ -146,6 +188,13 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
     private static partial IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
 
+    [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static partial IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+
     [LibraryImport("user32.dll")]
     internal static partial IntPtr GetForegroundWindow();
 
@@ -180,6 +229,10 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial uint SendInput(uint count, INPUT[] inputs, int size);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetCursorPos(int x, int y);
 
     [LibraryImport("user32.dll")]
     internal static partial short GetAsyncKeyState(int virtualKey);
@@ -275,7 +328,19 @@ internal static partial class NativeMethods
     [StructLayout(LayoutKind.Explicit, Size = 32)]
     internal struct InputUnion
     {
+        [FieldOffset(0)] internal MOUSEINPUT mouse;
         [FieldOffset(0)] internal KEYBDINPUT keyboard;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MOUSEINPUT
+    {
+        internal int dx;
+        internal int dy;
+        internal uint mouseData;
+        internal uint flags;
+        internal uint time;
+        internal UIntPtr extraInfo;
     }
 
     [StructLayout(LayoutKind.Sequential)]

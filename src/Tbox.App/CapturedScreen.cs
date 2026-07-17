@@ -63,14 +63,22 @@ internal sealed record CapturedScreen(int Left, int Top, int Width, int Height, 
         }
     }
 
-    internal async Task<BitmapImage> CreateBitmapSourceAsync()
+    internal async Task<BitmapImage> CreateBitmapSourceAsync(int? maximumDecodeDimension = null)
     {
         using var stream = await CreatePngStreamAsync();
+        var decodeWidth = Width;
+        var decodeHeight = Height;
+        if (maximumDecodeDimension is > 0 && Math.Max(Width, Height) > maximumDecodeDimension.Value)
+        {
+            var scale = maximumDecodeDimension.Value / (double)Math.Max(Width, Height);
+            decodeWidth = Math.Max(1, checked((int)Math.Round(Width * scale)));
+            decodeHeight = Math.Max(1, checked((int)Math.Round(Height * scale)));
+        }
         var source = new BitmapImage
         {
             DecodePixelType = DecodePixelType.Physical,
-            DecodePixelWidth = Width,
-            DecodePixelHeight = Height
+            DecodePixelWidth = decodeWidth,
+            DecodePixelHeight = decodeHeight
         };
         await source.SetSourceAsync(stream);
         return source;

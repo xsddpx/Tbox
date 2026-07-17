@@ -157,31 +157,33 @@ internal static class FileDialogNavigator
 
     private static bool WaitForNavigation(IntPtr dialog, string targetPath, TimeSpan timeout)
     {
-        var addressToolbar = FindDescendantById(dialog, AddressToolbarId);
-        if (addressToolbar == IntPtr.Zero)
-        {
-            AppLog.Write("File-dialog navigation could not find the address toolbar.");
-            return false;
-        }
-
         var shellDisplayName = GetShellDisplayName(targetPath);
         var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         do
         {
-            var text = new char[512];
-            var length = NativeMethods.GetWindowText(addressToolbar, text, text.Length);
-            if (length > 0)
+            if (TryGetCurrentAddress(dialog, out var addressText) &&
+                AddressTextMatches(targetPath, addressText, shellDisplayName))
             {
-                var addressText = new string(text, 0, length);
-                if (AddressTextMatches(targetPath, addressText, shellDisplayName))
-                {
-                    return true;
-                }
+                return true;
             }
             Thread.Sleep(10);
         }
         while (Environment.TickCount64 < deadline);
         return false;
+    }
+
+    internal static bool TryGetCurrentAddress(IntPtr dialog, out string addressText)
+    {
+        addressText = string.Empty;
+        var addressToolbar = FindDescendantById(dialog, AddressToolbarId);
+        if (addressToolbar == IntPtr.Zero) return false;
+
+        var text = new char[512];
+        var length = NativeMethods.GetWindowText(addressToolbar, text, text.Length);
+        if (length <= 0) return false;
+
+        addressText = new string(text, 0, length);
+        return true;
     }
 
     internal static bool AddressTextMatches(string targetPath, string addressText, string? shellDisplayName)

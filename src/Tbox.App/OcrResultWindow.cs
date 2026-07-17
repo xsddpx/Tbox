@@ -373,7 +373,7 @@ internal sealed class OcrResultWindow : Window
 
         try
         {
-            _previewImage.Source = await screen.CreateBitmapSourceAsync();
+            _previewImage.Source = await screen.CreateBitmapSourceAsync(maximumDecodeDimension: 8192);
             var result = await _recognitionService.RecognizeAsync(
                 TextRecognitionImage.FromCapturedScreen(screen),
                 cancellationToken);

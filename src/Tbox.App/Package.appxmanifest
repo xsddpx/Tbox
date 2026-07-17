@@ -8,7 +8,7 @@
   <Identity
     Name="Tbox"
     Publisher="CN=Tbox Development"
-    Version="1.0.24.0"
+    Version="1.0.31.0"
     ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Tbox</DisplayName>
@@ -18,6 +18,10 @@
   </Properties>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency
+      Name="Microsoft.VCLibs.140.00.UWPDesktop"
+      Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+      MinVersion="14.0.30704.0" />
   </Dependencies>
   <Resources>
     <Resource Language="zh-CN" />

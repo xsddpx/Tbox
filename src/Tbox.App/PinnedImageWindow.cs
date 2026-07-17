@@ -199,7 +199,7 @@ internal sealed class PinnedImageWindow : Window
         RectInt32? initialBounds = null)
     {
         var screen = await CapturedScreen.LoadAsync(cacheFilePath);
-        var source = await screen.CreateBitmapSourceAsync();
+        var source = await screen.CreateBitmapSourceAsync(maximumDecodeDimension: 8192);
         return new PinnedImageWindow(screen, source, cacheFilePath, notify, recognizeText, initialBounds);
     }
 

@@ -30,6 +30,14 @@ internal sealed record CaptureCompletion(
     CaptureCompletionAction Action,
     StorageFile? SaveDestination = null);
 
+internal enum CaptureModeKind
+{
+    LongCapture,
+    Recording
+}
+
+internal readonly record struct CaptureModeRequest(CaptureModeKind Kind, RectInt32 Bounds);
+
 internal sealed class CaptureOverlayWindow : Window
 {
     private const double SelectionHandleSize = 8;
@@ -68,6 +76,7 @@ internal sealed class CaptureOverlayWindow : Window
     private bool _completed;
 
     internal event Action<CaptureCompletion?>? Completed;
+    internal event Action<CaptureModeRequest>? ModeRequested;
     internal event Action? SelectionStarted;
     internal event Action? RestoreLastRegionRequested;
     internal event Action<CaptureDetectionMode>? DetectionModeChangeRequested;
@@ -109,11 +118,13 @@ internal sealed class CaptureOverlayWindow : Window
                 "复制并完成（Ctrl+C / Enter）",
                 () => CompleteSelectionAsync(CaptureCompletionAction.Pin),
                 "\uE718",
-                "贴图固定（Ctrl+T / 鼠标中键）"),
+                "贴图固定（Ctrl+T / 鼠标中键）",
+                StartLongCapture: StartLongCaptureAsync,
+                StartRecording: StartRecordingAsync),
             Visibility.Collapsed);
         _selection = new Rectangle
         {
-            Stroke = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)),
+            Stroke = new SolidColorBrush(CaptureFramePalette.Screenshot),
             StrokeThickness = 2,
             Visibility = Visibility.Collapsed
         };
@@ -330,7 +341,7 @@ internal sealed class CaptureOverlayWindow : Window
         Width = SelectionHandleSize,
         Height = SelectionHandleSize,
         Fill = new SolidColorBrush(Colors.White),
-        Stroke = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)),
+        Stroke = new SolidColorBrush(CaptureFramePalette.Screenshot),
         StrokeThickness = 1.5,
         RadiusX = 1,
         RadiusY = 1,
@@ -378,7 +389,7 @@ internal sealed class CaptureOverlayWindow : Window
         SelectionStarted?.Invoke();
         _start = Clamp(point.Position);
         _canvas.CapturePointer(e.Pointer);
-        if (_pressedDetectedRegion is null) UpdateSelection(_start.Value, _start.Value);
+        UpdateSelection(_start.Value, _start.Value);
         e.Handled = true;
     }
 
@@ -423,10 +434,17 @@ internal sealed class CaptureOverlayWindow : Window
             _canvas.ActualHeight,
             MinimumAdjustedSelectionSize,
             MinimumAdjustedSelectionSize);
-        ApplyAdjustedSelection(adjusted, finalize);
+        if (finalize)
+        {
+            CommitAdjustedSelection(adjusted);
+        }
+        else
+        {
+            PreviewAdjustedSelection(adjusted);
+        }
     }
 
-    private void ApplyAdjustedSelection(CaptureSelectionBounds bounds, bool finalize)
+    private void PreviewAdjustedSelection(CaptureSelectionBounds bounds)
     {
         var region = CaptureRegionPolicy.MapToPixels(
             _canvas.ActualWidth,
@@ -438,10 +456,33 @@ internal sealed class CaptureOverlayWindow : Window
             _screen.Width,
             _screen.Height);
         _selectedRegion = region;
-        if (finalize)
-        {
-            _selectedScreen = _screen.Crop(region.Left, region.Top, region.Width, region.Height);
-        }
+        _selectionBounds = new Rect(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+        UpdateSelection(
+            new Point(_selectionBounds.Left, _selectionBounds.Top),
+            new Point(_selectionBounds.Right, _selectionBounds.Bottom));
+        Canvas.SetLeft(_annotationHost, _selectionBounds.Left);
+        Canvas.SetTop(_annotationHost, _selectionBounds.Top);
+        _annotations.UpdateRegion(
+            _screen,
+            region,
+            _selectionBounds.Width,
+            _selectionBounds.Height);
+        PositionSelectionHandles();
+    }
+
+    private void CommitAdjustedSelection(CaptureSelectionBounds bounds)
+    {
+        var region = CaptureRegionPolicy.MapToPixels(
+            _canvas.ActualWidth,
+            _canvas.ActualHeight,
+            bounds.Left,
+            bounds.Top,
+            bounds.Width,
+            bounds.Height,
+            _screen.Width,
+            _screen.Height);
+        _selectedRegion = region;
+        _selectedScreen = _screen.Crop(region.Left, region.Top, region.Width, region.Height);
         _selectionBounds = PixelRegionToCanvasBounds(region);
         UpdateSelection(
             new Point(_selectionBounds.Left, _selectionBounds.Top),
@@ -628,7 +669,7 @@ internal sealed class CaptureOverlayWindow : Window
     {
         if (_adjustingSelection != CaptureSelectionHandle.None)
         {
-            ApplyAdjustedSelection(_adjustmentStartBounds, finalize: true);
+            CommitAdjustedSelection(_adjustmentStartBounds);
             _adjustingSelection = CaptureSelectionHandle.None;
             if (_toolbarVisibleBeforeAdjustment)
             {
@@ -878,6 +919,37 @@ internal sealed class CaptureOverlayWindow : Window
             AppLog.Write($"Choose capture save destination failed: {exception}");
             _hintText.Text = "无法打开保存窗口，请重试。";
         }
+    }
+
+    private Task StartLongCaptureAsync() => StartCaptureModeAsync(CaptureModeKind.LongCapture);
+
+    private Task StartRecordingAsync() => StartCaptureModeAsync(CaptureModeKind.Recording);
+
+    private async Task StartCaptureModeAsync(CaptureModeKind kind)
+    {
+        if (_selectedScreen is null || _completingSelection) return;
+        if (_annotations.HasAnnotations)
+        {
+            var dialog = new ContentDialog
+            {
+                XamlRoot = _root.XamlRoot,
+                Title = kind == CaptureModeKind.LongCapture ? "进入长截图" : "进入区域录屏",
+                Content = "进入新模式将丢弃当前标注，但会保留截图选区。",
+                PrimaryButtonText = "继续",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        }
+
+        var bounds = new RectInt32(
+            _selectedScreen.Left,
+            _selectedScreen.Top,
+            _selectedScreen.Width,
+            _selectedScreen.Height);
+        _completed = true;
+        ModeRequested?.Invoke(new CaptureModeRequest(kind, bounds));
+        Close();
     }
 
     private async Task CompleteSelectionAsync(

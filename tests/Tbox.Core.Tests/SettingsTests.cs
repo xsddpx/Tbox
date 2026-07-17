@@ -324,12 +324,18 @@ public sealed class SettingsTests
     public void CaptureCachePathUsesConfiguredDirectoryOrStableDefault()
     {
         var localAppData = Path.Combine(Path.GetTempPath(), "LocalAppData");
+        var pictures = Path.Combine(Path.GetTempPath(), "Pictures");
         var custom = Path.Combine(Path.GetTempPath(), "CustomCache");
 
-        Assert.Equal(Path.GetFullPath(custom), CaptureCachePathPolicy.Resolve(custom, localAppData));
+        Assert.Equal(
+            Path.GetFullPath(custom),
+            CaptureCachePathPolicy.Resolve(custom, pictures, localAppData));
+        Assert.Equal(
+            Path.Combine(Path.GetFullPath(pictures), "screenshots"),
+            CaptureCachePathPolicy.Resolve(null, pictures, localAppData));
         Assert.Equal(
             Path.Combine(Path.GetFullPath(localAppData), "Tbox", "cache", "screenshots"),
-            CaptureCachePathPolicy.Resolve(null, localAppData));
+            CaptureCachePathPolicy.Resolve(null, string.Empty, localAppData));
     }
 
     [Fact]

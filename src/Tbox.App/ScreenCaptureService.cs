@@ -9,6 +9,9 @@ internal static partial class ScreenCaptureService
     private const uint BiRgb = 0;
     private const uint SrcCopy = 0x00CC0020;
     private const uint CaptureBlt = 0x40000000;
+    private const uint MonitorDefaultToNearest = 2;
+
+    internal readonly record struct DisplayInfo(string DeviceName, RectInt32 Bounds);
     internal static IReadOnlyList<CapturedScreen> CaptureAllMonitors()
     {
         var monitorHandles = new List<IntPtr>();
@@ -42,8 +45,22 @@ internal static partial class ScreenCaptureService
             throw new InvalidOperationException($"无法读取显示器信息，Win32={Marshal.GetLastWin32Error()}。");
         }
 
-        var width = info.Monitor.Right - info.Monitor.Left;
-        var height = info.Monitor.Bottom - info.Monitor.Top;
+        return CaptureRegion(new RectInt32(
+            info.Monitor.Left,
+            info.Monitor.Top,
+            info.Monitor.Right - info.Monitor.Left,
+            info.Monitor.Bottom - info.Monitor.Top));
+    }
+
+    internal static CapturedScreen CaptureRegion(RectInt32 bounds)
+    {
+        if (bounds.Width < 1 || bounds.Height < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(bounds), "截图区域必须至少包含一个像素。");
+        }
+
+        var width = bounds.Width;
+        var height = bounds.Height;
         var screenDc = GetDC(IntPtr.Zero);
         if (screenDc == IntPtr.Zero)
         {
@@ -87,7 +104,7 @@ internal static partial class ScreenCaptureService
                 throw new InvalidOperationException($"无法选择截图位图，Win32={Marshal.GetLastWin32Error()}。");
             }
 
-            if (!BitBlt(memoryDc, 0, 0, width, height, screenDc, info.Monitor.Left, info.Monitor.Top, SrcCopy | CaptureBlt))
+            if (!BitBlt(memoryDc, 0, 0, width, height, screenDc, bounds.X, bounds.Y, SrcCopy | CaptureBlt))
             {
                 throw new InvalidOperationException($"屏幕截图失败，Win32={Marshal.GetLastWin32Error()}。");
             }
@@ -99,7 +116,7 @@ internal static partial class ScreenCaptureService
                 pixels[index] = 255;
             }
 
-            return new CapturedScreen(info.Monitor.Left, info.Monitor.Top, width, height, pixels);
+            return new CapturedScreen(bounds.X, bounds.Y, width, height, pixels);
         }
         finally
         {
@@ -111,6 +128,29 @@ internal static partial class ScreenCaptureService
             if (memoryDc != IntPtr.Zero) DeleteDC(memoryDc);
             ReleaseDC(IntPtr.Zero, screenDc);
         }
+    }
+
+    internal static DisplayInfo GetDisplayInfo(RectInt32 region)
+    {
+        var point = new Point
+        {
+            X = region.X + region.Width / 2,
+            Y = region.Y + region.Height / 2
+        };
+        var monitor = MonitorFromPoint(point, MonitorDefaultToNearest);
+        var info = new MonitorInfoEx { Size = (uint)Marshal.SizeOf<MonitorInfoEx>(), DeviceName = string.Empty };
+        if (monitor == IntPtr.Zero || !GetMonitorInfoEx(monitor, ref info))
+        {
+            throw new InvalidOperationException($"无法读取录屏显示器信息，Win32={Marshal.GetLastWin32Error()}。");
+        }
+
+        return new DisplayInfo(
+            info.DeviceName,
+            new RectInt32(
+                info.Monitor.Left,
+                info.Monitor.Top,
+                info.Monitor.Right - info.Monitor.Left,
+                info.Monitor.Bottom - info.Monitor.Top));
     }
 
     internal static PointInt32 GetCursorPosition()
@@ -143,6 +183,17 @@ internal static partial class ScreenCaptureService
         internal Rect Monitor;
         internal Rect Work;
         internal uint Flags;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct MonitorInfoEx
+    {
+        internal uint Size;
+        internal Rect Monitor;
+        internal Rect Work;
+        internal uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        internal string DeviceName;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -191,6 +242,13 @@ internal static partial class ScreenCaptureService
     [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfoEx(IntPtr monitor, ref MonitorInfoEx info);
+
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr MonitorFromPoint(Point point, uint flags);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     private static partial IntPtr GetDC(IntPtr window);

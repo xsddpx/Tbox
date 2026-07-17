@@ -114,6 +114,41 @@ if (-not (Test-Path -LiteralPath $resourceIndex)) {
     throw "Release resource index not found: $resourceIndex"
 }
 
+$requiredRecordingFiles = @(
+    (Join-Path $output "ScreenRecorderLib.dll"),
+    (Join-Path $output "ThirdParty\THIRD-PARTY-NOTICES.md"),
+    (Join-Path $output "ThirdParty\ScreenRecorderLib\LICENSE.txt"),
+    (Join-Path $output "ThirdParty\FFmpeg\LICENSE.txt"),
+    (Join-Path $output "ThirdParty\FFmpeg\bin\ffmpeg.exe"),
+    (Join-Path $output "ThirdParty\FFmpeg\bin\avcodec-62.dll"),
+    (Join-Path $output "ThirdParty\FFmpeg\bin\avfilter-11.dll"),
+    (Join-Path $output "ThirdParty\FFmpeg\bin\avformat-62.dll"),
+    (Join-Path $output "ThirdParty\FFmpeg\bin\avutil-60.dll"),
+    (Join-Path $output "ThirdParty\FFmpeg\bin\swresample-6.dll"),
+    (Join-Path $output "ThirdParty\FFmpeg\bin\swscale-9.dll")
+)
+$missingRecordingFiles = @($requiredRecordingFiles | Where-Object { -not (Test-Path -LiteralPath $_) })
+if ($missingRecordingFiles.Count -gt 0) {
+    throw "Recording runtime files are missing: $($missingRecordingFiles -join ', ')"
+}
+$ffmpeg = Join-Path $output "ThirdParty\FFmpeg\bin\ffmpeg.exe"
+$ffmpegSignature = Get-AuthenticodeSignature -LiteralPath $ffmpeg
+if ($ffmpegSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+    throw "FFmpeg executable signature is not valid: $($ffmpegSignature.Status)"
+}
+$ffmpegVersionOutput = @(& $ffmpeg -hide_banner -version 2>&1)
+$ffmpegVersionExitCode = $LASTEXITCODE
+$ffmpegVersion = [string]($ffmpegVersionOutput | Select-Object -First 1)
+if ($ffmpegVersionExitCode -ne 0 -or -not $ffmpegVersion.StartsWith("ffmpeg version n8.1.2", [StringComparison]::Ordinal)) {
+    throw "Unexpected or unusable FFmpeg runtime (exit=$ffmpegVersionExitCode): $ffmpegVersion"
+}
+$ffmpegEncoderOutput = @(& $ffmpeg -hide_banner -encoders 2>&1)
+$ffmpegEncoderExitCode = $LASTEXITCODE
+$ffmpegEncoders = $ffmpegEncoderOutput -join "`n"
+if ($ffmpegEncoderExitCode -ne 0 -or $ffmpegEncoders -notmatch "(?m)\bgif\b" -or $ffmpegEncoders -notmatch "(?m)\blibwebp_anim\b") {
+    throw "FFmpeg runtime does not provide the required GIF and animated WebP encoders."
+}
+
 $buildInputs = @(
     Get-ChildItem -LiteralPath (Join-Path $root "src") -Recurse -File |
         Where-Object FullName -NotMatch '[\\/](bin|obj)[\\/]'

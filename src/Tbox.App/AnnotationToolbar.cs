@@ -17,7 +17,9 @@ internal sealed record AnnotationToolbarActions(
     Func<Task> Terminal,
     string TerminalGlyph,
     string TerminalToolTip,
-    bool TerminalUsesFluentIcon = true);
+    bool TerminalUsesFluentIcon = true,
+    Func<Task>? StartLongCapture = null,
+    Func<Task>? StartRecording = null);
 
 internal sealed class AnnotationToolbar : IDisposable
 {
@@ -122,6 +124,23 @@ internal sealed class AnnotationToolbar : IDisposable
         tools.Children.Add(_redoButton);
         tools.Children.Add(CreateSeparator());
 
+        if (actions.StartLongCapture is not null)
+        {
+            var longCaptureButton = CreateButton("↕", "滚动长截图（手动滚动）", iconSize: 18);
+            longCaptureButton.Click += async (_, _) => await actions.StartLongCapture();
+            tools.Children.Add(longCaptureButton);
+        }
+        if (actions.StartRecording is not null)
+        {
+            var recordingButton = CreateButton("\uE714", "区域录屏", useFluentIcon: true);
+            recordingButton.Click += async (_, _) => await actions.StartRecording();
+            tools.Children.Add(recordingButton);
+        }
+        if (actions.StartLongCapture is not null || actions.StartRecording is not null)
+        {
+            tools.Children.Add(CreateSeparator());
+        }
+
         var ocrButton = CreateButton("文", "文字识别", iconSize: 15);
         ocrButton.Click += async (_, _) => await actions.RecognizeText();
         tools.Children.Add(ocrButton);
@@ -195,7 +214,7 @@ internal sealed class AnnotationToolbar : IDisposable
             VerticalAlignment = VerticalAlignment.Center
         };
         iconHost.Children.Add(icon);
-        var button = new Button
+        var button = new StableToolbarButton
         {
             Content = iconHost,
             Width = width,
@@ -209,7 +228,7 @@ internal sealed class AnnotationToolbar : IDisposable
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center
         };
-        ApplyButtonVisualState(button, false);
+        button.SetSelected(false);
         ToolTipService.SetToolTip(button, tooltip);
         AutomationProperties.SetName(button, tooltip);
         return button;
@@ -217,6 +236,12 @@ internal sealed class AnnotationToolbar : IDisposable
 
     private static void ApplyButtonVisualState(Button button, bool selected)
     {
+        if (button is StableToolbarButton stableButton)
+        {
+            stableButton.SetSelected(selected);
+            return;
+        }
+
         var normal = selected ? Color.FromArgb(255, 0, 120, 212) : Colors.Transparent;
         var hover = selected ? Color.FromArgb(255, 20, 135, 230) : Color.FromArgb(255, 58, 58, 58);
         var pressed = selected ? Color.FromArgb(255, 0, 96, 170) : Color.FromArgb(255, 76, 76, 76);
@@ -230,6 +255,33 @@ internal sealed class AnnotationToolbar : IDisposable
         button.Resources["ButtonBackgroundDisabled"] = new SolidColorBrush(Colors.Transparent);
         button.Resources["ButtonBorderBrushDisabled"] = new SolidColorBrush(Colors.Transparent);
         button.Resources["ButtonForegroundDisabled"] = new SolidColorBrush(Color.FromArgb(255, 105, 105, 105));
+    }
+
+    private sealed class StableToolbarButton : Button
+    {
+        private bool? _selected;
+
+        internal void SetSelected(bool selected)
+        {
+            // Refresh can run while the pointer-over visual state is active. Replacing the
+            // brushes in that state restarts the template transition and makes hover flicker.
+            if (_selected == selected) return;
+            _selected = selected;
+
+            var normal = selected ? Color.FromArgb(255, 0, 120, 212) : Colors.Transparent;
+            var hover = selected ? Color.FromArgb(255, 20, 135, 230) : Color.FromArgb(255, 58, 58, 58);
+            var pressed = selected ? Color.FromArgb(255, 0, 96, 170) : Color.FromArgb(255, 76, 76, 76);
+            var hoverBorder = selected ? Color.FromArgb(255, 96, 180, 240) : Color.FromArgb(255, 105, 105, 105);
+            Background = new SolidColorBrush(normal);
+            BorderBrush = new SolidColorBrush(Colors.Transparent);
+            Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(hover);
+            Resources["ButtonBackgroundPressed"] = new SolidColorBrush(pressed);
+            Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(hoverBorder);
+            Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(hoverBorder);
+            Resources["ButtonBackgroundDisabled"] = new SolidColorBrush(Colors.Transparent);
+            Resources["ButtonBorderBrushDisabled"] = new SolidColorBrush(Colors.Transparent);
+            Resources["ButtonForegroundDisabled"] = new SolidColorBrush(Color.FromArgb(255, 105, 105, 105));
+        }
     }
 
     private static void SetIconColor(Button button, Color color)

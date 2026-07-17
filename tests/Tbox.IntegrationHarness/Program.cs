@@ -27,6 +27,16 @@ internal static partial class Program
             }));
             return outcome.Success ? 0 : 1;
         }
+        if (args.Length > 0 && string.Equals(args[0], "--recording-only", StringComparison.OrdinalIgnoreCase))
+        {
+            var outcome = ExerciseRecordingAndExports().GetAwaiter().GetResult();
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                recordingSucceeded = outcome.Success,
+                error = outcome.Error
+            }));
+            return outcome.Success ? 0 : 1;
+        }
 
         var attempts = args.Length > 0 && int.TryParse(args[0], out var value) ? value : 10;
         var target = Path.Combine(Path.GetTempPath(), $"Tbox.Integration.{Guid.NewGuid():N}");
@@ -44,6 +54,7 @@ internal static partial class Program
         var clipboardTextRendererSucceeded = false;
         var screenCaptureSucceeded = false;
         var captureTargetDetectionSucceeded = false;
+        var recordingSucceeded = false;
         try
         {
             if (!FileDialogNavigator.AddressTextMatches(
@@ -80,6 +91,10 @@ internal static partial class Program
             var targetDetectionOutcome = ExerciseCaptureTargetDetection();
             captureTargetDetectionSucceeded = targetDetectionOutcome.Success;
             if (!targetDetectionOutcome.Success) failures.Add($"界面元素检测失败：{targetDetectionOutcome.Error}");
+
+            var recordingOutcome = ExerciseRecordingAndExports().GetAwaiter().GetResult();
+            recordingSucceeded = recordingOutcome.Success;
+            if (!recordingOutcome.Success) failures.Add($"区域录屏与导出失败：{recordingOutcome.Error}");
 
             var trackerOutcome = ExerciseExplorerTracker(target, attempts);
             trackerSucceeded = trackerOutcome.Success;
@@ -126,6 +141,7 @@ internal static partial class Program
                 clipboardTextRendererSucceeded,
                 screenCaptureSucceeded,
                 captureTargetDetectionSucceeded,
+                recordingSucceeded,
                 failures
             }));
             return failures.Count == 0 ? 0 : 1;
@@ -238,6 +254,82 @@ internal static partial class Program
                 $"bounds={rendered.Left},{rendered.Top},{rendered.Width},{rendered.Height}; " +
                 $"plainExact={plain.Pixels.SequenceEqual(baseline.Pixels)}; alphaOpaque={alphaIsOpaque}; " +
                 $"toolPixels={JsonSerializer.Serialize(changedByTool)}");
+    }
+
+    private static async Task<Outcome> ExerciseRecordingAndExports()
+    {
+        RecordingWorkspace? workspace = null;
+        ScreenRegionRecorder? recorder = null;
+        try
+        {
+            var screen = ScreenCaptureService.CaptureAllMonitors()
+                .OrderByDescending(candidate => candidate.Left <= 0 && candidate.Top <= 0 &&
+                                                candidate.Left + candidate.Width > 0 &&
+                                                candidate.Top + candidate.Height > 0)
+                .First();
+            var width = Math.Min(320, screen.Width - 2);
+            var height = Math.Min(240, screen.Height - 2);
+            var normalized = RecordingRegionPolicy.NormalizeForVideo(new PixelRegion(
+                screen.Left + 1,
+                screen.Top + 1,
+                width,
+                height));
+            var region = new Windows.Graphics.RectInt32(
+                normalized.Left,
+                normalized.Top,
+                normalized.Width,
+                normalized.Height);
+
+            workspace = new RecordingWorkspace();
+            recorder = new ScreenRegionRecorder(
+                region,
+                includeSystemAudio: false,
+                RecordingFrameRatePolicy.DefaultFrameRate);
+            await recorder.StartAsync(workspace.MasterFilePath);
+            await Task.Delay(900);
+            recorder.Pause();
+            await Task.Delay(250);
+            recorder.Resume();
+            await Task.Delay(450);
+            var path = await recorder.StopAsync();
+            recorder.Dispose();
+            recorder = null;
+            if (!File.Exists(path) || new FileInfo(path).Length < 1024)
+            {
+                return new Outcome(false, 0, "MP4 母版未生成或文件过小。");
+            }
+
+            var duration = TimeSpan.FromSeconds(1.35);
+            var gif = await RecordingExporter.ExportAsync(
+                path,
+                workspace.GetExportPath(RecordingExportFormat.Gif),
+                RecordingExportFormat.Gif,
+                duration);
+            var webp = await RecordingExporter.ExportAsync(
+                path,
+                workspace.GetExportPath(RecordingExportFormat.WebP),
+                RecordingExportFormat.WebP,
+                duration);
+            var gifBytes = File.ReadAllBytes(gif);
+            var webpBytes = File.ReadAllBytes(webp);
+            var gifHeader = System.Text.Encoding.ASCII.GetString(gifBytes, 0, 6);
+            var webpContainer = System.Text.Encoding.ASCII.GetString(webpBytes, 0, 4);
+            var webpKind = System.Text.Encoding.ASCII.GetString(webpBytes, 8, 4);
+            var gifValid = gifHeader is "GIF89a" or "GIF87a";
+            var webpValid = webpContainer == "RIFF" && webpKind == "WEBP";
+            return gifValid && webpValid
+                ? new Outcome(true, 0, null)
+                : new Outcome(false, 0, "GIF 或 WebP 文件头无效。");
+        }
+        catch (Exception exception)
+        {
+            return new Outcome(false, 0, exception.ToString());
+        }
+        finally
+        {
+            recorder?.Dispose();
+            workspace?.Dispose();
+        }
     }
 
     private static Outcome ExerciseClipboardTextRenderer()
@@ -1023,29 +1115,93 @@ internal static partial class Program
             return Outcome.Fail($"导航返回 {result}。");
         }
 
-        var markerCondition = new PropertyCondition(AutomationElement.NameProperty, marker);
         // Cold shell enumeration can take more than 1.5 seconds even after the
-        // address bar has reached the target. Keep the gate strict but avoid a
-        // false failure while the file list is still materializing.
-        var deadline = Environment.TickCount64 + 5000;
-        AutomationElement? found = null;
+        // address bar has reached the target. UI Automation can also briefly
+        // expose neither the file list nor the address toolbar, so corroborate
+        // it with the native address-bar text used by the production path.
+        var reachedTarget = WaitForDialogNavigationEvidence(
+            dialog,
+            target,
+            marker,
+            TimeSpan.FromSeconds(5),
+            out var address);
+        NavigationResult? retryResult = null;
+        if (!reachedTarget)
+        {
+            ForceForegroundWindow(dialog);
+            retryResult = FileDialogNavigator.Navigate(dialog, target);
+            if (retryResult == NavigationResult.Success)
+            {
+                reachedTarget = WaitForDialogNavigationEvidence(
+                    dialog,
+                    target,
+                    marker,
+                    TimeSpan.FromSeconds(5),
+                    out address);
+            }
+        }
+        stopwatch.Stop();
+        PostMessage(dialog, WmClose, IntPtr.Zero, IntPtr.Zero);
+        return !reachedTarget
+            ? Outcome.Fail(
+                $"导航后没有看到目标目录标记文件；地址栏={address ?? "<missing>"}；" +
+                $"重试结果={retryResult?.ToString() ?? "未重试"}。")
+            : Outcome.Pass(stopwatch.ElapsedMilliseconds);
+    }
+
+    private static bool WaitForDialogNavigationEvidence(
+        IntPtr dialog,
+        string target,
+        string marker,
+        TimeSpan timeout,
+        out string? address)
+    {
+        address = null;
+        var markerCondition = new PropertyCondition(AutomationElement.NameProperty, marker);
+        var addressCondition = new PropertyCondition(AutomationElement.AutomationIdProperty, "1001");
+        var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         do
         {
             Thread.Sleep(20);
-            found = AutomationElement.FromHandle(dialog).FindFirst(TreeScope.Descendants, markerCondition);
+            try
+            {
+                var root = AutomationElement.FromHandle(dialog);
+                if (root.FindFirst(TreeScope.Descendants, markerCondition) is not null)
+                {
+                    return true;
+                }
+
+                var automationAddress = root.FindFirst(TreeScope.Descendants, addressCondition)?.Current.Name;
+                if (!string.IsNullOrWhiteSpace(automationAddress)) address = automationAddress;
+            }
+            catch (ElementNotAvailableException)
+            {
+                // The shell is rebuilding the dialog's automation tree.
+            }
+            catch (InvalidOperationException)
+            {
+                // The shell is rebuilding the dialog's automation tree.
+            }
+            catch (COMException)
+            {
+                // The shell is rebuilding the dialog's automation tree.
+            }
+
+            if (FileDialogNavigator.TryGetCurrentAddress(dialog, out var nativeAddress))
+            {
+                address = nativeAddress;
+            }
+
+            if (FileDialogNavigator.AddressTextMatches(
+                    target,
+                    address ?? string.Empty,
+                    Path.GetFileName(target)))
+            {
+                return true;
+            }
         }
-        while (found is null && Environment.TickCount64 < deadline);
-        stopwatch.Stop();
-        var addressCondition = new PropertyCondition(AutomationElement.AutomationIdProperty, "1001");
-        var address = AutomationElement.FromHandle(dialog).FindFirst(TreeScope.Descendants, addressCondition)?.Current.Name;
-        var addressMatches = FileDialogNavigator.AddressTextMatches(
-            target,
-            address ?? string.Empty,
-            Path.GetFileName(target));
-        PostMessage(dialog, WmClose, IntPtr.Zero, IntPtr.Zero);
-        return found is null && !addressMatches
-            ? Outcome.Fail($"导航后没有看到目标目录标记文件；地址栏={address ?? "<missing>"}。")
-            : Outcome.Pass(stopwatch.ElapsedMilliseconds);
+        while (Environment.TickCount64 < deadline);
+        return false;
     }
 
     private static IntPtr WaitForWindow(string title, TimeSpan timeout)
