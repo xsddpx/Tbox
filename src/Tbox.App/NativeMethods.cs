@@ -105,6 +105,9 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial IntPtr GetForegroundWindow();
 
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetDpiForWindow(IntPtr hwnd);
+
     [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial int GetClassName(IntPtr hwnd, [Out] char[] className, int maxCount);
 

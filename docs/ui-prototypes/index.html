@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tbox PowerToys 风格界面原型</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <header class="prototype-toolbar" aria-label="原型控制栏">
+    <div class="prototype-brand">
+      <span class="prototype-logo">T</span>
+      <div><strong>Tbox 界面原型</strong><span>唯一候选方案 · PowerToys 响应式布局</span></div>
+    </div>
+    <nav class="prototype-links" aria-label="预览入口">
+      <a href="?page=home&compare=1">主页日夜对比</a>
+      <a href="?page=general&compare=1">常规日夜对比</a>
+    </nav>
+  </header>
+  <main id="prototypeRoot" tabindex="-1"></main>
+  <div id="prototypeToast" class="prototype-toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -52,6 +52,18 @@ internal sealed class ScreenPasteModule : ITboxModule
         _captureCache = new CaptureCache(directoryPath);
     }
 
+    internal Task StartCaptureFromUiAsync()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return IsEnabled ? StartCaptureAsync() : Task.CompletedTask;
+    }
+
+    internal Task PasteClipboardFromUiAsync()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return IsEnabled ? PasteClipboardAsync() : Task.CompletedTask;
+    }
+
     public Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

@@ -11,6 +11,7 @@ public sealed class SettingsTests
         var settings = new AppSettings();
         Assert.Equal("Ctrl + G", settings.FolderJumpHotkey.DisplayText);
         Assert.True(settings.ScreenPasteEnabled);
+        Assert.Equal("system", settings.AppTheme);
     }
 
     [Fact]
@@ -111,7 +112,8 @@ public sealed class SettingsTests
                 FolderJumpEnabled = false,
                 ScreenPasteEnabled = false,
                 ScreenCaptureCacheDirectory = Path.Combine(Path.GetTempPath(), "Tbox custom cache"),
-                StartWithWindows = true
+                StartWithWindows = true,
+                AppTheme = "dark"
             };
             await store.SaveAsync(expected);
             var actual = await store.LoadAsync();

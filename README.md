@@ -19,24 +19,30 @@ Tbox 是一个面向 Windows 11 的模块化效率工具底座，采用 C#、.NE
 - Windows 11 x64
 - .NET 8 SDK
 - Windows 11 SDK 10.0.26100
+- Visual Studio 2022 Build Tools（MSBuild 与 VSTest）
 
 ```powershell
 dotnet restore
-dotnet build
-dotnet test
-dotnet run --project src/Tbox.App/Tbox.App.csproj
+$vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+$msbuild = Join-Path $vsPath "MSBuild\Current\Bin\MSBuild.exe"
+$vstest = Join-Path $vsPath "Common7\IDE\Extensions\TestPlatform\vstest.console.exe"
+& $msbuild .\Tbox.sln /restore /t:Build /p:Configuration=Release /p:Platform=x64 /m:1
+& $vstest .\tests\Tbox.Core.Tests\bin\Release\net8.0\Tbox.Core.Tests.dll /Platform:x64
+& .\src\Tbox.App\bin\x64\Release\net8.0-windows10.0.26100.0\win-x64\Tbox.App.exe
 ```
+
+WinUI 3 项目使用 Visual Studio 构建链，避免 Windows App SDK 的独立 XAML 编译器在复杂响应式页面上异常退出。发布脚本会自动发现本机最新的 Build Tools。
 
 真实文件对话框与资源管理器集成压测：
 
 ```powershell
-dotnet run --project tests/Tbox.IntegrationHarness/Tbox.IntegrationHarness.csproj -- 20
+& .\tests\Tbox.IntegrationHarness\bin\x64\Release\net8.0-windows10.0.26100.0\win-x64\Tbox.IntegrationHarness.exe 20
 ```
 
 只验证多显示器枚举与逐屏像素捕获：
 
 ```powershell
-dotnet run --project tests/Tbox.IntegrationHarness/Tbox.IntegrationHarness.csproj -- --capture-only
+& .\tests\Tbox.IntegrationHarness\bin\x64\Release\net8.0-windows10.0.26100.0\win-x64\Tbox.IntegrationHarness.exe --capture-only
 ```
 
 关闭设置窗口后应用会继续驻留系统托盘；双击托盘图标可重新打开设置，通过托盘菜单的“退出”才会完全结束应用。

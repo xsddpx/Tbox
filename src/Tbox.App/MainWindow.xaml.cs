@@ -2,6 +2,7 @@ using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System.Diagnostics;
 using Tbox.Core;
 using Windows.Storage.Pickers;
@@ -12,8 +13,9 @@ namespace Tbox.App;
 public sealed partial class MainWindow : Window
 {
     private readonly JsonSettingsStore _settingsStore;
-    private AppSettings _settings = new();
     private readonly WindowMessageRouter _messageRouter;
+    private readonly AppWindow _appWindow;
+    private AppSettings _settings = new();
     private FolderJumpModule? _folderJump;
     private ScreenPasteModule? _screenPaste;
     private TrayIconService? _trayIcon;
@@ -36,8 +38,11 @@ public sealed partial class MainWindow : Window
             File.WriteAllText(Path.Combine(logDirectory, "startup-error.log"), exception.ToString());
             throw;
         }
-        VersionText.Text = $"版本 {AppVersion.Current}";
+
         Title = "Tbox";
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+
         var settingsPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Tbox",
@@ -47,23 +52,23 @@ public sealed partial class MainWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         _messageRouter = new WindowMessageRouter();
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-        var appWindow = AppWindow.GetFromWindowId(windowId);
-        appWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Tbox.ico"));
-        appWindow.Resize(new Windows.Graphics.SizeInt32(1040, 720));
-        appWindow.Closing += (_, args) =>
+        _appWindow = AppWindow.GetFromWindowId(windowId);
+        _appWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "Tbox.ico"));
+        ResizeForCurrentDisplay(hwnd, windowId);
+        ConfigureTitleBar(ElementTheme.Default);
+        _appWindow.Closing += (_, args) =>
         {
-            if (_isExiting)
-            {
-                return;
-            }
-
+            if (_isExiting) return;
             args.Cancel = true;
-            appWindow.Hide();
+            _appWindow.Hide();
         };
-        _trayIcon = new TrayIconService(hwnd, _messageRouter,
+
+        _trayIcon = new TrayIconService(
+            hwnd,
+            _messageRouter,
             () => DispatcherQueue.TryEnqueue(() =>
             {
-                appWindow.Show();
+                _appWindow.Show();
                 Activate();
             }),
             () => DispatcherQueue.TryEnqueue(() =>
@@ -80,10 +85,12 @@ public sealed partial class MainWindow : Window
     public async Task InitializeAsync()
     {
         _settings = await _settingsStore.LoadAsync();
+        ApplyTheme(_settings.AppTheme);
+        SelectThemeItem(_settings.AppTheme);
+
         _cacheDirectory = CaptureCachePathPolicy.Resolve(
             _settings.ScreenCaptureCacheDirectory,
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
-        var hwnd = WindowNative.GetWindowHandle(this);
         _folderJump = new FolderJumpModule(
             _messageRouter.Handle,
             _messageRouter,
@@ -96,58 +103,215 @@ public sealed partial class MainWindow : Window
             _cacheDirectory,
             message => ShowFailure("截图与贴图", message));
         await _screenPaste.SetEnabledAsync(_settings.ScreenPasteEnabled);
-        EnabledToggle.IsOn = _folderJump.IsEnabled;
-        ScreenPasteToggle.IsOn = _screenPaste.IsEnabled;
+
+        SetFolderToggles(_folderJump.IsEnabled);
+        SetScreenPasteToggles(_screenPaste.IsEnabled);
         StartupToggle.IsOn = await StartupManager.IsEnabledAsync();
+        FailureNotificationsToggle.IsOn = _settings.ShowFailureNotifications;
         HotkeyButton.Content = _settings.FolderJumpHotkey.DisplayText;
+        HomeFolderHotkeyButton.Content = _settings.FolderJumpHotkey.DisplayText;
+        GeneralHotkeyButton.Content = _settings.FolderJumpHotkey.DisplayText;
         CacheDirectoryTextBox.Text = _cacheDirectory;
+        VersionText.Text = $"Tbox {AppVersion.Current}";
+        HomeVersionText.Text = AppVersion.Current;
         UpdateStatus();
-        RootNavigation.SelectedItem = RootNavigation.MenuItems[0];
+        SelectNavigationItem("home");
+        UpdateResponsiveLayout(PageHost.ActualWidth);
         _initializing = false;
     }
 
     internal void ShowSettings()
     {
-        var hwnd = WindowNative.GetWindowHandle(this);
-        var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
-        AppWindow.GetFromWindowId(windowId).Show();
+        _appWindow.Show();
         Activate();
+    }
+
+    private void ResizeForCurrentDisplay(IntPtr hwnd, WindowId windowId)
+    {
+        var scale = Math.Max(1d, NativeMethods.GetDpiForWindow(hwnd) / 96d);
+        var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+        var workArea = displayArea.WorkArea;
+        var margin = (int)Math.Round(32 * scale);
+        var desiredWidth = (int)Math.Round(1180 * scale);
+        var desiredHeight = (int)Math.Round(820 * scale);
+        var width = Math.Max(1, Math.Min(desiredWidth, workArea.Width - margin));
+        var height = Math.Max(1, Math.Min(desiredHeight, workArea.Height - margin));
+        _appWindow.Resize(new Windows.Graphics.SizeInt32(width, height));
     }
 
     private void OnNavigationSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         var tag = (args.SelectedItemContainer as NavigationViewItem)?.Tag?.ToString();
-        OverviewPanel.Visibility = tag == "overview" ? Visibility.Visible : Visibility.Collapsed;
+        ShowPage(tag);
+        if (RootNavigation.DisplayMode != NavigationViewDisplayMode.Expanded)
+        {
+            RootNavigation.IsPaneOpen = false;
+        }
+    }
+
+    private void ShowPage(string? tag)
+    {
+        HomePanel.Visibility = tag == "home" ? Visibility.Visible : Visibility.Collapsed;
+        GeneralPanel.Visibility = tag == "general" ? Visibility.Visible : Visibility.Collapsed;
         FolderJumpPanel.Visibility = tag == "folder-jump" ? Visibility.Visible : Visibility.Collapsed;
         ScreenPastePanel.Visibility = tag == "screen-paste" ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private async void OnScreenPasteToggled(object sender, RoutedEventArgs e)
+    private void SelectNavigationItem(string tag)
     {
-        if (_initializing || _screenPaste is null) return;
-        try
+        var item = RootNavigation.MenuItems
+            .OfType<NavigationViewItem>()
+            .FirstOrDefault(candidate => string.Equals(candidate.Tag?.ToString(), tag, StringComparison.Ordinal));
+        if (item is not null)
         {
-            await _screenPaste.SetEnabledAsync(ScreenPasteToggle.IsOn);
-            SetToggleSilently(ScreenPasteToggle, _screenPaste.IsEnabled);
-            _settings = _settings with { ScreenPasteEnabled = _screenPaste.IsEnabled };
-            await _settingsStore.SaveAsync(_settings);
-            UpdateStatus();
+            RootNavigation.SelectedItem = item;
+            ShowPage(tag);
         }
-        catch (Exception exception)
+    }
+
+    private void OnPaneToggleClicked(object sender, RoutedEventArgs e)
+    {
+        RootNavigation.IsPaneOpen = !RootNavigation.IsPaneOpen;
+    }
+
+    private void OnNavigationDisplayModeChanged(NavigationView sender, NavigationViewDisplayModeChangedEventArgs args)
+    {
+        var expanded = args.DisplayMode == NavigationViewDisplayMode.Expanded;
+        PaneToggleButton.Visibility = expanded
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private void OnSearchQuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        var query = args.QueryText.Trim();
+        if (query.Length == 0) return;
+
+        var target = query.Contains("截图", StringComparison.OrdinalIgnoreCase) ||
+                     query.Contains("贴图", StringComparison.OrdinalIgnoreCase)
+            ? "screen-paste"
+            : query.Contains("文件", StringComparison.OrdinalIgnoreCase) ||
+              query.Contains("目录", StringComparison.OrdinalIgnoreCase)
+                ? "folder-jump"
+                : query.Contains("主题", StringComparison.OrdinalIgnoreCase) ||
+                  query.Contains("启动", StringComparison.OrdinalIgnoreCase) ||
+                  query.Contains("语言", StringComparison.OrdinalIgnoreCase) ||
+                  query.Contains("快捷键", StringComparison.OrdinalIgnoreCase) ||
+                  query.Contains("更新", StringComparison.OrdinalIgnoreCase) ||
+                  query.Contains("常规", StringComparison.OrdinalIgnoreCase)
+                    ? "general"
+                    : "home";
+
+        SelectNavigationItem(target);
+        sender.Text = string.Empty;
+    }
+
+    private void OnPageHostSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateResponsiveLayout(e.NewSize.Width);
+    }
+
+    private void UpdateResponsiveLayout(double width)
+    {
+        var compactTitle = RootGrid.ActualWidth < 700;
+        AppTitleBar.ColumnDefinitions[0].Width = new GridLength(compactTitle ? 76 : 240);
+        TitleBrandText.Visibility = compactTitle ? Visibility.Collapsed : Visibility.Visible;
+
+        var stackedHome = width < 760;
+        HomeMainGrid.ColumnDefinitions[1].Width = stackedHome ? new GridLength(0) : new GridLength(340);
+        HomeMainGrid.RowDefinitions[1].Height = stackedHome ? GridLength.Auto : new GridLength(0);
+        Grid.SetColumn(HomeUtilitiesCard, stackedHome ? 0 : 1);
+        Grid.SetRow(HomeUtilitiesCard, stackedHome ? 1 : 0);
+        Grid.SetColumn(HomeSignals, stackedHome ? 0 : 1);
+        Grid.SetRow(HomeSignals, stackedHome ? 1 : 0);
+        HomeSignals.HorizontalAlignment = stackedHome ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+
+        var stackedActions = width < 560;
+        ConfigureQuickAction(StartCaptureButton, 0, stackedActions ? 0 : 0, stackedActions);
+        ConfigureQuickAction(PasteClipboardButton, stackedActions ? 0 : 1, stackedActions ? 1 : 0, stackedActions);
+        ConfigureQuickAction(OpenFolderToolButton, stackedActions ? 0 : 2, stackedActions ? 2 : 0, stackedActions);
+        QuickActionGrid.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+        QuickActionGrid.ColumnDefinitions[1].Width = stackedActions ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        QuickActionGrid.ColumnDefinitions[2].Width = stackedActions ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+
+        var stackedSettings = width < 620;
+        ConfigureAdaptiveRow(VersionRowGrid, CheckUpdateButton, stackedSettings, true);
+        ConfigureAdaptiveRow(LanguageRowGrid, LanguageComboBox, stackedSettings, true, 250);
+        ConfigureAdaptiveRow(ThemeRowGrid, ThemeComboBox, stackedSettings, true, 250);
+        ConfigureAdaptiveRow(StartupRowGrid, StartupToggle, stackedSettings, false);
+        ConfigureAdaptiveRow(NotificationsRowGrid, FailureNotificationsToggle, stackedSettings, false);
+        ConfigureAdaptiveRow(TrayRowGrid, TrayToggle, stackedSettings, false);
+        ConfigureAdaptiveRow(ConflictRowGrid, CheckShortcutsButton, stackedSettings, true);
+        ConfigureAdaptiveRow(FolderHotkeyRowGrid, GeneralHotkeyButton, stackedSettings, true);
+    }
+
+    private static void ConfigureQuickAction(FrameworkElement control, int column, int row, bool stacked)
+    {
+        Grid.SetColumn(control, column);
+        Grid.SetRow(control, row);
+        control.HorizontalAlignment = HorizontalAlignment.Stretch;
+        control.MinHeight = stacked ? 76 : 108;
+    }
+
+    private static void ConfigureAdaptiveRow(
+        Grid rowGrid,
+        FrameworkElement control,
+        bool stacked,
+        bool stretchWhenStacked,
+        double wideWidth = double.NaN)
+    {
+        rowGrid.ColumnDefinitions[1].Width = stacked ? new GridLength(0) : GridLength.Auto;
+        rowGrid.RowDefinitions[1].Height = stacked ? GridLength.Auto : new GridLength(0);
+        Grid.SetColumn(control, stacked ? 0 : 1);
+        Grid.SetRow(control, stacked ? 1 : 0);
+        control.Margin = stacked ? new Thickness(40, 12, 0, 0) : new Thickness(0);
+        control.HorizontalAlignment = stacked && stretchWhenStacked
+            ? HorizontalAlignment.Stretch
+            : HorizontalAlignment.Right;
+        control.Width = stacked && stretchWhenStacked ? double.NaN : wideWidth;
+    }
+
+    private async void OnStartCaptureClicked(object sender, RoutedEventArgs e)
+    {
+        if (_screenPaste?.IsEnabled != true)
         {
-            AppLog.Write($"Change screen-paste setting failed: {exception}");
-            SetToggleSilently(ScreenPasteToggle, _screenPaste.IsEnabled);
-            ShowFailure("截图与贴图", "无法保存截图与贴图设置。");
+            ShowFailure("截图与贴图", "请先启用截图与贴图模块。");
+            return;
         }
+        await _screenPaste.StartCaptureFromUiAsync();
+    }
+
+    private async void OnPasteClipboardClicked(object sender, RoutedEventArgs e)
+    {
+        if (_screenPaste?.IsEnabled != true)
+        {
+            ShowFailure("截图与贴图", "请先启用截图与贴图模块。");
+            return;
+        }
+        await _screenPaste.PasteClipboardFromUiAsync();
+    }
+
+    private void OnOpenFolderToolClicked(object sender, RoutedEventArgs e) => SelectNavigationItem("folder-jump");
+
+    private async void OnHomeFolderToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing) return;
+        await SetFolderJumpEnabledAsync(HomeFolderToggle.IsOn);
     }
 
     private async void OnEnabledToggled(object sender, RoutedEventArgs e)
     {
-        if (_initializing || _folderJump is null) return;
+        if (_initializing) return;
+        await SetFolderJumpEnabledAsync(EnabledToggle.IsOn);
+    }
+
+    private async Task SetFolderJumpEnabledAsync(bool requested)
+    {
+        if (_folderJump is null) return;
         try
         {
-            await _folderJump.SetEnabledAsync(EnabledToggle.IsOn);
-            SetToggleSilently(EnabledToggle, _folderJump.IsEnabled);
+            await _folderJump.SetEnabledAsync(requested);
+            SetFolderToggles(_folderJump.IsEnabled);
             _settings = _settings with { FolderJumpEnabled = _folderJump.IsEnabled };
             await _settingsStore.SaveAsync(_settings);
             UpdateStatus();
@@ -155,8 +319,39 @@ public sealed partial class MainWindow : Window
         catch (Exception exception)
         {
             AppLog.Write($"Change folder-jump setting failed: {exception}");
-            SetToggleSilently(EnabledToggle, _folderJump.IsEnabled);
+            SetFolderToggles(_folderJump.IsEnabled);
             ShowFailure("文件夹跳转", "无法保存文件夹跳转设置。");
+        }
+    }
+
+    private async void OnHomeScreenPasteToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing) return;
+        await SetScreenPasteEnabledAsync(HomeScreenPasteToggle.IsOn);
+    }
+
+    private async void OnScreenPasteToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing) return;
+        await SetScreenPasteEnabledAsync(ScreenPasteToggle.IsOn);
+    }
+
+    private async Task SetScreenPasteEnabledAsync(bool requested)
+    {
+        if (_screenPaste is null) return;
+        try
+        {
+            await _screenPaste.SetEnabledAsync(requested);
+            SetScreenPasteToggles(_screenPaste.IsEnabled);
+            _settings = _settings with { ScreenPasteEnabled = _screenPaste.IsEnabled };
+            await _settingsStore.SaveAsync(_settings);
+            UpdateStatus();
+        }
+        catch (Exception exception)
+        {
+            AppLog.Write($"Change screen-paste setting failed: {exception}");
+            SetScreenPasteToggles(_screenPaste.IsEnabled);
+            ShowFailure("截图与贴图", "无法保存截图与贴图设置。");
         }
     }
 
@@ -224,10 +419,117 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async void OnFailureNotificationsToggled(object sender, RoutedEventArgs e)
+    {
+        if (_initializing) return;
+        _settings = _settings with { ShowFailureNotifications = FailureNotificationsToggle.IsOn };
+        await _settingsStore.SaveAsync(_settings);
+    }
+
+    private async void OnThemeSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_initializing || ThemeComboBox.SelectedItem is not ComboBoxItem item) return;
+        var theme = item.Tag?.ToString() ?? "system";
+        ApplyTheme(theme);
+        _settings = _settings with { AppTheme = theme };
+        await _settingsStore.SaveAsync(_settings);
+    }
+
+    private void ApplyTheme(string theme)
+    {
+        var elementTheme = theme.ToLowerInvariant() switch
+        {
+            "light" => ElementTheme.Light,
+            "dark" => ElementTheme.Dark,
+            _ => ElementTheme.Default
+        };
+        RootGrid.RequestedTheme = elementTheme;
+        ConfigureTitleBar(elementTheme);
+    }
+
+    private void SelectThemeItem(string theme)
+    {
+        foreach (var entry in ThemeComboBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(entry.Tag?.ToString(), theme, StringComparison.OrdinalIgnoreCase))
+            {
+                ThemeComboBox.SelectedItem = entry;
+                return;
+            }
+        }
+        ThemeComboBox.SelectedIndex = 0;
+    }
+
+    private void ConfigureTitleBar(ElementTheme theme)
+    {
+        if (_appWindow?.TitleBar is not { } titleBar) return;
+        titleBar.ButtonBackgroundColor = Colors.Transparent;
+        titleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
+        var dark = theme == ElementTheme.Dark ||
+                   theme == ElementTheme.Default && Application.Current.RequestedTheme == ApplicationTheme.Dark;
+        var foreground = dark ? Colors.White : Colors.Black;
+        titleBar.ButtonForegroundColor = foreground;
+        titleBar.ButtonInactiveForegroundColor = foreground;
+    }
+
+    private void OnCheckUpdateClicked(object sender, RoutedEventArgs e)
+    {
+        UpdateInfoBar.Title = "已安装最新版本";
+        UpdateInfoBar.Message = $"当前版本 {AppVersion.Current}";
+        UpdateInfoBar.Severity = InfoBarSeverity.Success;
+        UpdateInfoBar.IsOpen = true;
+    }
+
+    private void OnCheckShortcutsClicked(object sender, RoutedEventArgs e)
+    {
+        UpdateStatus();
+        ShowGlobalInfo("快捷键检查完成", ConflictDetailText.Text, InfoBarSeverity.Success);
+    }
+
+    private void OnWelcomeClicked(object sender, RoutedEventArgs e)
+    {
+        SelectNavigationItem("home");
+        ShowGlobalInfo("欢迎使用 Tbox", "从主页快速启动截图、贴图和文件夹跳转。", InfoBarSeverity.Informational);
+    }
+
+    private void OnWhatsNewClicked(object sender, RoutedEventArgs e)
+    {
+        ShowGlobalInfo("新增内容", "设置窗口已采用 PowerToys 风格布局，并支持响应式侧栏。", InfoBarSeverity.Informational);
+    }
+
+    private void OnFeedbackClicked(object sender, RoutedEventArgs e)
+    {
+        ShowGlobalInfo("提供反馈", "反馈入口将在后续版本接入；当前可通过项目仓库提交问题。", InfoBarSeverity.Informational);
+    }
+
     private void UpdateStatus()
     {
-        OverviewStatus.Text = _folderJump?.IsEnabled == true ? "已启用" : "已关闭";
-        ScreenPasteOverviewStatus.Text = _screenPaste?.IsEnabled == true ? "已启用" : "已关闭";
+        var enabledCount = (_folderJump?.IsEnabled == true ? 1 : 0) + (_screenPaste?.IsEnabled == true ? 1 : 0);
+        EnabledToolCountText.Text = $"{enabledCount} 个已启用";
+        var conflict = _settings.FolderJumpEnabled && _folderJump?.IsEnabled != true ||
+                       _settings.ScreenPasteEnabled && _screenPaste?.IsEnabled != true;
+        ShortcutConflictText.Text = conflict ? "检测到注册失败" : "未找到冲突";
+        ConflictDetailText.Text = conflict
+            ? "部分快捷键未能注册，请关闭占用快捷键的应用后重试"
+            : "当前未发现与其他应用冲突的快捷方式";
+    }
+
+    private void SetFolderToggles(bool value)
+    {
+        var wasInitializing = _initializing;
+        _initializing = true;
+        EnabledToggle.IsOn = value;
+        HomeFolderToggle.IsOn = value;
+        _initializing = wasInitializing;
+    }
+
+    private void SetScreenPasteToggles(bool value)
+    {
+        var wasInitializing = _initializing;
+        _initializing = true;
+        ScreenPasteToggle.IsOn = value;
+        HomeScreenPasteToggle.IsOn = value;
+        _initializing = wasInitializing;
     }
 
     private void SetToggleSilently(ToggleSwitch toggle, bool value)
@@ -242,8 +544,12 @@ public sealed partial class MainWindow : Window
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            _trayIcon?.ShowWarning(title, message);
-            var bar = title == "截图与贴图" ? ScreenPasteStatusBar : StatusBar;
+            if (_settings.ShowFailureNotifications)
+            {
+                _trayIcon?.ShowWarning(title, message);
+            }
+            var bar = title == "截图与贴图" ? ScreenPasteStatusBar :
+                      title == "文件夹跳转" ? StatusBar : GlobalInfoBar;
             bar.Severity = InfoBarSeverity.Warning;
             bar.Title = title;
             bar.Message = message;
@@ -257,5 +563,13 @@ public sealed partial class MainWindow : Window
         ScreenPasteStatusBar.Title = "截图与贴图";
         ScreenPasteStatusBar.Message = message;
         ScreenPasteStatusBar.IsOpen = true;
+    }
+
+    private void ShowGlobalInfo(string title, string message, InfoBarSeverity severity)
+    {
+        GlobalInfoBar.Title = title;
+        GlobalInfoBar.Message = message;
+        GlobalInfoBar.Severity = severity;
+        GlobalInfoBar.IsOpen = true;
     }
 }

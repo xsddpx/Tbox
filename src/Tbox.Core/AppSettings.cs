@@ -24,5 +24,6 @@ public sealed record AppSettings
     public string? ScreenCaptureCacheDirectory { get; init; }
     public bool StartWithWindows { get; init; }
     public bool ShowFailureNotifications { get; init; } = true;
+    public string AppTheme { get; init; } = "system";
     public HotkeySettings FolderJumpHotkey { get; init; } = new();
 }

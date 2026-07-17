@@ -7,7 +7,66 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
             </ResourceDictionary.MergedDictionaries>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F4F1EE"/>
+                    <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="#F6F3F0"/>
+                    <SolidColorBrush x:Key="PaneBackgroundBrush" Color="#F7F4F1"/>
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FFFEFC"/>
+                    <SolidColorBrush x:Key="CardBorderBrush" Color="#DED9D4"/>
+                    <SolidColorBrush x:Key="SubtleTextBrush" Color="#625E5A"/>
+                    <SolidColorBrush x:Key="DividerBrush" Color="#E9E4DF"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="AppBackgroundBrush" Color="#202020"/>
+                    <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="#252525"/>
+                    <SolidColorBrush x:Key="PaneBackgroundBrush" Color="#252525"/>
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#292929"/>
+                    <SolidColorBrush x:Key="CardBorderBrush" Color="#414141"/>
+                    <SolidColorBrush x:Key="SubtleTextBrush" Color="#C2C2C2"/>
+                    <SolidColorBrush x:Key="DividerBrush" Color="#363636"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <Style x:Key="PageTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="30"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+            </Style>
+            <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+            </Style>
+            <Style x:Key="BodyTextStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12"/>
+            </Style>
+            <Style x:Key="CaptionTextStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="10"/>
+                <Setter Property="Foreground" Value="{ThemeResource SubtleTextBrush}"/>
+            </Style>
+            <Style x:Key="CardStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundBrush}"/>
+                <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="8"/>
+            </Style>
+            <Style x:Key="FooterButtonStyle" TargetType="Button">
+                <Setter Property="Height" Value="40"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                <Setter Property="HorizontalAlignment" Value="Stretch"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="12,0"/>
+                <Setter Property="FontSize" Value="12"/>
+            </Style>
+            <Style x:Key="QuickActionButtonStyle" TargetType="Button">
+                <Setter Property="MinHeight" Value="108"/>
+                <Setter Property="Padding" Value="12"/>
+                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
+                <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="CornerRadius" Value="7"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
-

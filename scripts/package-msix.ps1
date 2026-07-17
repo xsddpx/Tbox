@@ -27,7 +27,22 @@ $manifest = Join-Path $root "src\Tbox.App\Package.appxmanifest"
 $project = Join-Path $root "src\Tbox.App\Tbox.App.csproj"
 $history = Join-Path $root "docs\release-history.md"
 $solution = Join-Path $root "Tbox.sln"
-$integrationProject = Join-Path $root "tests\Tbox.IntegrationHarness\Tbox.IntegrationHarness.csproj"
+$coreTests = Join-Path $root "tests\Tbox.Core.Tests\bin\Release\net8.0\Tbox.Core.Tests.dll"
+$integrationExecutable = Join-Path $root "tests\Tbox.IntegrationHarness\bin\x64\Release\net8.0-windows10.0.26100.0\win-x64\Tbox.IntegrationHarness.exe"
+
+$vsWhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+if (-not (Test-Path -LiteralPath $vsWhere)) {
+    throw "Visual Studio Installer discovery tool was not found: $vsWhere"
+}
+$visualStudioPath = & $vsWhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+if ($LASTEXITCODE -ne 0 -or -not $visualStudioPath) {
+    throw "Visual Studio 2022 Build Tools with MSBuild were not found."
+}
+$msBuild = Join-Path $visualStudioPath "MSBuild\Current\Bin\MSBuild.exe"
+$vsTest = Join-Path $visualStudioPath "Common7\IDE\Extensions\TestPlatform\vstest.console.exe"
+if (-not (Test-Path -LiteralPath $msBuild) -or -not (Test-Path -LiteralPath $vsTest)) {
+    throw "MSBuild or VSTest was not found under: $visualStudioPath"
+}
 
 $sdkBinRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
 $sdkTools = Get-ChildItem -LiteralPath $sdkBinRoot -Directory -ErrorAction SilentlyContinue |
@@ -66,16 +81,21 @@ if ($historyContent -match "(?m)^\|\s*$escapedVersion\s*\|") {
     throw "Version $version already exists in release history. Increase the version before packaging."
 }
 
-& dotnet build $solution -c Release -p:Platform=x64 --nologo -m:1
+& $msBuild $solution /restore /t:Build /p:Configuration=Release /p:Platform=x64 /m:1 /nologo /v:minimal
 if ($LASTEXITCODE -ne 0) {
     throw "Release build failed with exit code $LASTEXITCODE."
 }
-& dotnet test $solution -c Release -p:Platform=x64 --no-build --nologo
+if (-not (Test-Path -LiteralPath $coreTests)) {
+    throw "Core test assembly not found after build: $coreTests"
+}
+& $vsTest $coreTests /Platform:x64
 if ($LASTEXITCODE -ne 0) {
     throw "Release tests failed with exit code $LASTEXITCODE."
 }
-& dotnet run --project $integrationProject `
-    -c Release -p:Platform=x64 --no-build -- $IntegrationAttempts
+if (-not (Test-Path -LiteralPath $integrationExecutable)) {
+    throw "Integration harness not found after build: $integrationExecutable"
+}
+& $integrationExecutable $IntegrationAttempts
 if ($LASTEXITCODE -ne 0) {
     throw "Integration harness failed with exit code $LASTEXITCODE."
 }
