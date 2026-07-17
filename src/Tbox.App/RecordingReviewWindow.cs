@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Tbox.Core;
 using Windows.Graphics;
@@ -11,6 +12,7 @@ using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Storage;
 using Windows.Storage.Pickers;
+using Windows.System;
 using Windows.UI;
 using WinRT.Interop;
 
@@ -25,11 +27,12 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
     private readonly Slider _positionSlider;
     private readonly TextBlock _timeText;
     private readonly TextBlock _statusText;
+    private readonly TextBlock _formatDescriptionText;
     private readonly Button _playButton;
+    private readonly FontIcon _playIcon;
     private readonly Button _formatButton;
     private readonly Button _saveButton;
     private readonly Button _rerecordButton;
-    private readonly Button _closeButton;
     private readonly ProgressBar _exportProgress;
     private readonly DispatcherTimer _timer;
     private CancellationTokenSource? _exportCancellation;
@@ -50,8 +53,7 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
     internal RecordingReviewWindow(RecordingResult result)
     {
         _result = result;
-        Title = "Tbox 录屏回放";
-        var palette = TboxUi.Palette;
+        Title = "Tbox 录屏预览";
 
         _mediaPlayer = new MediaPlayer
         {
@@ -68,24 +70,33 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         };
         _playerElement.SetMediaPlayer(_mediaPlayer);
 
-        _positionSlider = new Slider { Minimum = 0, Maximum = Math.Max(0.1, result.Duration.TotalSeconds) };
+        _positionSlider = new Slider
+        {
+            Minimum = 0,
+            Maximum = Math.Max(0.1, result.Duration.TotalSeconds)
+        };
+        ApplyRecordingSliderVisual(_positionSlider);
+        AutomationProperties.SetName(_positionSlider, "播放进度");
         _positionSlider.ValueChanged += OnPositionChanged;
-        _timeText = Text("00:00/" + FormatDuration(result.Duration));
-        _playButton = Button("▶", "播放或暂停");
+        _timeText = Text("00:00 / " + FormatDuration(result.Duration));
+        _timeText.MinWidth = 96;
+        _playIcon = FluentIcon("\uE768", 16);
+        _playButton = IconButton(_playIcon, "播放");
         _playButton.Click += (_, _) => TogglePlayback();
         var volume = new Slider
         {
             Minimum = 0,
             Maximum = 1,
             Value = 1,
-            Width = 96
+            Width = 96,
+            Foreground = TboxUi.Brush(Colors.White)
         };
+        AutomationProperties.SetName(volume, "播放音量");
         volume.ValueChanged += (_, args) => _mediaPlayer.Volume = args.NewValue;
 
-        _formatButton = Button("MP4", "选择导出格式");
+        _formatButton = FormatButton("MP4", "选择导出格式");
         _formatButton.Flyout = CreateFormatFlyout();
-        _saveButton = Button("另存为…", "导出录屏");
-        TboxUi.StyleStandardButton(_saveButton, "导出录屏", primary: true);
+        _saveButton = LabeledButton("\uE74E", "保存", "导出录屏", primary: true);
         _saveButton.Click += async (_, _) =>
         {
             if (_exportCancellation is not null)
@@ -95,18 +106,20 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
             }
             await SaveAsync();
         };
-        _rerecordButton = Button("重新录制", "使用相同区域重新录制");
+        _rerecordButton = LabeledButton("\uE777", "重新录制", "使用相同区域重新录制");
         _rerecordButton.Click += (_, _) => Rerecord();
-        _closeButton = Button("关闭", "关闭回放");
-        _closeButton.Click += (_, _) => Close();
-        _statusText = Text(RecordingExportProfiles.Get(_format).Description);
-        _statusText.TextWrapping = TextWrapping.Wrap;
+        _formatDescriptionText = Text(FormatDescription(_format), secondary: true);
+        _formatDescriptionText.TextWrapping = TextWrapping.Wrap;
+        _statusText = Text("拖动进度条定位 · Space 播放/暂停 · Ctrl+S 保存 · Esc 关闭", secondary: true);
+        _statusText.FontSize = TboxUi.CaptionFontSize;
+        _statusText.TextTrimming = TextTrimming.CharacterEllipsis;
         _exportProgress = new ProgressBar
         {
             Minimum = 0,
             Maximum = 1,
             Visibility = Visibility.Collapsed,
-            Height = 3
+            Height = 3,
+            Foreground = TboxUi.Brush(TboxUi.ScreenshotModeColor)
         };
 
         var playbackRow = new StackPanel
@@ -117,26 +130,39 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         };
         playbackRow.Children.Add(_playButton);
         playbackRow.Children.Add(_timeText);
-        playbackRow.Children.Add(TboxUi.CreateText("音量", TboxUi.CaptionFontSize, secondary: true));
+        playbackRow.Children.Add(new FontIcon
+        {
+            Glyph = "\uE767",
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 16,
+            Foreground = TboxUi.Brush(Color.FromArgb(255, 220, 220, 220))
+        });
         playbackRow.Children.Add(volume);
 
-        var exportRow = new StackPanel
+        var exportRow = new Grid
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 8,
-            VerticalAlignment = VerticalAlignment.Center
+            ColumnSpacing = 8,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = GridLength.Auto }
+            }
         };
         exportRow.Children.Add(_formatButton);
-        exportRow.Children.Add(_saveButton);
+        Grid.SetColumn(_formatDescriptionText, 1);
+        exportRow.Children.Add(_formatDescriptionText);
+        Grid.SetColumn(_rerecordButton, 2);
         exportRow.Children.Add(_rerecordButton);
-        exportRow.Children.Add(_closeButton);
+        Grid.SetColumn(_saveButton, 3);
+        exportRow.Children.Add(_saveButton);
 
         var controls = new StackPanel
         {
-            Spacing = 4,
-            Padding = new Thickness(12, 8, 12, 12),
-            Background = TboxUi.Brush(palette.SurfaceSecondary)
+            Spacing = 7,
+            Padding = new Thickness(16, 8, 16, 12),
+            Background = TboxUi.Brush(Color.FromArgb(255, 32, 32, 32))
         };
         controls.Children.Add(_positionSlider);
         controls.Children.Add(playbackRow);
@@ -144,20 +170,88 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         controls.Children.Add(_statusText);
         controls.Children.Add(_exportProgress);
 
+        var titleBar = new Grid
+        {
+            Height = 48,
+            Padding = new Thickness(16, 0, 150, 0),
+            Background = TboxUi.Brush(Color.FromArgb(255, 34, 34, 34)),
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = GridLength.Auto },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }
+            }
+        };
+        var title = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 9,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        title.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse
+        {
+            Width = 10,
+            Height = 10,
+            Fill = TboxUi.Brush(TboxUi.RecordingModeColor)
+        });
+        var titleText = Text("录屏预览");
+        titleText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        title.Children.Add(titleText);
+        titleBar.Children.Add(title);
+        var metadata = Text(
+            $"{result.Region.Width:N0} × {result.Region.Height:N0} · {FormatDuration(result.Duration)} · " +
+            (result.HasSystemAudio ? "系统声音已开启" : "系统声音已关闭"),
+            secondary: true);
+        metadata.FontSize = TboxUi.CaptionFontSize;
+        metadata.Margin = new Thickness(16, 0, 0, 0);
+        metadata.TextTrimming = TextTrimming.CharacterEllipsis;
+        Grid.SetColumn(metadata, 1);
+        titleBar.Children.Add(metadata);
+
         var root = new Grid
         {
-            RequestedTheme = TboxUi.RequestedTheme,
+            RequestedTheme = ElementTheme.Dark,
             Background = new SolidColorBrush(Colors.Black),
             RowDefinitions =
             {
+                new RowDefinition { Height = GridLength.Auto },
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
                 new RowDefinition { Height = GridLength.Auto }
             }
         };
+        root.Children.Add(titleBar);
+        Grid.SetRow(_playerElement, 1);
         root.Children.Add(_playerElement);
-        Grid.SetRow(controls, 1);
+        Grid.SetRow(controls, 2);
         root.Children.Add(controls);
         Content = root;
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(titleBar);
+
+        var playAccelerator = new KeyboardAccelerator { Key = VirtualKey.Space };
+        playAccelerator.Invoked += (_, args) =>
+        {
+            args.Handled = true;
+            TogglePlayback();
+        };
+        root.KeyboardAccelerators.Add(playAccelerator);
+        var saveAccelerator = new KeyboardAccelerator
+        {
+            Key = VirtualKey.S,
+            Modifiers = VirtualKeyModifiers.Control
+        };
+        saveAccelerator.Invoked += async (_, args) =>
+        {
+            args.Handled = true;
+            await SaveAsync();
+        };
+        root.KeyboardAccelerators.Add(saveAccelerator);
+        var closeAccelerator = new KeyboardAccelerator { Key = VirtualKey.Escape };
+        closeAccelerator.Invoked += (_, args) =>
+        {
+            args.Handled = true;
+            Close();
+        };
+        root.KeyboardAccelerators.Add(closeAccelerator);
 
         var hwnd = WindowNative.GetWindowHandle(this);
         NativeMethods.DisableWindowTransitions(hwnd);
@@ -172,7 +266,7 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
             presenter.IsMinimizable = true;
         }
         _appWindow.IsShownInSwitchers = true;
-        TboxUi.ConfigureTitleBar(_appWindow, palette.IsDark);
+        TboxUi.ConfigureTitleBar(_appWindow, dark: true);
         PositionWindow(hwnd, result.Region);
         _appWindow.Closing += OnWindowClosing;
 
@@ -214,9 +308,8 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
     private void SelectFormat(RecordingExportFormat format)
     {
         _format = format;
-        var profile = RecordingExportProfiles.Get(format);
-        _formatButton.Content = profile.DisplayName;
-        _statusText.Text = profile.Description + (profile.SupportsAudio ? string.Empty : " · 图像格式不包含声音");
+        SetFormatButtonContent(RecordingExportProfiles.Get(format).DisplayName);
+        _formatDescriptionText.Text = FormatDescription(format);
     }
 
     private async Task SaveAsync()
@@ -240,7 +333,11 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
 
             SetExporting(true);
             _exportCancellation = new CancellationTokenSource();
-            var progress = new Progress<double>(value => _exportProgress.Value = value);
+            var progress = new Progress<double>(value =>
+            {
+                _exportProgress.Value = value;
+                _statusText.Text = $"正在导出 {value:P0}";
+            });
             var exportPath = _format == RecordingExportFormat.Mp4
                 ? _result.Workspace.MasterFilePath
                 : _result.Workspace.GetExportPath(_format);
@@ -287,7 +384,10 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         _exportProgress.Visibility = exporting ? Visibility.Visible : Visibility.Collapsed;
         _exportProgress.Value = 0;
         _formatButton.IsEnabled = !exporting;
-        _saveButton.Content = exporting ? "取消导出" : "另存为…";
+        SetLabeledButtonContent(
+            _saveButton,
+            exporting ? "\uE711" : "\uE74E",
+            exporting ? "取消导出" : "保存");
         _rerecordButton.IsEnabled = !exporting;
         _statusText.Text = exporting ? "正在导出…" : _statusText.Text;
     }
@@ -297,12 +397,14 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         if (_mediaPlayer.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
         {
             _mediaPlayer.Pause();
-            _playButton.Content = "▶";
+            _playIcon.Glyph = "\uE768";
+            UpdatePlaybackAccessibility("播放");
         }
         else
         {
             _mediaPlayer.Play();
-            _playButton.Content = "Ⅱ";
+            _playIcon.Glyph = "\uE769";
+            UpdatePlaybackAccessibility("暂停");
         }
     }
 
@@ -314,8 +416,12 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         _positionSlider.Maximum = Math.Max(0.1, duration.TotalSeconds);
         _positionSlider.Value = Math.Clamp(session.Position.TotalSeconds, 0, _positionSlider.Maximum);
         _updatingPosition = false;
-        _timeText.Text = $"{FormatDuration(session.Position)}/{FormatDuration(duration)}";
-        if (session.PlaybackState != MediaPlaybackState.Playing) _playButton.Content = "▶";
+        _timeText.Text = $"{FormatDuration(session.Position)} / {FormatDuration(duration)}";
+        if (session.PlaybackState != MediaPlaybackState.Playing)
+        {
+            _playIcon.Glyph = "\uE768";
+            UpdatePlaybackAccessibility("播放");
+        }
     }
 
     private void OnPositionChanged(object sender, RangeBaseValueChangedEventArgs e)
@@ -369,7 +475,6 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
         _formatButton.IsEnabled = false;
         _saveButton.IsEnabled = false;
         _rerecordButton.IsEnabled = false;
-        _closeButton.IsEnabled = false;
     }
 
     private void DetachPlayback()
@@ -449,20 +554,152 @@ internal sealed class RecordingReviewWindow : Window, IDisposable
             height));
     }
 
-    private static TextBlock Text(string value) => new()
+    private static TextBlock Text(string value, bool secondary = false) => new()
     {
         Text = value,
         FontSize = TboxUi.BodyFontSize,
-        Foreground = TboxUi.Brush(TboxUi.Palette.TextPrimary),
+        Foreground = TboxUi.Brush(secondary
+            ? Color.FromArgb(255, 170, 170, 170)
+            : Colors.White),
         VerticalAlignment = VerticalAlignment.Center
     };
 
-    private static Button Button(string content, string tooltip)
+    private static FontIcon FluentIcon(string glyph, double size) => new()
     {
-        var button = new Button { Content = content, MinWidth = 56 };
-        TboxUi.StyleStandardButton(button, tooltip);
+        Glyph = glyph,
+        FontFamily = new FontFamily("Segoe Fluent Icons"),
+        FontSize = size,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private static Button IconButton(UIElement icon, string tooltip)
+    {
+        var button = new Button
+        {
+            Content = icon,
+            Width = 34,
+            Height = 34,
+            Padding = new Thickness(0),
+            CornerRadius = new CornerRadius(4),
+            RequestedTheme = ElementTheme.Dark,
+            Foreground = TboxUi.Brush(Colors.White)
+        };
+        ApplyReviewButtonVisual(button, primary: false);
         AutomationProperties.SetName(button, tooltip);
+        ToolTipService.SetToolTip(button, tooltip);
         return button;
+    }
+
+    private static Button LabeledButton(
+        string glyph,
+        string text,
+        string tooltip,
+        bool primary = false)
+    {
+        var button = new Button
+        {
+            Height = 36,
+            MinWidth = primary ? 104 : 116,
+            Padding = new Thickness(12, 0, 12, 0),
+            CornerRadius = new CornerRadius(4),
+            RequestedTheme = ElementTheme.Dark
+        };
+        SetLabeledButtonContent(button, glyph, text);
+        ApplyReviewButtonVisual(button, primary);
+        AutomationProperties.SetName(button, tooltip);
+        ToolTipService.SetToolTip(button, tooltip);
+        return button;
+    }
+
+    private static void SetLabeledButtonContent(Button button, string glyph, string text)
+    {
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 7,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        content.Children.Add(FluentIcon(glyph, 15));
+        content.Children.Add(Text(text));
+        button.Content = content;
+        AutomationProperties.SetName(button, text);
+        ToolTipService.SetToolTip(button, text);
+    }
+
+    private static Button FormatButton(string text, string tooltip)
+    {
+        var button = new Button
+        {
+            Height = 34,
+            MinWidth = 92,
+            Padding = new Thickness(12, 0, 10, 0),
+            CornerRadius = new CornerRadius(4),
+            RequestedTheme = ElementTheme.Dark
+        };
+        SetFormatButtonContent(button, text);
+        ApplyReviewButtonVisual(button, primary: false);
+        AutomationProperties.SetName(button, tooltip);
+        ToolTipService.SetToolTip(button, tooltip);
+        return button;
+    }
+
+    private void SetFormatButtonContent(string text) => SetFormatButtonContent(_formatButton, text);
+
+    private static void SetFormatButtonContent(Button button, string text)
+    {
+        var content = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 7,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        content.Children.Add(Text(text));
+        content.Children.Add(FluentIcon("\uE70D", 10));
+        button.Content = content;
+    }
+
+    private static void ApplyReviewButtonVisual(Button button, bool primary)
+    {
+        var normal = primary ? TboxUi.ScreenshotModeColor : Color.FromArgb(255, 44, 44, 44);
+        var hover = primary ? Color.FromArgb(255, 20, 135, 230) : Color.FromArgb(255, 58, 58, 58);
+        var pressed = primary ? Color.FromArgb(255, 0, 96, 170) : Color.FromArgb(255, 72, 72, 72);
+        button.Foreground = TboxUi.Brush(Colors.White);
+        button.Background = TboxUi.Brush(normal);
+        button.BorderBrush = TboxUi.Brush(primary
+            ? TboxUi.ScreenshotModeColor
+            : Color.FromArgb(255, 82, 82, 82));
+        button.BorderThickness = new Thickness(1);
+        button.Resources["ButtonBackgroundPointerOver"] = TboxUi.Brush(hover);
+        button.Resources["ButtonBackgroundPressed"] = TboxUi.Brush(pressed);
+        button.Resources["ButtonForegroundDisabled"] = TboxUi.Brush(Color.FromArgb(255, 112, 112, 112));
+    }
+
+    private static void ApplyRecordingSliderVisual(Slider slider)
+    {
+        var normal = TboxUi.Brush(TboxUi.RecordingModeColor);
+        var hover = TboxUi.Brush(Color.FromArgb(255, 255, 98, 89));
+        var pressed = TboxUi.Brush(Color.FromArgb(255, 217, 45, 36));
+        slider.Foreground = normal;
+        slider.Resources["SliderThumbBackground"] = normal;
+        slider.Resources["SliderThumbBackgroundPointerOver"] = hover;
+        slider.Resources["SliderThumbBackgroundPressed"] = pressed;
+        slider.Resources["SliderTrackValueFill"] = normal;
+        slider.Resources["SliderTrackValueFillPointerOver"] = hover;
+        slider.Resources["SliderTrackValueFillPressed"] = pressed;
+    }
+
+    private void UpdatePlaybackAccessibility(string name)
+    {
+        AutomationProperties.SetName(_playButton, name);
+        ToolTipService.SetToolTip(_playButton, name);
+    }
+
+    private static string FormatDescription(RecordingExportFormat format)
+    {
+        var profile = RecordingExportProfiles.Get(format);
+        return profile.Description + (profile.SupportsAudio ? string.Empty : " · 图像格式不包含声音");
     }
 
     private static string FormatDuration(TimeSpan duration) => duration.TotalHours >= 1

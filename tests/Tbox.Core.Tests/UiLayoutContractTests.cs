@@ -211,6 +211,37 @@ public sealed class UiLayoutContractTests
     }
 
     [Fact]
+    public void RecordingControlAndReviewUseConfirmedCompactUi()
+    {
+        var control = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingControlWindow.cs"));
+        var review = File.ReadAllText(RepositoryFile("src", "Tbox.App", "RecordingReviewWindow.cs"));
+
+        Assert.Contains("TboxUi.CreateTaskSurface(tools)", control, StringComparison.Ordinal);
+        Assert.Contains("_frameRateButton.Visibility = Visibility.Collapsed", control, StringComparison.Ordinal);
+        Assert.Contains("_audioButton.Visibility = Visibility.Collapsed", control, StringComparison.Ordinal);
+        Assert.Contains("_pausedText.Visibility = Visibility.Visible", control, StringComparison.Ordinal);
+        Assert.Contains("Color.FromArgb(255, 255, 176, 32)", control, StringComparison.Ordinal);
+        Assert.Contains("FontFamily = new FontFamily(\"Segoe Fluent Icons\")", control, StringComparison.Ordinal);
+        Assert.DoesNotContain("IconButton(\"●\"", control, StringComparison.Ordinal);
+        Assert.DoesNotContain("IconButton(\"■\"", control, StringComparison.Ordinal);
+        Assert.DoesNotContain("IconButton(\"Ⅱ\"", control, StringComparison.Ordinal);
+
+        Assert.Contains("Title = \"Tbox 录屏预览\"", review, StringComparison.Ordinal);
+        Assert.Contains("ExtendsContentIntoTitleBar = true", review, StringComparison.Ordinal);
+        Assert.Contains("SetTitleBar(titleBar)", review, StringComparison.Ordinal);
+        Assert.Contains("系统声音已开启", review, StringComparison.Ordinal);
+        Assert.Contains("FormatDescription(_format)", review, StringComparison.Ordinal);
+        Assert.Contains("ApplyRecordingSliderVisual(_positionSlider)", review, StringComparison.Ordinal);
+        Assert.Contains("SliderThumbBackground", review, StringComparison.Ordinal);
+        Assert.Contains("SliderTrackValueFill", review, StringComparison.Ordinal);
+        Assert.Contains("LabeledButton(\"\\uE777\", \"重新录制\"", review, StringComparison.Ordinal);
+        Assert.Contains("LabeledButton(\"\\uE74E\", \"保存\"", review, StringComparison.Ordinal);
+        Assert.Contains("Key = VirtualKey.Space", review, StringComparison.Ordinal);
+        Assert.Contains("Modifiers = VirtualKeyModifiers.Control", review, StringComparison.Ordinal);
+        Assert.DoesNotContain("_closeButton", review, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CaptureModesShareEightHandleFrameStyleAndUseDistinctColors()
     {
         var frame = File.ReadAllText(RepositoryFile("src", "Tbox.App", "CaptureRegionFrame.cs"));
@@ -414,11 +445,11 @@ public sealed class UiLayoutContractTests
         Assert.Contains("TboxUi.CreateTaskSurface", longPreview, StringComparison.Ordinal);
         Assert.Contains("RequestedTheme = TboxUi.RequestedTheme", longReview, StringComparison.Ordinal);
         Assert.Contains("RequestedTheme = TboxUi.RequestedTheme", ocr, StringComparison.Ordinal);
-        Assert.Contains("RequestedTheme = TboxUi.RequestedTheme", recordingReview, StringComparison.Ordinal);
+        Assert.Contains("RequestedTheme = ElementTheme.Dark", recordingReview, StringComparison.Ordinal);
         Assert.Contains("TboxUi.CreateTaskSurface", recordingControl, StringComparison.Ordinal);
         Assert.Contains("TboxUi.RecordingModeColor", recordingControl, StringComparison.Ordinal);
         Assert.Contains("QueuePlacementRefresh()", recordingControl, StringComparison.Ordinal);
-        Assert.Contains("AutomationProperties.SetName(_pauseButton, \"继续录制\")", recordingControl, StringComparison.Ordinal);
+        Assert.Contains("UpdatePauseAccessibility(\"继续录制\")", recordingControl, StringComparison.Ordinal);
         Assert.Contains("录制系统声音（已开启）", recordingControl, StringComparison.Ordinal);
         Assert.DoesNotContain("_statusText.MinWidth", recordingControl, StringComparison.Ordinal);
         Assert.Contains("TboxUi.LongCaptureModeColor", longControl, StringComparison.Ordinal);

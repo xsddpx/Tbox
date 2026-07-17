@@ -30,12 +30,16 @@ internal sealed class RecordingControlWindow : Window, IDisposable
     private readonly AppWindow _appWindow;
     private readonly IntPtr _windowHandle;
     private readonly Border _root;
+    private readonly Ellipse _recordingIndicator;
     private readonly TextBlock _timeText;
+    private readonly TextBlock _pausedText;
     private readonly TextBlock _statusText;
     private readonly Button _startButton;
     private readonly Button _frameRateButton;
+    private readonly TextBlock _frameRateText;
     private readonly Button _stopButton;
     private readonly Button _pauseButton;
+    private readonly FontIcon _pauseIcon;
     private readonly ToggleButton _audioButton;
     private readonly Button _cancelButton;
     private readonly DispatcherTimer _timer;
@@ -63,19 +67,41 @@ internal sealed class RecordingControlWindow : Window, IDisposable
             Spacing = 8,
             VerticalAlignment = VerticalAlignment.Center
         };
-        timeMetric.Children.Add(new Ellipse
+        _recordingIndicator = new Ellipse
         {
             Width = 8,
             Height = 8,
             Fill = TboxUi.Brush(TboxUi.RecordingModeColor),
             VerticalAlignment = VerticalAlignment.Center
-        });
+        };
+        timeMetric.Children.Add(_recordingIndicator);
         timeMetric.Children.Add(_timeText);
+        _pausedText = Label("已暂停");
+        _pausedText.FontSize = TboxUi.CaptionFontSize;
+        _pausedText.Foreground = TboxUi.Brush(Color.FromArgb(255, 255, 207, 112));
+        _pausedText.Visibility = Visibility.Collapsed;
+        timeMetric.Children.Add(_pausedText);
+
+        _frameRateText = Label($"{_selectedFrameRate} FPS");
+        _frameRateText.FontSize = TboxUi.CaptionFontSize;
+        var frameRateContent = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        frameRateContent.Children.Add(_frameRateText);
+        frameRateContent.Children.Add(new FontIcon
+        {
+            Glyph = "\uE70D",
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 10
+        });
         _frameRateButton = new Button
         {
-            Content = $"{_selectedFrameRate} FPS",
+            Content = frameRateContent,
             Height = TboxUi.StandardControlHeight,
-            MinWidth = 72,
+            MinWidth = 76,
             Padding = new Thickness(8, 0, 8, 0),
             CornerRadius = new CornerRadius(TboxUi.ControlCornerRadius),
             Flyout = CreateFrameRateFlyout()
@@ -83,14 +109,30 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         TboxUi.ApplyTaskButtonVisual(_frameRateButton, false);
         AutomationProperties.SetName(_frameRateButton, "选择录制帧率");
         ToolTipService.SetToolTip(_frameRateButton, "选择录制帧率；默认 10 FPS");
-        _startButton = IconButton("●", "开始录制");
-        _startButton.Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 59, 48));
+        _startButton = ShapeButton(new Ellipse
+        {
+            Width = 14,
+            Height = 14,
+            Fill = TboxUi.Brush(TboxUi.RecordingModeColor)
+        }, "开始录制");
         _startButton.Click += async (_, _) => await StartRecordingAsync();
-        _stopButton = IconButton("■", "停止录制");
-        _stopButton.Foreground = new SolidColorBrush(Color.FromArgb(255, 255, 59, 48));
+        _stopButton = ShapeButton(new Rectangle
+        {
+            Width = 12,
+            Height = 12,
+            RadiusX = 1,
+            RadiusY = 1,
+            Fill = TboxUi.Brush(TboxUi.RecordingModeColor)
+        }, "停止并进入预览");
         _stopButton.Visibility = Visibility.Collapsed;
         _stopButton.Click += async (_, _) => await StopRecordingAsync();
-        _pauseButton = IconButton("Ⅱ", "暂停录制");
+        _pauseIcon = new FontIcon
+        {
+            Glyph = "\uE769",
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 16
+        };
+        _pauseButton = IconButton(_pauseIcon, "暂停录制");
         _pauseButton.Visibility = Visibility.Collapsed;
         _pauseButton.Click += (_, _) => TogglePause();
         _audioButton = new ToggleButton
@@ -114,13 +156,14 @@ internal sealed class RecordingControlWindow : Window, IDisposable
             TboxUi.ApplyTaskToggleVisual(_audioButton, false);
             UpdateAudioAccessibility(false);
         };
-        _cancelButton = IconButton("×", "取消录屏");
+        _cancelButton = GlyphButton("\uE711", "取消录屏");
         _cancelButton.Click += async (_, _) => await CancelAsync();
-        _statusText = Label("就绪");
-        _statusText.MaxWidth = 144;
+        _statusText = Label(string.Empty);
+        _statusText.MaxWidth = 210;
         _statusText.FontSize = TboxUi.CaptionFontSize;
         _statusText.Foreground = TboxUi.Brush(Color.FromArgb(255, 224, 224, 224));
         _statusText.TextTrimming = TextTrimming.CharacterEllipsis;
+        _statusText.Visibility = Visibility.Collapsed;
 
         var tools = new StackPanel
         {
@@ -128,15 +171,13 @@ internal sealed class RecordingControlWindow : Window, IDisposable
             Spacing = 2
         };
         tools.Children.Add(timeMetric);
+        tools.Children.Add(_statusText);
         tools.Children.Add(_frameRateButton);
+        tools.Children.Add(_audioButton);
         tools.Children.Add(Separator());
         tools.Children.Add(_startButton);
-        tools.Children.Add(_stopButton);
         tools.Children.Add(_pauseButton);
-        tools.Children.Add(Separator());
-        tools.Children.Add(_audioButton);
-        tools.Children.Add(_statusText);
-        tools.Children.Add(Separator());
+        tools.Children.Add(_stopButton);
         tools.Children.Add(_cancelButton);
         _root = TboxUi.CreateTaskSurface(tools);
         Content = _root;
@@ -231,12 +272,22 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         _startButton.Visibility = Visibility.Collapsed;
         _stopButton.Visibility = Visibility.Visible;
         _pauseButton.Visibility = Visibility.Visible;
+        _frameRateButton.Visibility = Visibility.Collapsed;
+        _audioButton.Visibility = Visibility.Collapsed;
         _audioButton.IsEnabled = false;
         _frameRateButton.IsEnabled = false;
         _cancelButton.IsEnabled = true;
+        _pausedText.Visibility = Visibility.Collapsed;
+        _recordingIndicator.Fill = TboxUi.Brush(TboxUi.RecordingModeColor);
+        _pauseIcon.Glyph = "\uE769";
+        UpdatePauseAccessibility("暂停录制");
         if (string.IsNullOrWhiteSpace(_statusText.Text) || _statusText.Text == "正在启动…")
         {
-            _statusText.Text = "录制中";
+            HideStatus();
+        }
+        else
+        {
+            _statusText.Visibility = Visibility.Visible;
         }
         _elapsed.Restart();
         _timer.Start();
@@ -245,7 +296,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
 
     private void SetStartingState()
     {
-        _statusText.Text = "正在启动…";
+        ShowStatus("正在启动…");
         _startButton.IsEnabled = false;
         _audioButton.IsEnabled = false;
         _frameRateButton.IsEnabled = false;
@@ -259,9 +310,14 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         _recorder?.Dispose();
         _recorder = null;
         _state = RecordingSessionState.Failed;
-        _statusText.Text = "无法开始录制，请检查 Windows 媒体功能";
+        ShowStatus("无法开始录制，请检查 Windows 媒体功能");
         _startButton.IsEnabled = true;
         _startButton.Visibility = Visibility.Visible;
+        _stopButton.Visibility = Visibility.Collapsed;
+        _pauseButton.Visibility = Visibility.Collapsed;
+        _pausedText.Visibility = Visibility.Collapsed;
+        _frameRateButton.Visibility = Visibility.Visible;
+        _audioButton.Visibility = Visibility.Visible;
         _audioButton.IsEnabled = true;
         _frameRateButton.IsEnabled = true;
         _cancelButton.IsEnabled = true;
@@ -278,27 +334,29 @@ internal sealed class RecordingControlWindow : Window, IDisposable
                 _recorder.Pause();
                 _elapsed.Stop();
                 _state = RecordingSessionState.Paused;
-                _pauseButton.Content = "▶";
-                ToolTipService.SetToolTip(_pauseButton, "继续录制");
-                AutomationProperties.SetName(_pauseButton, "继续录制");
-                _statusText.Text = "已暂停";
+                _pauseIcon.Glyph = "\uE768";
+                UpdatePauseAccessibility("继续录制");
+                _pausedText.Visibility = Visibility.Visible;
+                _recordingIndicator.Fill = TboxUi.Brush(Color.FromArgb(255, 255, 176, 32));
+                HideStatus();
             }
             else if (_state == RecordingSessionState.Paused)
             {
                 _recorder.Resume();
                 _elapsed.Start();
                 _state = RecordingSessionState.Recording;
-                _pauseButton.Content = "Ⅱ";
-                ToolTipService.SetToolTip(_pauseButton, "暂停录制");
-                AutomationProperties.SetName(_pauseButton, "暂停录制");
-                _statusText.Text = "录制中";
+                _pauseIcon.Glyph = "\uE769";
+                UpdatePauseAccessibility("暂停录制");
+                _pausedText.Visibility = Visibility.Collapsed;
+                _recordingIndicator.Fill = TboxUi.Brush(TboxUi.RecordingModeColor);
+                HideStatus();
             }
             QueuePlacementRefresh();
         }
         catch (Exception exception)
         {
             AppLog.Write($"Pause or resume recording failed: {exception}");
-            _statusText.Text = "无法切换暂停状态";
+            ShowStatus("无法切换暂停状态");
         }
     }
 
@@ -311,7 +369,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         _stopButton.IsEnabled = false;
         _pauseButton.IsEnabled = false;
         _cancelButton.IsEnabled = false;
-        _statusText.Text = "正在完成录制…";
+        ShowStatus("正在完成录制…");
         QueuePlacementRefresh();
         try
         {
@@ -332,7 +390,7 @@ internal sealed class RecordingControlWindow : Window, IDisposable
         {
             AppLog.Write($"Stop recording failed: {exception}");
             _state = RecordingSessionState.Failed;
-            _statusText.Text = "录制未能完成，请取消后重试";
+            ShowStatus("录制未能完成，请取消后重试");
             _cancelButton.IsEnabled = true;
             QueuePlacementRefresh();
         }
@@ -410,14 +468,41 @@ internal sealed class RecordingControlWindow : Window, IDisposable
             item.Click += (_, _) =>
             {
                 _selectedFrameRate = (int)item.Tag;
-                _frameRateButton.Content = $"{_selectedFrameRate} FPS";
+                _frameRateText.Text = $"{_selectedFrameRate} FPS";
             };
             flyout.Items.Add(item);
         }
         return flyout;
     }
 
-    private static Button IconButton(string content, string tooltip)
+    private void UpdatePauseAccessibility(string name)
+    {
+        AutomationProperties.SetName(_pauseButton, name);
+        ToolTipService.SetToolTip(_pauseButton, name);
+    }
+
+    private void ShowStatus(string text)
+    {
+        _statusText.Text = text;
+        _statusText.Visibility = Visibility.Visible;
+    }
+
+    private void HideStatus()
+    {
+        _statusText.Text = string.Empty;
+        _statusText.Visibility = Visibility.Collapsed;
+    }
+
+    private static Button GlyphButton(string glyph, string tooltip) => IconButton(new FontIcon
+    {
+        Glyph = glyph,
+        FontFamily = new FontFamily("Segoe Fluent Icons"),
+        FontSize = 16
+    }, tooltip);
+
+    private static Button ShapeButton(Shape shape, string tooltip) => IconButton(shape, tooltip);
+
+    private static Button IconButton(UIElement content, string tooltip)
     {
         var button = new Button
         {
