@@ -6,12 +6,13 @@ namespace Tbox.App;
 internal sealed class ExplorerFolderTracker : IDisposable
 {
     private readonly NativeMethods.WinEventDelegate _callback;
-    private readonly AutoResetEvent _captureRequested = new(false);
     private readonly string _userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private readonly object _captureLock = new();
     private readonly object _stateLock = new();
-    private Thread? _worker;
     private IntPtr _hook;
     private IntPtr _pendingWindow;
+    private IntPtr _lastExplorerWindow;
+    private bool _captureWorkerScheduled;
     private bool _stopRequested;
     private bool _disposed;
     private string _currentFolder;
@@ -31,16 +32,7 @@ internal sealed class ExplorerFolderTracker : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_hook != IntPtr.Zero) return;
 
-        lock (_stateLock)
-        {
-            _stopRequested = false;
-            _worker = new Thread(CaptureLoop)
-            {
-                IsBackground = true,
-                Name = "Tbox.ExplorerFolderTracker"
-            };
-            _worker.Start();
-        }
+        lock (_stateLock) _stopRequested = false;
 
         _hook = NativeMethods.SetWinEventHook(
             NativeMethods.EventSystemForeground,
@@ -67,62 +59,128 @@ internal sealed class ExplorerFolderTracker : IDisposable
             _hook = IntPtr.Zero;
         }
 
-        Thread? worker;
         lock (_stateLock)
         {
             _stopRequested = true;
-            worker = _worker;
-            _worker = null;
+            _pendingWindow = IntPtr.Zero;
         }
-        _captureRequested.Set();
-        worker?.Join(TimeSpan.FromSeconds(1));
     }
 
     private void OnForegroundChanged(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time)
-        => QueueCapture(hwnd);
-
-    private void QueueCapture(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero || !IsExplorerWindow(hwnd)) return;
+        var explorerWindow = GetExplorerRoot(hwnd);
+        if (explorerWindow != IntPtr.Zero)
+        {
+            QueueCapture(explorerWindow, rememberWindow: true);
+            return;
+        }
+
+        // A directory change does not raise EVENT_SYSTEM_FOREGROUND while the
+        // same Explorer window remains active. Refresh that window when focus
+        // moves away so the latest location is normally ready before Ctrl+G.
+        IntPtr lastExplorerWindow;
+        lock (_stateLock)
+        {
+            lastExplorerWindow = _lastExplorerWindow;
+        }
+        if (lastExplorerWindow != IntPtr.Zero)
+        {
+            QueueCapture(lastExplorerWindow, rememberWindow: false);
+        }
+    }
+
+    private void QueueCapture(IntPtr hwnd, bool rememberWindow = true)
+    {
+        var explorerWindow = GetExplorerRoot(hwnd);
+        if (explorerWindow == IntPtr.Zero) return;
+        var scheduleWorker = false;
         lock (_stateLock)
         {
             if (_stopRequested) return;
-            _pendingWindow = hwnd;
+            if (rememberWindow) _lastExplorerWindow = explorerWindow;
+            _pendingWindow = explorerWindow;
+            if (!_captureWorkerScheduled)
+            {
+                _captureWorkerScheduled = true;
+                scheduleWorker = true;
+            }
         }
-        _captureRequested.Set();
+        if (scheduleWorker)
+        {
+            ThreadPool.QueueUserWorkItem(_ => DrainCaptures());
+        }
     }
 
     internal void CaptureWindowForTesting(IntPtr hwnd)
     {
+        QueueCapture(hwnd);
+    }
+
+    internal string RefreshCurrentFolder()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        IntPtr explorerWindow;
         lock (_stateLock)
         {
-            _pendingWindow = hwnd;
+            explorerWindow = _lastExplorerWindow;
         }
-        _captureRequested.Set();
+        if (explorerWindow != IntPtr.Zero)
+        {
+            CaptureSerialized(explorerWindow);
+        }
+        return CurrentFolder;
     }
 
-    private static bool IsExplorerWindow(IntPtr hwnd)
+    private static IntPtr GetExplorerRoot(IntPtr hwnd)
     {
+        if (hwnd == IntPtr.Zero) return IntPtr.Zero;
+        var root = NativeMethods.GetAncestor(hwnd, NativeMethods.GaRoot);
+        if (root != IntPtr.Zero) hwnd = root;
         var className = new char[64];
         var length = NativeMethods.GetClassName(hwnd, className, className.Length);
-        if (length == 0) return false;
+        if (length == 0) return IntPtr.Zero;
         var name = new string(className, 0, length);
-        return name is "CabinetWClass" or "ExploreWClass";
+        return name is "CabinetWClass" or "ExploreWClass" ? hwnd : IntPtr.Zero;
     }
 
-    private void CaptureLoop()
+    private void DrainCaptures()
     {
         while (true)
         {
-            _captureRequested.WaitOne();
             IntPtr window;
             lock (_stateLock)
             {
-                if (_stopRequested) return;
+                if (_stopRequested)
+                {
+                    _captureWorkerScheduled = false;
+                    return;
+                }
                 window = _pendingWindow;
                 _pendingWindow = IntPtr.Zero;
+                if (window == IntPtr.Zero)
+                {
+                    _captureWorkerScheduled = false;
+                    return;
+                }
             }
-            if (window != IntPtr.Zero) Capture(window);
+            try
+            {
+                CaptureSerialized(window);
+            }
+            catch (Exception exception)
+            {
+                // A single unexpected Shell/COM failure must not permanently
+                // disable future capture scheduling.
+                AppLog.Write($"Explorer capture worker failed: {exception}");
+            }
+        }
+    }
+
+    private void CaptureSerialized(IntPtr hwnd)
+    {
+        lock (_captureLock)
+        {
+            Capture(hwnd);
         }
     }
 
@@ -155,7 +213,13 @@ internal sealed class ExplorerFolderTracker : IDisposable
                     var itemRoot = NativeMethods.GetAncestor(itemWindow, NativeMethods.GaRoot);
                     if (itemRoot == IntPtr.Zero) itemRoot = itemWindow;
                     if (itemRoot != targetRoot) continue;
-                    string? shellPath = item.Document?.Folder?.Self?.Path;
+                    string? shellPath = null;
+                    for (var attempt = 1; attempt <= 3; attempt++)
+                    {
+                        shellPath = item.Document?.Folder?.Self?.Path;
+                        if (IsStableShellPath(shellPath) || attempt == 3) break;
+                        Thread.Sleep(25);
+                    }
                     Volatile.Write(ref _lastShellPath, shellPath);
                     var resolved = FolderTargetPolicy.Resolve(shellPath, _userProfile);
                     Volatile.Write(ref _currentFolder, resolved);
@@ -166,37 +230,24 @@ internal sealed class ExplorerFolderTracker : IDisposable
                 {
                     // Explorer windows may disappear while enumerating.
                 }
-                finally
-                {
-                    if (itemObject is not null && Marshal.IsComObject(itemObject))
-                    {
-                        Marshal.FinalReleaseComObject(itemObject);
-                    }
-                }
             }
         }
         catch (Exception exception) when (exception is COMException or InvalidCastException)
         {
             AppLog.Write($"Explorer capture failed: {exception.GetType().Name}");
         }
-        finally
-        {
-            if (windowsObject is not null && Marshal.IsComObject(windowsObject))
-            {
-                Marshal.FinalReleaseComObject(windowsObject);
-            }
-            if (shellObject is not null && Marshal.IsComObject(shellObject))
-            {
-                Marshal.FinalReleaseComObject(shellObject);
-            }
-        }
+    }
+
+    private static bool IsStableShellPath(string? shellPath)
+    {
+        if (string.IsNullOrWhiteSpace(shellPath)) return false;
+        return !Path.IsPathRooted(shellPath) || Directory.Exists(shellPath);
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         Stop();
-        _captureRequested.Dispose();
         _disposed = true;
     }
 }

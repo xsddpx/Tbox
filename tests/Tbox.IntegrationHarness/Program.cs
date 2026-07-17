@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Automation;
 using Tbox.App;
+using Tbox.Core;
 
 namespace Tbox.IntegrationHarness;
 
@@ -16,16 +17,39 @@ internal static partial class Program
     {
         var attempts = args.Length > 0 && int.TryParse(args[0], out var value) ? value : 10;
         var target = Path.Combine(Path.GetTempPath(), $"Tbox.Integration.{Guid.NewGuid():N}");
-        var marker = "TBOX_NAVIGATION_SUCCESS.txt";
+        var marker = "TBOX_NAVIGATION_SUCCESS";
         Directory.CreateDirectory(target);
-        File.WriteAllText(Path.Combine(target, marker), "ok");
+        // A directory name is stable in Explorer UI Automation regardless of
+        // the user's "hide known file extensions" setting.
+        Directory.CreateDirectory(Path.Combine(target, marker));
 
         var durations = new List<long>();
         var failures = new List<string>();
         var trackerSucceeded = false;
+        var annotationRendererSucceeded = false;
         try
         {
-            var trackerOutcome = ExerciseExplorerTracker(target);
+            if (!FileDialogNavigator.AddressTextMatches(
+                    @"C:\Users\tester\Downloads",
+                    "地址: 此电脑 > 下载",
+                    "下载") ||
+                FileDialogNavigator.AddressTextMatches(
+                    @"C:\Users\tester\Downloads",
+                    "地址: 此电脑 > 音乐",
+                    "下载") ||
+                FileDialogNavigator.AddressTextMatches(
+                    @"C:\Users\tester\Downloads",
+                    "地址: 此电脑 > 下载备份",
+                    "下载"))
+            {
+                failures.Add("本地化地址栏名称匹配策略失败。");
+            }
+
+            var annotationOutcome = ExerciseAnnotationRenderer();
+            annotationRendererSucceeded = annotationOutcome.Success;
+            if (!annotationOutcome.Success) failures.Add($"截图标注渲染失败：{annotationOutcome.Error}");
+
+            var trackerOutcome = ExerciseExplorerTracker(target, attempts);
             trackerSucceeded = trackerOutcome.Success;
             if (!trackerSucceeded) failures.Add($"资源管理器目录追踪失败；捕获值={trackerOutcome.Value}。");
             for (var index = 0; index < attempts; index++)
@@ -58,6 +82,7 @@ internal static partial class Program
                 maximumMs = durations.Count == 0 ? 0 : durations.Max(),
                 averageMs = durations.Count == 0 ? 0 : Math.Round(durations.Average(), 1),
                 trackerSucceeded,
+                annotationRendererSucceeded,
                 failures
             }));
             return failures.Count == 0 ? 0 : 1;
@@ -68,8 +93,112 @@ internal static partial class Program
         }
     }
 
-    private static (bool Success, string Value) ExerciseExplorerTracker(string target)
+    private static Outcome ExerciseAnnotationRenderer()
     {
+        const int width = 140;
+        const int height = 114;
+        var pixels = new byte[width * height * 4];
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var offset = ((y * width) + x) * 4;
+                pixels[offset] = (byte)((x * 13 + y * 3) % 256);
+                pixels[offset + 1] = (byte)((x * 5 + y * 11) % 256);
+                pixels[offset + 2] = (byte)((x * 7 + y * 17) % 256);
+                pixels[offset + 3] = 255;
+            }
+        }
+        var screen = new CapturedScreen(100, 200, width, height, pixels);
+        var style = new AnnotationStyle(0xFFFF0000, 3, 14);
+        AnnotationCommand[] commands =
+        [
+            new RectangleAnnotationCommand(new AnnotationPoint(10, 10), new AnnotationPoint(35, 30), style),
+            new EllipseAnnotationCommand(new AnnotationPoint(45, 10), new AnnotationPoint(75, 30), style),
+            new MosaicAnnotationCommand(
+                [new AnnotationPoint(92, 14), new AnnotationPoint(118, 32)],
+                new AnnotationStyle(0xFF000000, 14, 14),
+                6),
+            new LineAnnotationCommand(new AnnotationPoint(10, 48), new AnnotationPoint(35, 65), style),
+            new ArrowAnnotationCommand(new AnnotationPoint(45, 48), new AnnotationPoint(75, 65), style),
+            new TextAnnotationCommand(
+                "Tbox",
+                new AnnotationBounds(90, 44, 130, 72),
+                style),
+            new PolylineAnnotationCommand(
+                [new AnnotationPoint(10, 102), new AnnotationPoint(22, 82), new AnnotationPoint(35, 104)],
+                style),
+            new FreePathAnnotationCommand(
+                [new AnnotationPoint(45, 104), new AnnotationPoint(58, 82), new AnnotationPoint(75, 104)],
+                style),
+            new HighlighterAnnotationCommand(
+                [new AnnotationPoint(90, 94), new AnnotationPoint(128, 94)],
+                new AnnotationStyle(0x66FFFF00, 10, 14))
+        ];
+
+        var region = new PixelRegion(4, 4, 132, 106);
+        var baseline = screen.Crop(region.Left, region.Top, region.Width, region.Height);
+        var plain = CaptureAnnotationRenderer.RenderAsync(
+            screen,
+            region,
+            Array.Empty<AnnotationCommand>()).GetAwaiter().GetResult();
+        var rendered = CaptureAnnotationRenderer.RenderAsync(screen, region, commands).GetAwaiter().GetResult();
+
+        int CountChanged(AnnotationBounds sourceBounds)
+        {
+            var left = Math.Clamp((int)Math.Floor(sourceBounds.Left) - region.Left, 0, rendered.Width);
+            var top = Math.Clamp((int)Math.Floor(sourceBounds.Top) - region.Top, 0, rendered.Height);
+            var right = Math.Clamp((int)Math.Ceiling(sourceBounds.Right) - region.Left, 0, rendered.Width);
+            var bottom = Math.Clamp((int)Math.Ceiling(sourceBounds.Bottom) - region.Top, 0, rendered.Height);
+            var changed = 0;
+            for (var y = top; y < bottom; y++)
+            {
+                for (var x = left; x < right; x++)
+                {
+                    var offset = ((y * rendered.Width) + x) * 4;
+                    if (!rendered.Pixels.AsSpan(offset, 4).SequenceEqual(baseline.Pixels.AsSpan(offset, 4)))
+                    {
+                        changed++;
+                    }
+                }
+            }
+            return changed;
+        }
+
+        var changedByTool = new Dictionary<string, int>
+        {
+            ["rectangle"] = CountChanged(new AnnotationBounds(6, 6, 39, 34)),
+            ["ellipse"] = CountChanged(new AnnotationBounds(41, 6, 79, 34)),
+            ["mosaic"] = CountChanged(new AnnotationBounds(84, 5, 126, 40)),
+            ["line"] = CountChanged(new AnnotationBounds(6, 40, 39, 70)),
+            ["arrow"] = CountChanged(new AnnotationBounds(41, 40, 80, 70)),
+            ["text"] = CountChanged(new AnnotationBounds(84, 40, 132, 75)),
+            ["polyline"] = CountChanged(new AnnotationBounds(6, 77, 39, 109)),
+            ["pen"] = CountChanged(new AnnotationBounds(41, 77, 79, 109)),
+            ["highlighter"] = CountChanged(new AnnotationBounds(84, 84, 132, 101))
+        };
+        var alphaIsOpaque = rendered.Pixels.Where((_, index) => index % 4 == 3).All(alpha => alpha == 255);
+        var allToolsRendered = changedByTool.All(pair => pair.Value >= 4);
+
+        return plain.Pixels.SequenceEqual(baseline.Pixels) &&
+               rendered.Left == 104 && rendered.Top == 204 &&
+               rendered.Width == 132 && rendered.Height == 106 &&
+               alphaIsOpaque && allToolsRendered
+            ? Outcome.Pass(0)
+            : Outcome.Fail(
+                $"bounds={rendered.Left},{rendered.Top},{rendered.Width},{rendered.Height}; " +
+                $"plainExact={plain.Pixels.SequenceEqual(baseline.Pixels)}; alphaOpaque={alphaIsOpaque}; " +
+                $"toolPixels={JsonSerializer.Serialize(changedByTool)}");
+    }
+
+    private static (bool Success, string Value) ExerciseExplorerTracker(string target, int attempts)
+    {
+        var changedTargets = new[]
+        {
+            Path.Combine(target, "changed-directory-a"),
+            Path.Combine(target, "changed-directory-b")
+        };
+        foreach (var changedTarget in changedTargets) Directory.CreateDirectory(changedTarget);
         Process.Start(new ProcessStartInfo("explorer.exe", $"/n,/e,\"{target}\"") { UseShellExecute = true });
         dynamic? matchedWindow = null;
         var shellType = Type.GetTypeFromProgID("Shell.Application");
@@ -109,12 +238,82 @@ internal static partial class Program
             {
                 if (string.Equals(Path.GetFullPath(tracker.CurrentFolder), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
                 {
-                    return (true, tracker.CurrentFolder);
+                    break;
                 }
                 Thread.Sleep(20);
             }
             while (Environment.TickCount64 < deadline);
-            return (false, $"current={tracker.CurrentFolder}; raw={tracker.LastShellPathForTesting ?? "<null>"}");
+            if (!string.Equals(Path.GetFullPath(tracker.CurrentFolder), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, $"initial current={tracker.CurrentFolder}; raw={tracker.LastShellPathForTesting ?? "<null>"}");
+            }
+
+            var refreshDurations = new List<long>();
+            var refreshAttempts = Math.Clamp(attempts, 3, 10);
+            for (var attempt = 0; attempt < refreshAttempts; attempt++)
+            {
+                var changedTarget = changedTargets[attempt % changedTargets.Length];
+                COMException? navigationException = null;
+                for (var navigationAttempt = 1; navigationAttempt <= 20; navigationAttempt++)
+                {
+                    try
+                    {
+                        matchedWindow.Navigate(changedTarget);
+                        navigationException = null;
+                        break;
+                    }
+                    catch (COMException exception)
+                    {
+                        navigationException = exception;
+                        Thread.Sleep(50);
+                    }
+                }
+                if (navigationException is not null)
+                {
+                    return (false,
+                        $"Explorer rejected navigation #{attempt + 1}; HRESULT=0x{navigationException.HResult:X8}");
+                }
+                deadline = Environment.TickCount64 + 5000;
+                string? navigatedPath = null;
+                do
+                {
+                    try { navigatedPath = matchedWindow.Document?.Folder?.Self?.Path; } catch { }
+                    if (string.Equals(
+                            Path.GetFullPath(navigatedPath ?? string.Empty),
+                            Path.GetFullPath(changedTarget),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        break;
+                    }
+                    Thread.Sleep(20);
+                }
+                while (Environment.TickCount64 < deadline);
+                if (!string.Equals(
+                        Path.GetFullPath(navigatedPath ?? string.Empty),
+                        Path.GetFullPath(changedTarget),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, $"Explorer did not navigate to changed directory #{attempt + 1}; shell={navigatedPath ?? "<null>"}");
+                }
+
+                var stopwatch = Stopwatch.StartNew();
+                var refreshed = tracker.RefreshCurrentFolder();
+                stopwatch.Stop();
+                refreshDurations.Add(stopwatch.ElapsedMilliseconds);
+                if (!string.Equals(
+                        Path.GetFullPath(refreshed),
+                        Path.GetFullPath(changedTarget),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, $"refresh #{attempt + 1} current={refreshed}; raw={tracker.LastShellPathForTesting ?? "<null>"}");
+                }
+            }
+
+            const long maximumAllowedRefreshMilliseconds = 1000;
+            var maximumRefreshMilliseconds = refreshDurations.Max();
+            return maximumRefreshMilliseconds <= maximumAllowedRefreshMilliseconds
+                ? (true, $"{refreshAttempts} refreshes; max={maximumRefreshMilliseconds}ms")
+                : (false, $"refresh exceeded {maximumAllowedRefreshMilliseconds}ms; max={maximumRefreshMilliseconds}ms");
         }
         finally
         {
@@ -138,7 +337,10 @@ internal static partial class Program
         }
 
         var markerCondition = new PropertyCondition(AutomationElement.NameProperty, marker);
-        var deadline = Environment.TickCount64 + 1500;
+        // Cold shell enumeration can take more than 1.5 seconds even after the
+        // address bar has reached the target. Keep the gate strict but avoid a
+        // false failure while the file list is still materializing.
+        var deadline = Environment.TickCount64 + 5000;
         AutomationElement? found = null;
         do
         {
@@ -149,8 +351,12 @@ internal static partial class Program
         stopwatch.Stop();
         var addressCondition = new PropertyCondition(AutomationElement.AutomationIdProperty, "1001");
         var address = AutomationElement.FromHandle(dialog).FindFirst(TreeScope.Descendants, addressCondition)?.Current.Name;
+        var addressMatches = FileDialogNavigator.AddressTextMatches(
+            target,
+            address ?? string.Empty,
+            Path.GetFileName(target));
         PostMessage(dialog, WmClose, IntPtr.Zero, IntPtr.Zero);
-        return found is null
+        return found is null && !addressMatches
             ? Outcome.Fail($"导航后没有看到目标目录标记文件；地址栏={address ?? "<missing>"}。")
             : Outcome.Pass(stopwatch.ElapsedMilliseconds);
     }

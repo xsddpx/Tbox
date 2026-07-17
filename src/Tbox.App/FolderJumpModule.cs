@@ -34,7 +34,11 @@ internal sealed class FolderJumpModule : ITboxModule
 
         if (enabled)
         {
-            if (!NativeMethods.RegisterHotKey(_windowHandle, HotkeyId, NativeMethods.ModControl, 0x47))
+            if (!NativeMethods.RegisterHotKey(
+                    _windowHandle,
+                    HotkeyId,
+                    NativeMethods.ModControl | NativeMethods.ModNoRepeat,
+                    NativeMethods.VkG))
             {
                 var error = Marshal.GetLastWin32Error();
                 AppLog.Write($"RegisterHotKey failed. Win32={error}");
@@ -73,7 +77,6 @@ internal sealed class FolderJumpModule : ITboxModule
         }
 
         var dialog = NativeMethods.GetForegroundWindow();
-        var target = _tracker.CurrentFolder;
         AppLog.Write($"Ctrl+G received for window 0x{dialog.ToInt64():X}.");
         if (Interlocked.Exchange(ref _navigationInProgress, 1) != 0)
         {
@@ -81,14 +84,16 @@ internal sealed class FolderJumpModule : ITboxModule
             return true;
         }
 
-        _ = Task.Run(() => Navigate(dialog, target));
+        _ = Task.Run(() => Navigate(dialog));
         return true;
     }
 
-    private void Navigate(IntPtr dialog, string target)
+    private void Navigate(IntPtr dialog)
     {
         try
         {
+            WaitForHotkeyRelease();
+            var target = _tracker.RefreshCurrentFolder();
             var navigationResult = FileDialogNavigator.Navigate(dialog, target);
             AppLog.Write($"Navigation result: {navigationResult}");
             if (navigationResult != NavigationResult.Success)
@@ -111,6 +116,23 @@ internal sealed class FolderJumpModule : ITboxModule
             Volatile.Write(ref _navigationInProgress, 0);
         }
     }
+
+    private static void WaitForHotkeyRelease()
+    {
+        var deadline = Environment.TickCount64 + 300;
+        while (IsKeyDown(NativeMethods.VkControl) || IsKeyDown(NativeMethods.VkG))
+        {
+            if (Environment.TickCount64 >= deadline)
+            {
+                AppLog.Write("Folder-jump hotkey was still pressed after 300 ms; navigation continued.");
+                return;
+            }
+            Thread.Sleep(5);
+        }
+    }
+
+    private static bool IsKeyDown(int virtualKey)
+        => (NativeMethods.GetAsyncKeyState(virtualKey) & 0x8000) != 0;
 
     public void Dispose()
     {

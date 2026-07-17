@@ -1,0 +1,10 @@
+<Project>
+  <!-- dotnet build 不会自动定位 Visual Studio 安装的 PRI/MSIX 构建任务。 -->
+  <PropertyGroup Condition="'$(MSBuildRuntimeType)' == 'Core' and '$(AppxMSBuildToolsPath)' == ''">
+    <AppxMSBuildToolsPath Condition="Exists('$(VSINSTALLDIR)MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\Microsoft.Build.AppxPackage.dll')">$(VSINSTALLDIR)MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\</AppxMSBuildToolsPath>
+    <AppxMSBuildToolsPath Condition="'$(AppxMSBuildToolsPath)' == '' and Exists('$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\Microsoft.Build.AppxPackage.dll')">$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\</AppxMSBuildToolsPath>
+    <AppxMSBuildToolsPath Condition="'$(AppxMSBuildToolsPath)' == '' and Exists('$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\Professional\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\Microsoft.Build.AppxPackage.dll')">$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\Professional\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\</AppxMSBuildToolsPath>
+    <AppxMSBuildToolsPath Condition="'$(AppxMSBuildToolsPath)' == '' and Exists('$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\Microsoft.Build.AppxPackage.dll')">$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\</AppxMSBuildToolsPath>
+    <AppxMSBuildToolsPath Condition="'$(AppxMSBuildToolsPath)' == '' and Exists('$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\Microsoft.Build.AppxPackage.dll')">$(MSBuildProgramFiles32)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\</AppxMSBuildToolsPath>
+  </PropertyGroup>
+</Project>

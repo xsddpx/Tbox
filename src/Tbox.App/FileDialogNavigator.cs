@@ -48,21 +48,18 @@ internal static class FileDialogNavigator
     private static bool TryNavigateOnce(IntPtr dialog, string path)
     {
         NativeMethods.SetForegroundWindow(dialog);
-        var focusInputs = new[]
+        if (!FocusAddressBar(dialog))
         {
-            Key(NativeMethods.VkControl),
-            Key(NativeMethods.VkL),
-            Key(NativeMethods.VkL, NativeMethods.KeyeventfKeyup),
-            Key(NativeMethods.VkControl, NativeMethods.KeyeventfKeyup)
-        };
-        var sent = NativeMethods.SendInput(
-            (uint)focusInputs.Length,
-            focusInputs,
-            System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
-        if (sent != focusInputs.Length && !PostAddressBarShortcut(dialog)) return false;
+            AppLog.Write("File-dialog navigation failed while sending Ctrl+L.");
+            return false;
+        }
 
         var addressBar = WaitForAddressBar(dialog, TimeSpan.FromMilliseconds(500));
-        if (addressBar == IntPtr.Zero) return false;
+        if (addressBar == IntPtr.Zero)
+        {
+            AppLog.Write("File-dialog navigation could not find the address-bar editor.");
+            return false;
+        }
         NativeMethods.SetFocus(addressBar);
         var setResult = NativeMethods.SendMessageTimeout(
             addressBar,
@@ -72,7 +69,11 @@ internal static class FileDialogNavigator
             NativeMethods.SmtoAbortIfHung,
             750,
             out _);
-        if (setResult == IntPtr.Zero) return false;
+        if (setResult == IntPtr.Zero)
+        {
+            AppLog.Write($"File-dialog navigation could not set the address-bar text. Win32={System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
+            return false;
+        }
 
         NativeMethods.PostMessage(addressBar, NativeMethods.WmKeyDown, NativeMethods.VkReturn, IntPtr.Zero);
         NativeMethods.PostMessage(addressBar, NativeMethods.WmKeyUp, NativeMethods.VkReturn, IntPtr.Zero);
@@ -94,6 +95,22 @@ internal static class FileDialogNavigator
             enterInputs,
             System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
         return WaitForNavigation(dialog, path, TimeSpan.FromMilliseconds(500));
+    }
+
+    private static bool FocusAddressBar(IntPtr dialog)
+    {
+        var focusInputs = new[]
+        {
+            Key(NativeMethods.VkControl),
+            Key(NativeMethods.VkL),
+            Key(NativeMethods.VkL, NativeMethods.KeyeventfKeyup),
+            Key(NativeMethods.VkControl, NativeMethods.KeyeventfKeyup)
+        };
+        var sent = NativeMethods.SendInput(
+            (uint)focusInputs.Length,
+            focusInputs,
+            System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
+        return sent == focusInputs.Length || PostAddressBarShortcut(dialog);
     }
 
     private static IntPtr WaitForAddressBar(IntPtr dialog, TimeSpan timeout)
@@ -141,23 +158,78 @@ internal static class FileDialogNavigator
     private static bool WaitForNavigation(IntPtr dialog, string targetPath, TimeSpan timeout)
     {
         var addressToolbar = FindDescendantById(dialog, AddressToolbarId);
-        if (addressToolbar == IntPtr.Zero) return false;
-        var trimmedTarget = targetPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var expectedName = Path.GetFileName(trimmedTarget);
-        if (string.IsNullOrEmpty(expectedName)) expectedName = trimmedTarget;
+        if (addressToolbar == IntPtr.Zero)
+        {
+            AppLog.Write("File-dialog navigation could not find the address toolbar.");
+            return false;
+        }
+
+        var shellDisplayName = GetShellDisplayName(targetPath);
         var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         do
         {
             var text = new char[512];
             var length = NativeMethods.GetWindowText(addressToolbar, text, text.Length);
-            if (length > 0 && new string(text, 0, length).Contains(expectedName, StringComparison.OrdinalIgnoreCase))
+            if (length > 0)
             {
-                return true;
+                var addressText = new string(text, 0, length);
+                if (AddressTextMatches(targetPath, addressText, shellDisplayName))
+                {
+                    return true;
+                }
             }
             Thread.Sleep(10);
         }
         while (Environment.TickCount64 < deadline);
         return false;
+    }
+
+    internal static bool AddressTextMatches(string targetPath, string addressText, string? shellDisplayName)
+    {
+        var trimmedTarget = targetPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fileSystemName = Path.GetFileName(trimmedTarget);
+        if (string.IsNullOrEmpty(fileSystemName)) fileSystemName = trimmedTarget;
+
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { fileSystemName };
+        if (!string.IsNullOrWhiteSpace(shellDisplayName)) names.Add(shellDisplayName);
+        return names.Any(name =>
+            !string.IsNullOrWhiteSpace(name) &&
+            ContainsAddressSegment(addressText, name));
+    }
+
+    private static bool ContainsAddressSegment(string addressText, string name)
+    {
+        var startIndex = 0;
+        while (startIndex < addressText.Length)
+        {
+            var match = addressText.IndexOf(name, startIndex, StringComparison.OrdinalIgnoreCase);
+            if (match < 0) return false;
+            var beforeIsBoundary = match == 0 || IsAddressBoundary(addressText[match - 1]);
+            var end = match + name.Length;
+            var afterIsBoundary = end == addressText.Length || IsAddressBoundary(addressText[end]);
+            if (beforeIsBoundary && afterIsBoundary) return true;
+            startIndex = match + 1;
+        }
+        return false;
+    }
+
+    private static bool IsAddressBoundary(char character) =>
+        char.IsWhiteSpace(character) || character is '>' or '<' or ':' or '\\' or '/';
+
+    private static string? GetShellDisplayName(string targetPath)
+    {
+        var shellInfo = new NativeMethods.ShFileInfo();
+        if (NativeMethods.SHGetFileInfo(
+                targetPath,
+                0,
+                ref shellInfo,
+                (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.ShFileInfo>(),
+                NativeMethods.ShgfiDisplayName) != IntPtr.Zero &&
+            !string.IsNullOrWhiteSpace(shellInfo.displayName))
+        {
+            return shellInfo.displayName;
+        }
+        return null;
     }
 
     private static IntPtr FindDescendantById(IntPtr parent, int controlId)

@@ -19,6 +19,11 @@
                         <SymbolIcon Symbol="Folder"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="截图与贴图" Tag="screen-paste">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEB9F;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
             <NavigationView.PaneFooter>
                 <StackPanel Padding="12" Spacing="4">
@@ -42,6 +47,29 @@
                                     <TextBlock Text="让标准文件对话框跳转到最近使用的资源管理器目录。" Opacity="0.68"/>
                                 </StackPanel>
                                 <TextBlock Grid.Column="2" x:Name="OverviewStatus" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="20">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="16">
+                                <FontIcon Glyph="&#xEB9F;" FontSize="24"/>
+                                <StackPanel Grid.Column="1" Spacing="4">
+                                    <TextBlock Text="截图与贴图" FontWeight="SemiBold"/>
+                                    <TextBlock Text="一次截图，随手贴在桌面上查看。" Opacity="0.68"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" x:Name="ScreenPasteOverviewStatus" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="20">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="开机启动" FontWeight="SemiBold"/>
+                                    <TextBlock Text="登录 Windows 后自动运行 Tbox。" Opacity="0.65"/>
+                                </StackPanel>
+                                <ToggleSwitch x:Name="StartupToggle" Grid.Column="1" Toggled="OnStartupToggled"/>
                             </Grid>
                         </Border>
                     </StackPanel>
@@ -70,18 +98,69 @@
                                 <Button Grid.Column="1" x:Name="HotkeyButton" Content="Ctrl + G" IsEnabled="False"/>
                             </Grid>
                         </Border>
+                        <InfoBar x:Name="StatusBar" IsOpen="False" IsClosable="True"/>
+                    </StackPanel>
+                    <StackPanel x:Name="ScreenPastePanel" Spacing="18" Visibility="Collapsed">
+                        <TextBlock Text="截图与贴图" Style="{StaticResource TitleTextBlockStyle}"/>
+                        <TextBlock Text="按 F6 框选截图，F7 贴出剪贴板图像，F8 整体显示或隐藏全部贴图。" Opacity="0.72"/>
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="8" Padding="20">
                             <Grid ColumnDefinitions="*,Auto">
                                 <StackPanel Spacing="4">
-                                    <TextBlock Text="开机启动" FontWeight="SemiBold"/>
-                                    <TextBlock Text="登录 Windows 后自动运行 Tbox。" Opacity="0.65"/>
+                                    <TextBlock Text="启用截图与贴图" FontWeight="SemiBold"/>
+                                    <TextBlock Text="注册全局快捷键；关闭模块会关闭贴图，但保留所有截图缓存。" Opacity="0.65"/>
                                 </StackPanel>
-                                <ToggleSwitch x:Name="StartupToggle" Grid.Column="1" Toggled="OnStartupToggled"/>
+                                <ToggleSwitch x:Name="ScreenPasteToggle" Grid.Column="1" Toggled="OnScreenPasteToggled"/>
                             </Grid>
                         </Border>
-                        <InfoBar x:Name="StatusBar" IsOpen="False" IsClosable="True"/>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="20">
+                            <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="12">
+                                <StackPanel Spacing="3">
+                                    <TextBlock Text="一次截图" FontWeight="SemiBold"/>
+                                    <TextBlock Text="框选后保留选区与操作条；中键可直接完成并贴图固定。" Opacity="0.65"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="F6" IsEnabled="False"/>
+                                <StackPanel Grid.Row="1" Spacing="3">
+                                    <TextBlock Text="贴出剪贴板图像" FontWeight="SemiBold"/>
+                                    <TextBlock Text="读取剪贴板中的图像并新建一张贴图。" Opacity="0.65"/>
+                                </StackPanel>
+                                <Button Grid.Row="1" Grid.Column="1" Content="F7" IsEnabled="False"/>
+                                <StackPanel Grid.Row="2" Spacing="3">
+                                    <TextBlock Text="整体显示 / 隐藏" FontWeight="SemiBold"/>
+                                    <TextBlock Text="统一隐藏所有贴图，再次按下会在原位置全部显示。" Opacity="0.65"/>
+                                </StackPanel>
+                                <Button Grid.Row="2" Grid.Column="1" Content="F8" IsEnabled="False"/>
+                            </Grid>
+                        </Border>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="20">
+                            <Grid RowDefinitions="Auto,Auto" RowSpacing="12">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="截图缓存文件夹" FontWeight="SemiBold"/>
+                                    <TextBlock Text="新截图会保存到这里；更换目录不会移动已有文件。" Opacity="0.65"/>
+                                </StackPanel>
+                                <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                                    <TextBox x:Name="CacheDirectoryTextBox"
+                                             IsReadOnly="True"
+                                             VerticalContentAlignment="Center"/>
+                                    <Button Grid.Column="1" Content="更改…" Click="OnChangeCacheFolderClicked"/>
+                                    <Button Grid.Column="2" Content="打开文件夹" Click="OnOpenCacheFolderClicked"/>
+                                </Grid>
+                            </Grid>
+                        </Border>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="20">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="贴图操作" FontWeight="SemiBold"/>
+                                <TextBlock Text="拖动贴图可移动，滚轮可沿鼠标位置放大或缩小；右键可复制图像、另存为或关闭；Ctrl+C 可复制，Esc 可关闭。" Opacity="0.65" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                        <InfoBar x:Name="ScreenPasteStatusBar" IsOpen="False" IsClosable="True"/>
                     </StackPanel>
                 </Grid>
             </ScrollViewer>

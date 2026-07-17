@@ -27,6 +27,8 @@ internal sealed class TrayIconService : IDisposable
     private readonly Action _exit;
     private readonly IDisposable _messageSubscription;
     private readonly uint _taskbarCreatedMessage;
+    private readonly IntPtr _icon;
+    private readonly bool _ownsIcon;
     private NotifyIconData _data;
     private bool _disposed;
 
@@ -38,15 +40,16 @@ internal sealed class TrayIconService : IDisposable
         _exit = exit;
         _taskbarCreatedMessage = NativeMethods.RegisterWindowMessage("TaskbarCreated");
         _messageSubscription = messageRouter.Subscribe(OnWindowMessage);
+        (_icon, _ownsIcon) = LoadApplicationIcon();
         _data = CreateData();
         AddIcon();
     }
 
-    internal void ShowWarning(string message)
+    internal void ShowWarning(string title, string message)
     {
         if (_disposed) return;
         _data.flags = NifInfo;
-        _data.infoTitle = "Tbox · 文件夹跳转";
+        _data.infoTitle = $"Tbox · {title}";
         _data.info = message;
         _data.infoFlags = 2;
         ShellNotifyIcon(NimModify, ref _data);
@@ -69,7 +72,7 @@ internal sealed class TrayIconService : IDisposable
         id = 1,
         flags = NifMessage | NifIcon | NifTip,
         callbackMessage = CallbackMessage,
-        icon = LoadIcon(IntPtr.Zero, new IntPtr(32512)),
+        icon = _icon,
         tip = "Tbox",
         info = string.Empty,
         infoTitle = string.Empty
@@ -130,7 +133,38 @@ internal sealed class TrayIconService : IDisposable
         if (_disposed) return;
         ShellNotifyIcon(NimDelete, ref _data);
         _messageSubscription.Dispose();
+        if (_ownsIcon)
+        {
+            DestroyIcon(_icon);
+        }
         _disposed = true;
+    }
+
+    private static (IntPtr Icon, bool OwnsIcon) LoadApplicationIcon()
+    {
+        var executablePath = Environment.ProcessPath;
+        if (!string.IsNullOrWhiteSpace(executablePath))
+        {
+            var largeIcons = new IntPtr[1];
+            var smallIcons = new IntPtr[1];
+            if (ExtractIconEx(executablePath, 0, largeIcons, smallIcons, 1) > 0)
+            {
+                if (smallIcons[0] != IntPtr.Zero)
+                {
+                    if (largeIcons[0] != IntPtr.Zero)
+                    {
+                        DestroyIcon(largeIcons[0]);
+                    }
+                    return (smallIcons[0], true);
+                }
+                if (largeIcons[0] != IntPtr.Zero)
+                {
+                    return (largeIcons[0], true);
+                }
+            }
+        }
+
+        return (LoadIcon(IntPtr.Zero, new IntPtr(32512)), false);
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -166,6 +200,18 @@ internal sealed class TrayIconService : IDisposable
 
     [DllImport("user32.dll", EntryPoint = "LoadIconW")]
     private static extern IntPtr LoadIcon(IntPtr instance, IntPtr iconName);
+
+    [DllImport("shell32.dll", EntryPoint = "ExtractIconExW", CharSet = CharSet.Unicode)]
+    private static extern uint ExtractIconEx(
+        string file,
+        int iconIndex,
+        [Out] IntPtr[] largeIcons,
+        [Out] IntPtr[] smallIcons,
+        uint iconCount);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyIcon(IntPtr icon);
 
     [DllImport("user32.dll")]
     private static extern IntPtr CreatePopupMenu();

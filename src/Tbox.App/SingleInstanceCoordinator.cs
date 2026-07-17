@@ -24,14 +24,23 @@ internal sealed class SingleInstanceCoordinator : IDisposable
     internal void SignalPrimary()
     {
         if (IsPrimary) return;
-        try
+        for (var attempt = 1; attempt <= 10; attempt++)
         {
-            using var activationEvent = EventWaitHandle.OpenExisting(ActivationEventName);
-            activationEvent.Set();
-        }
-        catch (WaitHandleCannotBeOpenedException)
-        {
-            // The primary instance may still be starting; the user can invoke it again.
+            try
+            {
+                using var activationEvent = EventWaitHandle.OpenExisting(ActivationEventName);
+                activationEvent.Set();
+                return;
+            }
+            catch (WaitHandleCannotBeOpenedException) when (attempt < 10)
+            {
+                // The primary may own the mutex before its activation event is ready.
+                Thread.Sleep(50);
+            }
+            catch (WaitHandleCannotBeOpenedException)
+            {
+                AppLog.Write("Primary instance activation event was not available after 500 ms.");
+            }
         }
     }
 

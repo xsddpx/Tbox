@@ -4,6 +4,12 @@ Tbox 是一个面向 Windows 11 的模块化效率工具底座，采用 C#、.NE
 
 首个模块“文件夹跳转”会记住最近使用的文件资源管理器目录；当标准文件打开/保存对话框位于前台时，按 `Ctrl+G` 可直接跳转到该目录。
 
+第二个模块“截图与贴图”提供接近 Snipaste 的轻量截图工作流：按 `F6` 在鼠标所在显示器框选，松开后选区和操作条会保留，可选择“贴图固定”或“复制”，也可单击鼠标中键快速贴图；固定后贴图会留在原选区。按 `F7` 可将剪贴板图像创建为新贴图，按 `F8` 可整体隐藏或在原位置重新显示全部贴图。
+
+截图选区支持矩形、椭圆、直线、折线、箭头、画笔、直线高亮、马赛克、文字和对象橡皮擦，可调整颜色与粗细，并支持撤销/重做。`Shift` 可约束正方形、圆形和 45° 方向，`B`/`T` 选择画笔/文字，`Tab` 切换配对形状，`1`/`2` 调整粗细；文字编辑使用 `Ctrl+Enter` 提交。`Ctrl+C`、`Ctrl+S`、`Ctrl+T` 分别复制、保存和固定最终合成图，选框与工具栏不会写入输出。
+
+贴图支持拖动、鼠标滚轮沿指针位置缩放、`Ctrl+C` 复制图像、右键“复制图像 / 图像另存为… / 关闭”和 `Esc` 关闭。默认缓存位于 `%LOCALAPPDATA%\Tbox\cache\screenshots`；可在“截图与贴图”设置页查看、更换或打开缓存文件夹。更换目录只影响后续截图，不会移动已有缓存。缓存按 30 天、200 个文件和 512 MB 三重上限自动清理，当前仍在显示的贴图文件会被保留。
+
 ## 开发
 
 要求：
@@ -45,7 +51,27 @@ dotnet run --project tests/Tbox.IntegrationHarness/Tbox.IntegrationHarness.cspro
 
 `artifacts/` 中的包使用 Tbox 开发证书签名。首次在另一台电脑安装时：
 
-1. 将 `Tbox-Development.cer` 安装到“本地计算机 → 受信任的根证书颁发机构”。
+1. 以管理员 PowerShell 将开发证书安装到“本地计算机 → 受信任人”：
+
+   ```powershell
+   Import-Certificate -FilePath .\artifacts\Tbox-Development.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+   ```
+
 2. 双击最新的 `Tbox_*.msix` 完成安装。
 
-该证书只用于开发测试；公开发布时应替换为正式代码签名证书或 Microsoft Store 签名。
+该证书只用于内部开发测试，不应导入“受信任的根证书颁发机构”；不再测试时可从“受信任人”删除。公开发布时应替换为正式代码签名证书或 Microsoft Store 签名，并为签名添加可信时间戳。
+
+## 生成 MSIX
+
+每个可交付包必须使用从未打包过的新版本。打包前同步更新：
+
+- `src/Tbox.App/Tbox.App.csproj` 中的 `Version`、`AssemblyVersion`、`FileVersion`
+- `src/Tbox.App/Package.appxmanifest` 中的 `Identity Version`
+
+例如 v1.0 使用 `Version=1.0.0`，其余三处使用 `1.0.0.0`。确认当前用户证书库中存在与 manifest `Publisher` 匹配、包含私钥且具备 Code Signing 用途的证书后，运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -IntegrationAttempts 20
+```
+
+脚本会串行执行 Release 构建、单元测试、真实 Explorer/文件对话框集成测试、打包、签名和验签；成功后才会生成 `artifacts/Tbox_<版本>_x64.msix`，并将时间和 SHA-256 追加到 `docs/release-history.md`。脚本会检测验证期间的历史文件并发修改，并在发布失败时回滚包和历史记录；版本不一致、二进制过期、版本已发布、包已存在或任一验证失败都会终止发布。
