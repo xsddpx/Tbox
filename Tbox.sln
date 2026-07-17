@@ -1,0 +1,36 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tbox.Core", "src\Tbox.Core\Tbox.Core.csproj", "{7B0C4CA7-C4DF-43E0-ABEF-3B133C2B0891}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tbox.App", "src\Tbox.App\Tbox.App.csproj", "{CA61A2F9-47DE-483E-9663-00EFCC1EE948}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tbox.Core.Tests", "tests\Tbox.Core.Tests\Tbox.Core.Tests.csproj", "{DB93AF42-110F-44FB-BC16-61D7392A0CBC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tbox.IntegrationHarness", "tests\Tbox.IntegrationHarness\Tbox.IntegrationHarness.csproj", "{A64D8C39-1975-46B8-AD89-76E372D7E37B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7B0C4CA7-C4DF-43E0-ABEF-3B133C2B0891}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{7B0C4CA7-C4DF-43E0-ABEF-3B133C2B0891}.Debug|x64.Build.0 = Debug|Any CPU
+		{7B0C4CA7-C4DF-43E0-ABEF-3B133C2B0891}.Release|x64.ActiveCfg = Release|Any CPU
+		{7B0C4CA7-C4DF-43E0-ABEF-3B133C2B0891}.Release|x64.Build.0 = Release|Any CPU
+		{CA61A2F9-47DE-483E-9663-00EFCC1EE948}.Debug|x64.ActiveCfg = Debug|x64
+		{CA61A2F9-47DE-483E-9663-00EFCC1EE948}.Debug|x64.Build.0 = Debug|x64
+		{CA61A2F9-47DE-483E-9663-00EFCC1EE948}.Release|x64.ActiveCfg = Release|x64
+		{CA61A2F9-47DE-483E-9663-00EFCC1EE948}.Release|x64.Build.0 = Release|x64
+		{DB93AF42-110F-44FB-BC16-61D7392A0CBC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{DB93AF42-110F-44FB-BC16-61D7392A0CBC}.Debug|x64.Build.0 = Debug|Any CPU
+		{DB93AF42-110F-44FB-BC16-61D7392A0CBC}.Release|x64.ActiveCfg = Release|Any CPU
+		{DB93AF42-110F-44FB-BC16-61D7392A0CBC}.Release|x64.Build.0 = Release|Any CPU
+		{A64D8C39-1975-46B8-AD89-76E372D7E37B}.Debug|x64.ActiveCfg = Debug|x64
+		{A64D8C39-1975-46B8-AD89-76E372D7E37B}.Debug|x64.Build.0 = Debug|x64
+		{A64D8C39-1975-46B8-AD89-76E372D7E37B}.Release|x64.ActiveCfg = Release|x64
+		{A64D8C39-1975-46B8-AD89-76E372D7E37B}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+EndGlobal
