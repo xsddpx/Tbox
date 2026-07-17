@@ -384,7 +384,7 @@
                         <StackPanel Spacing="18">
                             <StackPanel Spacing="4">
                                 <TextBlock Text="截图与贴图" Style="{StaticResource PageTitleStyle}"/>
-                                <TextBlock Text="F6 截图，F7 贴出剪贴板图像，F8 显示或隐藏全部贴图" Style="{StaticResource BodyTextStyle}" Foreground="{ThemeResource SubtleTextBrush}"/>
+                                <TextBlock Text="F6 截图，F7 贴出剪贴板图片或文字，F8 显示或隐藏全部贴图" Style="{StaticResource BodyTextStyle}" Foreground="{ThemeResource SubtleTextBrush}"/>
                             </StackPanel>
                             <Border Style="{StaticResource CardStyle}" Padding="18">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="20">
@@ -397,9 +397,9 @@
                             </Border>
                             <Border Style="{StaticResource CardStyle}" Padding="18">
                                 <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="12">
-                                    <StackPanel Spacing="3"><TextBlock Text="一次截图" Style="{StaticResource BodyTextStyle}" FontWeight="SemiBold"/><TextBlock Text="框选后保留选区与操作条；中键可直接完成并固定" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"/></StackPanel>
+                                    <StackPanel Spacing="3"><TextBlock Text="一次截图" Style="{StaticResource BodyTextStyle}" FontWeight="SemiBold"/><TextBlock Text="框选后可拖动四边或四角继续调整；中键可直接完成并固定" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"/></StackPanel>
                                     <Button Grid.Column="1" Content="F6" IsEnabled="False"/>
-                                    <StackPanel Grid.Row="1" Spacing="3"><TextBlock Text="贴出剪贴板图像" Style="{StaticResource BodyTextStyle}" FontWeight="SemiBold"/><TextBlock Text="读取剪贴板中的图像并新建贴图" Style="{StaticResource CaptionTextStyle}"/></StackPanel>
+                                    <StackPanel Grid.Row="1" Spacing="3"><TextBlock Text="贴出剪贴板内容" Style="{StaticResource BodyTextStyle}" FontWeight="SemiBold"/><TextBlock Text="读取剪贴板中的图片或文字并新建贴图" Style="{StaticResource CaptionTextStyle}"/></StackPanel>
                                     <Button Grid.Row="1" Grid.Column="1" Content="F7" IsEnabled="False"/>
                                     <StackPanel Grid.Row="2" Spacing="3"><TextBlock Text="整体显示 / 隐藏" Style="{StaticResource BodyTextStyle}" FontWeight="SemiBold"/><TextBlock Text="统一隐藏或恢复全部贴图" Style="{StaticResource CaptionTextStyle}"/></StackPanel>
                                     <Button Grid.Row="2" Grid.Column="1" Content="F8" IsEnabled="False"/>
@@ -416,7 +416,7 @@
                                 </Grid>
                             </Border>
                             <Border Style="{StaticResource CardStyle}" Padding="18">
-                                <StackPanel Spacing="4"><TextBlock Text="贴图操作" Style="{StaticResource BodyTextStyle}" FontWeight="SemiBold"/><TextBlock Text="拖动贴图可移动，滚轮缩放；右键可复制、另存为或关闭；Ctrl+C 复制，Esc 关闭。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"/></StackPanel>
+                                <StackPanel Spacing="4"><TextBlock Text="贴图操作" Style="{StaticResource BodyTextStyle}" FontWeight="SemiBold"/><TextBlock Text="拖动贴图可移动，滚轮缩放；空格或右键可在贴图外显示标注工具条；Ctrl+C 复制，Esc 逐级取消或关闭。" Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap"/></StackPanel>
                             </Border>
                             <InfoBar x:Name="ScreenPasteStatusBar" IsOpen="False" IsClosable="True"/>
                         </StackPanel>

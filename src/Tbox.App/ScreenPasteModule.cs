@@ -17,16 +17,18 @@ internal sealed class ScreenPasteModule : ITboxModule
     private readonly DispatcherQueue _dispatcher;
     private readonly Action<string> _notify;
     private readonly IDisposable _messageSubscription;
+    private readonly OcrResultWindowManager _ocrWindows;
     private CaptureCache _captureCache;
     private readonly List<PinnedImageWindow> _pins = [];
     private Task _pendingCaptureSaveTask = Task.CompletedTask;
     private readonly List<CaptureOverlayWindow> _captureOverlays = [];
+    private CaptureTargetBounds? _lastSuccessfulCaptureBounds;
     private bool _captureStarting;
     private bool _disposed;
 
     public string Id => "screen-paste";
     public string DisplayName => "截图与贴图";
-    public string Description => "使用 F6 在任意显示器截图、F7 贴出剪贴板图像、F8 整体显示或隐藏全部贴图。";
+    public string Description => "使用 F6 在任意显示器截图、F7 贴出剪贴板图片或文字、F8 整体显示或隐藏全部贴图。";
     public bool IsEnabled { get; private set; }
     public event EventHandler<bool>? EnabledChanged;
 
@@ -42,6 +44,7 @@ internal sealed class ScreenPasteModule : ITboxModule
         _notify = notify;
         _messageSubscription = messageRouter.Subscribe(OnWindowMessage);
         _captureCache = new CaptureCache(cacheDirectory);
+        _ocrWindows = new OcrResultWindowManager(new WindowsTextRecognitionService());
     }
 
     internal string CacheDirectory => _captureCache.DirectoryPath;
@@ -139,9 +142,10 @@ internal sealed class ScreenPasteModule : ITboxModule
         try
         {
             var screens = ScreenCaptureService.CaptureAllMonitors();
+            var targetDetector = CaptureTargetDetector.CreateSnapshot();
             foreach (var screen in screens)
             {
-                overlays.Add(await CaptureOverlayWindow.CreateAsync(screen));
+                overlays.Add(await CaptureOverlayWindow.CreateAsync(screen, targetDetector));
             }
             if (_disposed || !IsEnabled)
             {
@@ -152,6 +156,7 @@ internal sealed class ScreenPasteModule : ITboxModule
             _captureOverlays.AddRange(overlays);
             var sessionCompleted = false;
             var selectionSession = new CaptureSelectionSession();
+            var detectionMode = CaptureDetectionMode.Window;
             for (var index = 0; index < overlays.Count; index++)
             {
                 var overlayIndex = index;
@@ -165,6 +170,41 @@ internal sealed class ScreenPasteModule : ITboxModule
                         overlays[peerIndex].ResetForPeerSelection();
                     }
                 };
+                overlay.DetectionModeChangeRequested += mode =>
+                {
+                    detectionMode = mode;
+                    foreach (var peer in overlays) peer.SetDetectionMode(detectionMode);
+                };
+                overlay.RestoreLastRegionRequested += () =>
+                {
+                    if (_lastSuccessfulCaptureBounds is not { } previous)
+                    {
+                        overlay.ShowStatus("还没有成功截图区域，无法恢复。");
+                        return;
+                    }
+
+                    var targetIndex = CaptureDisplayPolicy.FindContainingDisplayIndex(
+                        overlays.Select(peer => peer.DisplayBounds).ToArray(),
+                        previous.Left,
+                        previous.Top);
+                    var oldIndex = selectionSession.BeginSelection(targetIndex, overlays.Count);
+                    if (oldIndex is { } previousIndex && previousIndex != targetIndex)
+                    {
+                        overlays[previousIndex].ResetForPeerSelection();
+                    }
+                    for (var candidateIndex = 0; candidateIndex < overlays.Count; candidateIndex++)
+                    {
+                        if (candidateIndex != targetIndex) overlays[candidateIndex].ResetForPeerSelection();
+                    }
+                    if (overlays[targetIndex].TryRestoreSelection(previous))
+                    {
+                        overlays[targetIndex].Show(activate: true);
+                    }
+                    else
+                    {
+                        overlay.ShowStatus("上一次截图区域已不在当前显示器布局中。");
+                    }
+                };
                 overlay.Completed += result =>
                 {
                     if (sessionCompleted) return;
@@ -174,7 +214,25 @@ internal sealed class ScreenPasteModule : ITboxModule
                     {
                         if (!ReferenceEquals(peer, completingOverlay)) peer.Close();
                     }
-                    if (result is not null) QueueCapture(result);
+                    if (result is not null)
+                    {
+                        _lastSuccessfulCaptureBounds = new CaptureTargetBounds(
+                            result.Screen.Left,
+                            result.Screen.Top,
+                            result.Screen.Width,
+                            result.Screen.Height);
+                        if (result.Action == CaptureCompletionAction.RecognizeText)
+                        {
+                            _ocrWindows.Show(
+                                result.Screen,
+                                new RectInt32(
+                                    result.Screen.Left,
+                                    result.Screen.Top,
+                                    result.Screen.Width,
+                                    result.Screen.Height));
+                        }
+                        QueueCapture(result);
+                    }
                 };
             }
 
@@ -255,6 +313,10 @@ internal sealed class ScreenPasteModule : ITboxModule
                         await destination.FlushAsync();
                     }
                     break;
+                case CaptureCompletionAction.RecognizeText:
+                    // The result window opens synchronously when the capture session ends.
+                    // Persisting the original image here keeps OCR captures under the normal cache policy.
+                    break;
             }
         }
         catch (Exception exception)
@@ -264,6 +326,7 @@ internal sealed class ScreenPasteModule : ITboxModule
             {
                 CaptureCompletionAction.Copy => "截图已完成，但无法保存或复制图像。",
                 CaptureCompletionAction.Save => "截图已完成，但无法保存到所选位置。",
+                CaptureCompletionAction.RecognizeText => "文字识别窗口已打开，但无法缓存本次截图。",
                 _ => "截图已完成，但无法保存或创建贴图。"
             });
         }
@@ -273,23 +336,23 @@ internal sealed class ScreenPasteModule : ITboxModule
     {
         try
         {
-            var pngBytes = await ClipboardImageService.TryReadPngAsync();
-            if (pngBytes is null)
+            var content = await ClipboardImageService.TryReadPinContentAsync();
+            if (content is null)
             {
-                _notify("剪贴板中没有可贴图的图像。");
+                _notify("剪贴板中没有可贴出的图片或文字。");
                 return;
             }
 
             var cache = _captureCache;
-            var cacheFilePath = await cache.SaveAsync(pngBytes);
+            var cacheFilePath = await cache.SaveAsync(content.PngBytes);
             PruneCache(cache, cacheFilePath);
             if (_disposed || !IsEnabled) return;
             await CreatePinAsync(cacheFilePath);
         }
         catch (Exception exception)
         {
-            AppLog.Write($"Paste clipboard image failed: {exception}");
-            _notify("无法读取或贴出剪贴板图像。");
+            AppLog.Write($"Paste clipboard content failed: {exception}");
+            _notify("无法读取或贴出剪贴板内容。");
         }
     }
 
@@ -324,7 +387,11 @@ internal sealed class ScreenPasteModule : ITboxModule
             return;
         }
 
-        var pin = await PinnedImageWindow.CreateAsync(cacheFilePath, _notify, initialBounds);
+        var pin = await PinnedImageWindow.CreateAsync(
+            cacheFilePath,
+            _notify,
+            (screen, bounds) => _ocrWindows.Show(screen, bounds, keepAboveSource: true),
+            initialBounds);
         pin.Dismissed += OnPinDismissed;
         _pins.Add(pin);
         pin.Show(activate: true);
@@ -353,6 +420,7 @@ internal sealed class ScreenPasteModule : ITboxModule
         foreach (var overlay in _captureOverlays.ToArray()) overlay.Close();
         _captureOverlays.Clear();
         ClosePins();
+        _ocrWindows.CloseAll();
     }
 
     private void ClosePins()
@@ -368,6 +436,7 @@ internal sealed class ScreenPasteModule : ITboxModule
         NativeMethods.UnregisterHotKey(_windowHandle, ClipboardPasteHotkeyId);
         NativeMethods.UnregisterHotKey(_windowHandle, TogglePinsHotkeyId);
         CloseWindows();
+        _ocrWindows.Dispose();
         _messageSubscription.Dispose();
         _disposed = true;
     }

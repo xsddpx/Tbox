@@ -29,6 +29,100 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public void CaptureSelectionHitTestingRecognizesFourSidesAndFourCorners()
+    {
+        var bounds = new CaptureSelectionBounds(100, 80, 400, 300);
+
+        Assert.Equal(CaptureSelectionHandle.TopLeft,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 100, 80, 7));
+        Assert.Equal(CaptureSelectionHandle.Top,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 300, 80, 7));
+        Assert.Equal(CaptureSelectionHandle.TopRight,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 500, 80, 7));
+        Assert.Equal(CaptureSelectionHandle.Right,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 500, 230, 7));
+        Assert.Equal(CaptureSelectionHandle.BottomRight,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 500, 380, 7));
+        Assert.Equal(CaptureSelectionHandle.Bottom,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 300, 380, 7));
+        Assert.Equal(CaptureSelectionHandle.BottomLeft,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 100, 380, 7));
+        Assert.Equal(CaptureSelectionHandle.Left,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 100, 230, 7));
+        Assert.Equal(CaptureSelectionHandle.None,
+            CaptureSelectionAdjustmentPolicy.HitTest(bounds, 300, 230, 7));
+    }
+
+    [Fact]
+    public void CaptureSelectionResizeKeepsOppositeEdgesFixedAndClampsToSurface()
+    {
+        var bounds = new CaptureSelectionBounds(100, 80, 400, 300);
+
+        Assert.Equal(
+            new CaptureSelectionBounds(250, 80, 250, 300),
+            CaptureSelectionAdjustmentPolicy.Resize(
+                bounds,
+                CaptureSelectionHandle.Left,
+                250,
+                0,
+                800,
+                600,
+                8,
+                8));
+        Assert.Equal(
+            new CaptureSelectionBounds(100, 80, 700, 520),
+            CaptureSelectionAdjustmentPolicy.Resize(
+                bounds,
+                CaptureSelectionHandle.BottomRight,
+                900,
+                700,
+                800,
+                600,
+                8,
+                8));
+        Assert.Equal(
+            new CaptureSelectionBounds(0, 0, 500, 380),
+            CaptureSelectionAdjustmentPolicy.Resize(
+                bounds,
+                CaptureSelectionHandle.TopLeft,
+                -20,
+                -30,
+                800,
+                600,
+                8,
+                8));
+    }
+
+    [Fact]
+    public void CaptureSelectionResizeEnforcesMinimumSizeWithoutCrossingOppositeEdge()
+    {
+        var bounds = new CaptureSelectionBounds(100, 80, 400, 300);
+
+        Assert.Equal(
+            new CaptureSelectionBounds(100, 80, 8, 300),
+            CaptureSelectionAdjustmentPolicy.Resize(
+                bounds,
+                CaptureSelectionHandle.Right,
+                20,
+                0,
+                800,
+                600,
+                8,
+                8));
+        Assert.Equal(
+            new CaptureSelectionBounds(100, 372, 400, 8),
+            CaptureSelectionAdjustmentPolicy.Resize(
+                bounds,
+                CaptureSelectionHandle.Top,
+                0,
+                500,
+                800,
+                600,
+                8,
+                8));
+    }
+
+    [Fact]
     public void CaptureCanActivateAnyDisplayIncludingNegativeCoordinates()
     {
         CaptureDisplayBounds[] displays =
@@ -52,6 +146,45 @@ public sealed class SettingsTests
         Assert.True(display.Contains(899, 799));
         Assert.False(display.Contains(900, 799));
         Assert.False(display.Contains(899, 800));
+    }
+
+    [Fact]
+    public void CaptureDetectionToggleAlternatesWindowAndInterfaceElement()
+    {
+        Assert.Equal(
+            CaptureDetectionMode.InterfaceElement,
+            CaptureTargetPolicy.Toggle(CaptureDetectionMode.Window));
+        Assert.Equal(
+            CaptureDetectionMode.Window,
+            CaptureTargetPolicy.Toggle(CaptureDetectionMode.InterfaceElement));
+    }
+
+    [Fact]
+    public void CaptureDetectionUsesTheFirstTopmostTargetContainingThePointer()
+    {
+        CaptureTargetBounds[] targets =
+        [
+            new(100, 100, 500, 400),
+            new(0, 0, 1920, 1080)
+        ];
+
+        Assert.Equal(targets[0], CaptureTargetPolicy.FindTopmostContaining(targets, 200, 200));
+        Assert.Equal(targets[1], CaptureTargetPolicy.FindTopmostContaining(targets, 50, 50));
+        Assert.Null(CaptureTargetPolicy.FindTopmostContaining(targets, 1920, 1080));
+    }
+
+    [Fact]
+    public void CaptureTargetMappingClipsDesktopBoundsToNegativeCoordinateDisplay()
+    {
+        var display = new CaptureDisplayBounds(-1920, 0, 1920, 1080);
+        var target = new CaptureTargetBounds(-2000, 100, 500, 400);
+
+        Assert.Equal(
+            new PixelRegion(0, 100, 420, 400),
+            CaptureTargetPolicy.MapClippedToDisplay(display, target));
+        Assert.Null(CaptureTargetPolicy.MapClippedToDisplay(
+            display,
+            new CaptureTargetBounds(0, 0, 400, 300)));
     }
 
     [Fact]
@@ -98,6 +231,38 @@ public sealed class SettingsTests
     {
         var profile = Path.GetTempPath();
         Assert.Equal(profile, FolderTargetPolicy.Resolve("shell:HomeFolder", profile));
+    }
+
+    [Fact]
+    public void ExplorerTabSelectionUsesTheActiveViewWhenTabsShareAWindow()
+    {
+        ExplorerTabCandidate[] candidates =
+        [
+            new(101, @"C:\Users\tester\Desktop"),
+            new(202, @"C:\Users\tester\Documents")
+        ];
+
+        var selected = ExplorerTabSelectionPolicy.SelectActive(candidates, 202);
+
+        Assert.Equal(@"C:\Users\tester\Documents", selected?.ShellPath);
+    }
+
+    [Fact]
+    public void ExplorerTabSelectionDoesNotGuessAmongUnmappedBackgroundTabs()
+    {
+        ExplorerTabCandidate[] candidates =
+        [
+            new(0, @"C:\Users\tester\Desktop"),
+            new(0, @"C:\Users\tester\Documents")
+        ];
+
+        Assert.Null(ExplorerTabSelectionPolicy.SelectActive(candidates, 202));
+        Assert.Equal(
+            candidates[0],
+            ExplorerTabSelectionPolicy.SelectActive(candidates, activeTabWindowHandle: 0));
+        Assert.Equal(
+            candidates[0],
+            ExplorerTabSelectionPolicy.SelectActive([candidates[0]], 202));
     }
 
     [Fact]
@@ -187,5 +352,37 @@ public sealed class SettingsTests
             150);
 
         Assert.Equal(new PinWindowBounds(0, 50, 400, 200), resized);
+    }
+
+    [Fact]
+    public void PinToolbarIsPlacedOutsideTheImageAndFlipsAboveNearTheWorkAreaBottom()
+    {
+        var workArea = new PinWindowBounds(0, 0, 1920, 1040);
+        var below = PinToolbarPlacementPolicy.PlaceAdjacent(
+            new PinWindowBounds(200, 100, 800, 500),
+            workArea,
+            520,
+            44);
+        var above = PinToolbarPlacementPolicy.PlaceAdjacent(
+            new PinWindowBounds(1500, 800, 500, 220),
+            workArea,
+            520,
+            44);
+
+        Assert.Equal(new PinWindowBounds(480, 608, 520, 44), below);
+        Assert.Equal(new PinWindowBounds(1400, 748, 520, 44), above);
+        Assert.True(below.Y >= 100 + 500);
+        Assert.True(above.Y + above.Height <= 800);
+    }
+
+    [Theory]
+    [InlineData(96u, 620)]
+    [InlineData(120u, 775)]
+    [InlineData(144u, 930)]
+    public void PinToolbarLogicalWidthIsConvertedForDisplayDpi(uint dpi, int expectedPhysicalWidth)
+    {
+        Assert.Equal(
+            expectedPhysicalWidth,
+            WindowDpiScalePolicy.LogicalToPhysicalPixels(620, dpi));
     }
 }

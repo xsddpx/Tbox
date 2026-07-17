@@ -1,9 +1,8 @@
 using Microsoft.UI;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
@@ -22,7 +21,8 @@ internal enum CaptureCompletionAction
 {
     Pin,
     Copy,
-    Save
+    Save,
+    RecognizeText
 }
 
 internal sealed record CaptureCompletion(
@@ -32,14 +32,13 @@ internal sealed record CaptureCompletion(
 
 internal sealed class CaptureOverlayWindow : Window
 {
-    private const double ToolbarButtonWidth = 30;
-    private const double ToolbarButtonHeight = 32;
-    private const double ToolbarSymbolIconSize = 17;
-    private const double ToolbarFluentIconSize = 14;
-    private const double ToolbarIconBoxSize = 20;
+    private const double SelectionHandleSize = 8;
+    private const double SelectionHandleHitTolerance = 7;
+    private const double MinimumAdjustedSelectionSize = 8;
     private readonly CapturedScreen _screen;
+    private readonly CaptureTargetDetector _targetDetector;
     private readonly Grid _root;
-    private readonly Canvas _canvas;
+    private readonly CursorCanvas _canvas;
     private readonly AppWindow _appWindow;
     private readonly Rectangle _fullShade;
     private readonly Rectangle _topShade;
@@ -49,27 +48,37 @@ internal sealed class CaptureOverlayWindow : Window
     private readonly Rectangle _selection;
     private readonly Canvas _annotationHost;
     private readonly CaptureAnnotationController _annotations;
+    private readonly AnnotationToolbar _annotationToolbar;
     private readonly Border _toolbar;
     private readonly TextBlock _hintText;
-    private readonly Dictionary<AnnotationTool, Button> _toolButtons = [];
-    private Button _undoButton = null!;
-    private Button _redoButton = null!;
-    private Button _colorButton = null!;
-    private TextBlock _widthText = null!;
+    private readonly Dictionary<CaptureSelectionHandle, Rectangle> _selectionHandles = [];
     private Point? _start;
     private Rect _selectionBounds;
     private CapturedScreen? _selectedScreen;
     private PixelRegion? _selectedRegion;
+    private PixelRegion? _detectedRegion;
+    private PixelRegion? _pressedDetectedRegion;
+    private CaptureDetectionMode _detectionMode = CaptureDetectionMode.Window;
+    private bool _selectionFromDetectedTarget;
     private bool _drawingAnnotation;
+    private CaptureSelectionHandle _adjustingSelection = CaptureSelectionHandle.None;
+    private CaptureSelectionBounds _adjustmentStartBounds;
+    private bool _toolbarVisibleBeforeAdjustment;
     private bool _completingSelection;
     private bool _completed;
 
     internal event Action<CaptureCompletion?>? Completed;
     internal event Action? SelectionStarted;
+    internal event Action? RestoreLastRegionRequested;
+    internal event Action<CaptureDetectionMode>? DetectionModeChangeRequested;
 
-    private CaptureOverlayWindow(CapturedScreen screen, Image image)
+    private CaptureOverlayWindow(
+        CapturedScreen screen,
+        Image image,
+        CaptureTargetDetector targetDetector)
     {
         _screen = screen;
+        _targetDetector = targetDetector;
         Title = "Tbox 截图";
 
         _root = new Grid
@@ -81,7 +90,8 @@ internal sealed class CaptureOverlayWindow : Window
         image.Stretch = Stretch.Fill;
         _root.Children.Add(image);
 
-        _canvas = new Canvas { Background = new SolidColorBrush(Colors.Transparent) };
+        _canvas = new CursorCanvas { Background = new SolidColorBrush(Colors.Transparent) };
+        _canvas.SetCursor(InputSystemCursorShape.Cross);
         _fullShade = CreateShade();
         _root.Children.Add(_fullShade);
         _topShade = CreateShade(Visibility.Collapsed);
@@ -90,7 +100,17 @@ internal sealed class CaptureOverlayWindow : Window
         _bottomShade = CreateShade(Visibility.Collapsed);
         _annotationHost = new Canvas { Visibility = Visibility.Collapsed };
         _annotations = new CaptureAnnotationController(_annotationHost);
-        _annotations.StateChanged += UpdateAnnotationToolbarState;
+        _annotationToolbar = new AnnotationToolbar(
+            _annotations,
+            new AnnotationToolbarActions(
+                () => CompleteSelectionAsync(CaptureCompletionAction.RecognizeText),
+                SaveSelectionAsync,
+                () => CompleteSelectionAsync(CaptureCompletionAction.Copy),
+                "复制并完成（Ctrl+C / Enter）",
+                () => CompleteSelectionAsync(CaptureCompletionAction.Pin),
+                "\uE718",
+                "贴图固定（Ctrl+T / 鼠标中键）"),
+            Visibility.Collapsed);
         _selection = new Rectangle
         {
             Stroke = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)),
@@ -103,13 +123,19 @@ internal sealed class CaptureOverlayWindow : Window
         _canvas.Children.Add(_bottomShade);
         _canvas.Children.Add(_annotationHost);
         _canvas.Children.Add(_selection);
-        _toolbar = CreateToolbar();
+        foreach (var handle in Enum.GetValues<CaptureSelectionHandle>().Where(handle => handle != CaptureSelectionHandle.None))
+        {
+            var visual = CreateSelectionHandle();
+            _selectionHandles.Add(handle, visual);
+            _canvas.Children.Add(visual);
+        }
+        _toolbar = _annotationToolbar.View;
         _canvas.Children.Add(_toolbar);
         _root.Children.Add(_canvas);
 
         _hintText = new TextBlock
         {
-            Text = "在任意显示器拖动选择唯一截图区域 · Esc 取消",
+            Text = CreateReadyHint(),
             Foreground = new SolidColorBrush(Colors.White)
         };
         var hint = new Border
@@ -125,12 +151,24 @@ internal sealed class CaptureOverlayWindow : Window
         _root.Children.Add(hint);
         Content = _root;
 
-        _canvas.SizeChanged += (_, _) => ResetShade();
+        _canvas.SizeChanged += (_, _) =>
+        {
+            ResetShade();
+            UpdateDetectedTargetFromCursor();
+        };
         _canvas.PointerPressed += OnPointerPressed;
         _canvas.PointerMoved += OnPointerMoved;
         _canvas.PointerReleased += OnPointerReleased;
         _canvas.PointerCanceled += OnPointerCanceled;
+        _canvas.PointerExited += (_, _) =>
+        {
+            if (_adjustingSelection == CaptureSelectionHandle.None)
+            {
+                _canvas.SetCursor(InputSystemCursorShape.Cross);
+            }
+        };
         _canvas.RightTapped += (_, _) => _annotations.CancelCurrentOperation();
+        _root.PreviewKeyDown += OnRootPreviewKeyDown;
 
         var escape = new KeyboardAccelerator { Key = VirtualKey.Escape };
         escape.Invoked += (_, args) =>
@@ -160,6 +198,7 @@ internal sealed class CaptureOverlayWindow : Window
         Activated += (_, _) => _root.Focus(FocusState.Programmatic);
         Closed += (_, _) =>
         {
+            _annotationToolbar.Dispose();
             _annotations.Dispose();
             if (!_completed)
             {
@@ -169,253 +208,71 @@ internal sealed class CaptureOverlayWindow : Window
         };
     }
 
-    internal static async Task<CaptureOverlayWindow> CreateAsync(CapturedScreen screen)
+    internal static async Task<CaptureOverlayWindow> CreateAsync(
+        CapturedScreen screen,
+        CaptureTargetDetector targetDetector)
     {
         var source = await screen.CreateBitmapSourceAsync();
-        return new CaptureOverlayWindow(screen, new Image { Source = source });
+        return new CaptureOverlayWindow(screen, new Image { Source = source }, targetDetector);
     }
 
     internal void Show(bool activate) => _appWindow.Show(activateWindow: activate);
+
+    internal CaptureDisplayBounds DisplayBounds => new(
+        _screen.Left,
+        _screen.Top,
+        _screen.Width,
+        _screen.Height);
+
+    internal void SetDetectionMode(CaptureDetectionMode mode)
+    {
+        if (_completed) return;
+        _detectionMode = mode;
+        if (_selectedScreen is null)
+        {
+            _hintText.Text = CreateReadyHint();
+            UpdateDetectedTargetFromCursor();
+            return;
+        }
+
+        var cursor = ScreenCaptureService.GetCursorPosition();
+        if (_selectionFromDetectedTarget &&
+            !_annotations.HasAnnotations &&
+            DisplayBounds.Contains(cursor.X, cursor.Y))
+        {
+            _annotations.Reset();
+            _selectedScreen = null;
+            _selectedRegion = null;
+            _selectionFromDetectedTarget = false;
+            _toolbar.Visibility = Visibility.Collapsed;
+            UpdateDetectedTargetFromCursor();
+            if (_detectedRegion is { } detected)
+            {
+                ApplySelectionRegion(detected, selectionFromDetectedTarget: true);
+            }
+        }
+        _hintText.Text = _detectionMode == CaptureDetectionMode.Window
+            ? "已切换为窗口检测"
+            : "已切换为界面元素检测 · 无法识别时回退到窗口";
+    }
+
+    internal bool TryRestoreSelection(CaptureTargetBounds desktopBounds)
+    {
+        if (_completed) return false;
+        var region = CaptureTargetPolicy.MapClippedToDisplay(DisplayBounds, desktopBounds);
+        if (region is null) return false;
+        ApplySelectionRegion(region.Value, selectionFromDetectedTarget: false);
+        _hintText.Text = "已恢复上一次成功截图区域 · 拖动边框或控制点可调整";
+        return true;
+    }
+
+    internal void ShowStatus(string message) => _hintText.Text = message;
 
     internal void ResetForPeerSelection()
     {
         if (_completed) return;
         _canvas.ReleasePointerCaptures();
         CancelSelection();
-    }
-
-    private Border CreateToolbar()
-    {
-        var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-        AddToolButton(tools, AnnotationTool.Rectangle, "□", "矩形（Shift：正方形）");
-        AddToolButton(tools, AnnotationTool.Ellipse, "○", "椭圆（Shift：圆）");
-        AddToolButton(tools, AnnotationTool.Arrow, "➜", "箭头（Shift：吸附 45°）");
-        AddToolButton(tools, AnnotationTool.Number, "①", "序号（点击自动递增）");
-        AddToolButton(tools, AnnotationTool.Pen, "\uE76D", "画笔（B）", useFluentIcon: true);
-        AddToolButton(tools, AnnotationTool.Mosaic, "▦", "马赛克");
-        AddToolButton(tools, AnnotationTool.Text, "T", "文字（T，Ctrl+Enter 提交）");
-        AddToolButton(tools, AnnotationTool.Eraser, "\uE75C", "橡皮擦（只擦除标注）", useFluentIcon: true);
-        tools.Children.Add(CreateSeparator());
-
-        _colorButton = CreateToolbarButton("\uE790", "标注颜色", useFluentIcon: true);
-        SetToolbarIconColor(_colorButton, ToColor(_annotations.ColorArgb));
-        var colorFlyout = new Flyout
-        {
-            FlyoutPresenterStyle = CreateCompactFlyoutPresenterStyle()
-        };
-        var colors = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 2,
-            Padding = new Thickness(6)
-        };
-        foreach (var choice in new (uint Value, string Name)[]
-                 {
-                     (0xFFFF3B30, "红色"),
-                     (0xFFFFCC00, "黄色"),
-                     (0xFF34C759, "绿色"),
-                     (0xFF007AFF, "蓝色"),
-                     (0xFF000000, "黑色"),
-                     (0xFFFFFFFF, "白色")
-                 })
-        {
-            var swatch = CreateToolbarButton(
-                "●",
-                choice.Name,
-                width: 26,
-                height: 26,
-                iconSize: 12,
-                iconBoxSize: 16);
-            SetToolbarIconColor(swatch, ToColor(choice.Value));
-            swatch.Click += (_, _) =>
-            {
-                _annotations.SetColor(choice.Value);
-                colorFlyout.Hide();
-            };
-            colors.Children.Add(swatch);
-        }
-        colorFlyout.Content = colors;
-        _colorButton.Flyout = colorFlyout;
-        tools.Children.Add(_colorButton);
-
-        var thinner = CreateToolbarButton("\uE738", "减小粗细（1）", useFluentIcon: true);
-        thinner.Click += (_, _) => _annotations.AdjustWidth(-1);
-        tools.Children.Add(thinner);
-        _widthText = new TextBlock
-        {
-            Text = "3",
-            Foreground = new SolidColorBrush(Colors.White),
-            VerticalAlignment = VerticalAlignment.Center,
-            MinWidth = 24,
-            FontSize = 14,
-            TextAlignment = TextAlignment.Center
-        };
-        tools.Children.Add(_widthText);
-        var thicker = CreateToolbarButton("\uE710", "增大粗细（2）", useFluentIcon: true);
-        thicker.Click += (_, _) => _annotations.AdjustWidth(1);
-        tools.Children.Add(thicker);
-        tools.Children.Add(CreateSeparator());
-
-        _undoButton = CreateToolbarButton("\uE7A7", "撤销（Ctrl+Z）", useFluentIcon: true);
-        _undoButton.Click += (_, _) => _annotations.Undo();
-        tools.Children.Add(_undoButton);
-        _redoButton = CreateToolbarButton("\uE7A6", "重做（Ctrl+Y）", useFluentIcon: true);
-        _redoButton.Click += (_, _) => _annotations.Redo();
-        tools.Children.Add(_redoButton);
-        tools.Children.Add(CreateSeparator());
-
-        var saveButton = CreateToolbarButton("\uE792", "另存为（Ctrl+S）", useFluentIcon: true);
-        saveButton.Click += async (_, _) => await SaveSelectionAsync();
-        tools.Children.Add(saveButton);
-        var copyButton = CreateToolbarButton("\uE8C8", "复制并完成（Ctrl+C / Enter）", useFluentIcon: true);
-        copyButton.Click += async (_, _) => await CompleteSelectionAsync(CaptureCompletionAction.Copy);
-        tools.Children.Add(copyButton);
-        var pinButton = CreateToolbarButton("\uE718", "贴图固定（Ctrl+T / 鼠标中键）", useFluentIcon: true);
-        pinButton.Click += async (_, _) => await CompleteSelectionAsync(CaptureCompletionAction.Pin);
-        tools.Children.Add(pinButton);
-
-        var toolScroller = new ScrollViewer
-        {
-            Content = tools,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollMode = ScrollMode.Enabled,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            VerticalScrollMode = ScrollMode.Disabled
-        };
-
-        return new Border
-        {
-            RequestedTheme = ElementTheme.Dark,
-            Background = new SolidColorBrush(Color.FromArgb(245, 32, 32, 32)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 112, 112, 112)),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(4),
-            Visibility = Visibility.Collapsed,
-            Child = toolScroller
-        };
-    }
-
-    private void AddToolButton(
-        StackPanel panel,
-        AnnotationTool tool,
-        string content,
-        string toolTip,
-        bool useFluentIcon = false)
-    {
-        var button = CreateToolbarButton(content, toolTip, useFluentIcon: useFluentIcon);
-        button.Click += (_, _) => _annotations.SetTool(tool);
-        _toolButtons[tool] = button;
-        panel.Children.Add(button);
-    }
-
-    private static Button CreateToolbarButton(
-        string glyph,
-        string toolTip,
-        double width = ToolbarButtonWidth,
-        bool useFluentIcon = false,
-        double height = ToolbarButtonHeight,
-        double? iconSize = null,
-        double iconBoxSize = ToolbarIconBoxSize)
-    {
-        var icon = new FontIcon
-        {
-            Glyph = glyph,
-            FontFamily = new FontFamily(useFluentIcon ? "Segoe Fluent Icons" : "Segoe UI Symbol"),
-            FontSize = iconSize ?? (useFluentIcon ? ToolbarFluentIconSize : ToolbarSymbolIconSize),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var iconHost = new Grid
-        {
-            Width = iconBoxSize,
-            Height = iconBoxSize,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        iconHost.Children.Add(icon);
-        var button = new Button
-        {
-            Content = iconHost,
-            Width = width,
-            Height = height,
-            Padding = new Thickness(0),
-            Foreground = new SolidColorBrush(Colors.White),
-            Background = new SolidColorBrush(Colors.Transparent),
-            BorderBrush = new SolidColorBrush(Colors.Transparent),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(3),
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-            VerticalContentAlignment = VerticalAlignment.Center
-        };
-        ApplyToolbarButtonVisualState(button, selected: false);
-        ToolTipService.SetToolTip(button, toolTip);
-        AutomationProperties.SetName(button, toolTip);
-        return button;
-    }
-
-    private static Style CreateCompactFlyoutPresenterStyle()
-    {
-        var style = new Style(typeof(FlyoutPresenter));
-        style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d));
-        style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
-        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
-        return style;
-    }
-
-    private static void SetToolbarIconColor(Button button, Color color)
-    {
-        if (button.Content is Grid { Children.Count: > 0 } host &&
-            host.Children[0] is FontIcon icon)
-        {
-            icon.Foreground = new SolidColorBrush(color);
-        }
-    }
-
-    private static void ApplyToolbarButtonVisualState(Button button, bool selected)
-    {
-        var normal = selected
-            ? Color.FromArgb(255, 0, 120, 212)
-            : Colors.Transparent;
-        var hover = selected
-            ? Color.FromArgb(255, 20, 135, 230)
-            : Color.FromArgb(255, 58, 58, 58);
-        var pressed = selected
-            ? Color.FromArgb(255, 0, 96, 170)
-            : Color.FromArgb(255, 76, 76, 76);
-        var hoverBorder = selected
-            ? Color.FromArgb(255, 96, 180, 240)
-            : Color.FromArgb(255, 105, 105, 105);
-
-        button.Background = new SolidColorBrush(normal);
-        button.BorderBrush = new SolidColorBrush(Colors.Transparent);
-        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(hover);
-        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(pressed);
-        button.Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(hoverBorder);
-        button.Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(hoverBorder);
-        button.Resources["ButtonBackgroundDisabled"] = new SolidColorBrush(Colors.Transparent);
-        button.Resources["ButtonBorderBrushDisabled"] = new SolidColorBrush(Colors.Transparent);
-        button.Resources["ButtonForegroundDisabled"] = new SolidColorBrush(Color.FromArgb(255, 105, 105, 105));
-    }
-
-    private static Border CreateSeparator() => new()
-    {
-        Width = 1,
-        Height = 22,
-        Margin = new Thickness(3, 5, 3, 5),
-        Background = new SolidColorBrush(Color.FromArgb(255, 90, 90, 90))
-    };
-
-    private void UpdateAnnotationToolbarState()
-    {
-        foreach (var pair in _toolButtons)
-        {
-            ApplyToolbarButtonVisualState(pair.Value, pair.Key == _annotations.CurrentTool);
-        }
-        SetToolbarIconColor(_colorButton, ToColor(_annotations.ColorArgb));
-        _widthText.Text = Math.Round(_annotations.CurrentWidth).ToString();
-        _undoButton.IsEnabled = _annotations.CanUndo;
-        _redoButton.IsEnabled = _annotations.CanRedo;
     }
 
     private void AddKeyboardAccelerators()
@@ -432,7 +289,9 @@ internal sealed class CaptureOverlayWindow : Window
             () => _annotations.SetTool(AnnotationTool.Pen));
         AddKeyboardAccelerator(VirtualKey.T, VirtualKeyModifiers.None,
             () => _annotations.SetTool(AnnotationTool.Text));
-        AddKeyboardAccelerator(VirtualKey.Tab, VirtualKeyModifiers.None, _annotations.TogglePairedTool);
+        AddKeyboardAccelerator(VirtualKey.R, VirtualKeyModifiers.None, () =>
+            RestoreLastRegionRequested?.Invoke());
+        AddKeyboardAccelerator(VirtualKey.Space, VirtualKeyModifiers.None, ToggleToolbar);
         AddKeyboardAccelerator(VirtualKey.Number1, VirtualKeyModifiers.None, () => _annotations.AdjustWidth(-1));
         AddKeyboardAccelerator(VirtualKey.Number2, VirtualKeyModifiers.None, () => _annotations.AdjustWidth(1));
         AddKeyboardAccelerator(VirtualKey.Enter, VirtualKeyModifiers.None,
@@ -453,17 +312,31 @@ internal sealed class CaptureOverlayWindow : Window
         _root.KeyboardAccelerators.Add(accelerator);
     }
 
+    private void OnRootPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != VirtualKey.Tab || _annotations.IsEditingText) return;
+        e.Handled = true;
+        DetectionModeChangeRequested?.Invoke(CaptureTargetPolicy.Toggle(_detectionMode));
+    }
+
     private static Rectangle CreateShade(Visibility visibility = Visibility.Visible) => new()
     {
         Fill = new SolidColorBrush(Color.FromArgb(120, 0, 0, 0)),
         Visibility = visibility
     };
 
-    private static Color ToColor(uint argb) => Color.FromArgb(
-        (byte)(argb >> 24),
-        (byte)(argb >> 16),
-        (byte)(argb >> 8),
-        (byte)argb);
+    private static Rectangle CreateSelectionHandle() => new()
+    {
+        Width = SelectionHandleSize,
+        Height = SelectionHandleSize,
+        Fill = new SolidColorBrush(Colors.White),
+        Stroke = new SolidColorBrush(Color.FromArgb(255, 0, 120, 212)),
+        StrokeThickness = 1.5,
+        RadiusX = 1,
+        RadiusY = 1,
+        IsHitTestVisible = false,
+        Visibility = Visibility.Collapsed
+    };
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
     {
@@ -478,6 +351,13 @@ internal sealed class CaptureOverlayWindow : Window
         }
         if (!point.Properties.IsLeftButtonPressed) return;
 
+        if (_selectedScreen is not null && TryBeginSelectionAdjustment(point.Position))
+        {
+            _canvas.CapturePointer(e.Pointer);
+            e.Handled = true;
+            return;
+        }
+
         if (_selectedScreen is not null && _annotations.CurrentTool is not null)
         {
             if (!_selectionBounds.Contains(point.Position)) return;
@@ -488,15 +368,17 @@ internal sealed class CaptureOverlayWindow : Window
             return;
         }
 
+        _pressedDetectedRegion = _detectedRegion;
         _annotations.Reset();
         _selectedScreen = null;
         _selectedRegion = null;
         _toolbar.Visibility = Visibility.Collapsed;
-        _hintText.Text = "在任意显示器拖动选择唯一截图区域 · Esc 取消";
+        HideSelectionHandles();
+        _hintText.Text = CreateReadyHint();
         SelectionStarted?.Invoke();
         _start = Clamp(point.Position);
         _canvas.CapturePointer(e.Pointer);
-        UpdateSelection(_start.Value, _start.Value);
+        if (_pressedDetectedRegion is null) UpdateSelection(_start.Value, _start.Value);
         e.Handled = true;
     }
 
@@ -511,8 +393,136 @@ internal sealed class CaptureOverlayWindow : Window
         return false;
     }
 
+    private bool TryBeginSelectionAdjustment(Point point)
+    {
+        var handle = CaptureSelectionAdjustmentPolicy.HitTest(
+            ToAdjustmentBounds(_selectionBounds),
+            point.X,
+            point.Y,
+            SelectionHandleHitTolerance);
+        if (handle == CaptureSelectionHandle.None) return false;
+
+        _annotations.PrepareForRegionAdjustment();
+        _adjustingSelection = handle;
+        _adjustmentStartBounds = ToAdjustmentBounds(_selectionBounds);
+        _selectionFromDetectedTarget = false;
+        _toolbarVisibleBeforeAdjustment = _toolbar.Visibility == Visibility.Visible;
+        _toolbar.Visibility = Visibility.Collapsed;
+        _canvas.SetCursor(CursorForHandle(handle));
+        return true;
+    }
+
+    private void UpdateSelectionAdjustment(Point point, bool finalize)
+    {
+        var adjusted = CaptureSelectionAdjustmentPolicy.Resize(
+            _adjustmentStartBounds,
+            _adjustingSelection,
+            point.X,
+            point.Y,
+            _canvas.ActualWidth,
+            _canvas.ActualHeight,
+            MinimumAdjustedSelectionSize,
+            MinimumAdjustedSelectionSize);
+        ApplyAdjustedSelection(adjusted, finalize);
+    }
+
+    private void ApplyAdjustedSelection(CaptureSelectionBounds bounds, bool finalize)
+    {
+        var region = CaptureRegionPolicy.MapToPixels(
+            _canvas.ActualWidth,
+            _canvas.ActualHeight,
+            bounds.Left,
+            bounds.Top,
+            bounds.Width,
+            bounds.Height,
+            _screen.Width,
+            _screen.Height);
+        _selectedRegion = region;
+        if (finalize)
+        {
+            _selectedScreen = _screen.Crop(region.Left, region.Top, region.Width, region.Height);
+        }
+        _selectionBounds = PixelRegionToCanvasBounds(region);
+        UpdateSelection(
+            new Point(_selectionBounds.Left, _selectionBounds.Top),
+            new Point(_selectionBounds.Right, _selectionBounds.Bottom));
+        Canvas.SetLeft(_annotationHost, _selectionBounds.Left);
+        Canvas.SetTop(_annotationHost, _selectionBounds.Top);
+        _annotations.UpdateRegion(
+            _screen,
+            region,
+            _selectionBounds.Width,
+            _selectionBounds.Height);
+        PositionSelectionHandles();
+    }
+
+    private void UpdateSelectionCursor(Point point)
+    {
+        var handle = CaptureSelectionAdjustmentPolicy.HitTest(
+            ToAdjustmentBounds(_selectionBounds),
+            point.X,
+            point.Y,
+            SelectionHandleHitTolerance);
+        _canvas.SetCursor(handle == CaptureSelectionHandle.None
+            ? InputSystemCursorShape.Cross
+            : CursorForHandle(handle));
+    }
+
+    private static InputSystemCursorShape CursorForHandle(CaptureSelectionHandle handle) => handle switch
+    {
+        CaptureSelectionHandle.Left or CaptureSelectionHandle.Right => InputSystemCursorShape.SizeWestEast,
+        CaptureSelectionHandle.Top or CaptureSelectionHandle.Bottom => InputSystemCursorShape.SizeNorthSouth,
+        CaptureSelectionHandle.TopLeft or CaptureSelectionHandle.BottomRight =>
+            InputSystemCursorShape.SizeNorthwestSoutheast,
+        CaptureSelectionHandle.TopRight or CaptureSelectionHandle.BottomLeft =>
+            InputSystemCursorShape.SizeNortheastSouthwest,
+        _ => InputSystemCursorShape.Cross
+    };
+
+    private static CaptureSelectionBounds ToAdjustmentBounds(Rect bounds) => new(
+        bounds.Left,
+        bounds.Top,
+        bounds.Width,
+        bounds.Height);
+
+    private void PositionSelectionHandles()
+    {
+        var centerX = _selectionBounds.Left + (_selectionBounds.Width / 2);
+        var centerY = _selectionBounds.Top + (_selectionBounds.Height / 2);
+        SetSelectionHandle(CaptureSelectionHandle.TopLeft, _selectionBounds.Left, _selectionBounds.Top);
+        SetSelectionHandle(CaptureSelectionHandle.Top, centerX, _selectionBounds.Top);
+        SetSelectionHandle(CaptureSelectionHandle.TopRight, _selectionBounds.Right, _selectionBounds.Top);
+        SetSelectionHandle(CaptureSelectionHandle.Right, _selectionBounds.Right, centerY);
+        SetSelectionHandle(CaptureSelectionHandle.BottomRight, _selectionBounds.Right, _selectionBounds.Bottom);
+        SetSelectionHandle(CaptureSelectionHandle.Bottom, centerX, _selectionBounds.Bottom);
+        SetSelectionHandle(CaptureSelectionHandle.BottomLeft, _selectionBounds.Left, _selectionBounds.Bottom);
+        SetSelectionHandle(CaptureSelectionHandle.Left, _selectionBounds.Left, centerY);
+    }
+
+    private void SetSelectionHandle(CaptureSelectionHandle handle, double centerX, double centerY)
+    {
+        var visual = _selectionHandles[handle];
+        visual.Visibility = Visibility.Visible;
+        Canvas.SetLeft(visual, centerX - (SelectionHandleSize / 2));
+        Canvas.SetTop(visual, centerY - (SelectionHandleSize / 2));
+    }
+
+    private void HideSelectionHandles()
+    {
+        foreach (var visual in _selectionHandles.Values)
+        {
+            visual.Visibility = Visibility.Collapsed;
+        }
+    }
+
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
+        if (_adjustingSelection != CaptureSelectionHandle.None)
+        {
+            UpdateSelectionAdjustment(e.GetCurrentPoint(_canvas).Position, finalize: false);
+            e.Handled = true;
+            return;
+        }
         if (_drawingAnnotation)
         {
             _annotations.PointerMoved(
@@ -521,13 +531,49 @@ internal sealed class CaptureOverlayWindow : Window
             e.Handled = true;
             return;
         }
-        if (_start is null || !e.GetCurrentPoint(_canvas).Properties.IsLeftButtonPressed) return;
-        UpdateSelection(_start.Value, Clamp(e.GetCurrentPoint(_canvas).Position));
+        var point = e.GetCurrentPoint(_canvas);
+        if (_start is null || !point.Properties.IsLeftButtonPressed)
+        {
+            if (_selectedScreen is null)
+            {
+                UpdateDetectedTarget(point.Position);
+                _canvas.SetCursor(InputSystemCursorShape.Cross);
+            }
+            else
+            {
+                UpdateSelectionCursor(point.Position);
+            }
+            return;
+        }
+        var current = Clamp(point.Position);
+        if (Math.Abs(current.X - _start.Value.X) >= 2 || Math.Abs(current.Y - _start.Value.Y) >= 2)
+        {
+            _pressedDetectedRegion = null;
+        }
+        if (_pressedDetectedRegion is null) UpdateSelection(_start.Value, current);
         e.Handled = true;
     }
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs e)
     {
+        if (_adjustingSelection != CaptureSelectionHandle.None)
+        {
+            UpdateSelectionAdjustment(e.GetCurrentPoint(_canvas).Position, finalize: true);
+            _canvas.ReleasePointerCapture(e.Pointer);
+            _adjustingSelection = CaptureSelectionHandle.None;
+            if (_toolbarVisibleBeforeAdjustment)
+            {
+                ShowToolbar(
+                    _selectionBounds.Left,
+                    _selectionBounds.Top,
+                    _selectionBounds.Width,
+                    _selectionBounds.Height);
+            }
+            _hintText.Text = "选区已调整 · 可继续拖动边框或控制点 · 可标注、保存、复制或贴图";
+            UpdateSelectionCursor(e.GetCurrentPoint(_canvas).Position);
+            e.Handled = true;
+            return;
+        }
         if (_drawingAnnotation)
         {
             _annotations.PointerReleased(
@@ -550,7 +596,17 @@ internal sealed class CaptureOverlayWindow : Window
         var height = Math.Abs(end.Y - start.Y);
         if (width < 2 || height < 2)
         {
-            CancelSelection();
+            if (_pressedDetectedRegion is { } detected)
+            {
+                ApplySelectionRegion(detected, selectionFromDetectedTarget: true);
+                _hintText.Text = "已按检测目标创建选区 · 拖动边框或控制点可调整";
+            }
+            else
+            {
+                CancelSelection();
+            }
+            _pressedDetectedRegion = null;
+            e.Handled = true;
             return;
         }
 
@@ -563,19 +619,29 @@ internal sealed class CaptureOverlayWindow : Window
             height,
             _screen.Width,
             _screen.Height);
-        _selectedScreen = _screen.Crop(region.Left, region.Top, region.Width, region.Height);
-        _selectedRegion = region;
-        _selectionBounds = new Rect(left, top, width, height);
-        Canvas.SetLeft(_annotationHost, left);
-        Canvas.SetTop(_annotationHost, top);
-        _annotations.Begin(_screen, region, width, height);
-        ShowToolbar(left, top, width, height);
-        _hintText.Text = "可标注、保存、复制或贴图 · 鼠标中键快速贴图 · Esc 逐级取消";
+        ApplySelectionRegion(region, selectionFromDetectedTarget: false);
+        _hintText.Text = "拖动边框或控制点可调整 · 可标注、保存、复制或贴图 · Esc 逐级取消";
         e.Handled = true;
     }
 
     private void OnPointerCanceled(object sender, PointerRoutedEventArgs e)
     {
+        if (_adjustingSelection != CaptureSelectionHandle.None)
+        {
+            ApplyAdjustedSelection(_adjustmentStartBounds, finalize: true);
+            _adjustingSelection = CaptureSelectionHandle.None;
+            if (_toolbarVisibleBeforeAdjustment)
+            {
+                ShowToolbar(
+                    _selectionBounds.Left,
+                    _selectionBounds.Top,
+                    _selectionBounds.Width,
+                    _selectionBounds.Height);
+            }
+            _canvas.SetCursor(InputSystemCursorShape.Cross);
+            e.Handled = true;
+            return;
+        }
         switch (CaptureInteractionPolicy.ResolvePointerCancellation(
                     _drawingAnnotation,
                     _start is not null))
@@ -609,8 +675,109 @@ internal sealed class CaptureOverlayWindow : Window
             : Math.Max(0, top - toolbarHeight - gap);
         Canvas.SetLeft(_toolbar, toolbarLeft);
         Canvas.SetTop(_toolbar, toolbarTop);
-        UpdateAnnotationToolbarState();
+        _annotationToolbar.Refresh();
     }
+
+    private void ToggleToolbar()
+    {
+        if (_selectedScreen is null) return;
+        if (_toolbar.Visibility == Visibility.Visible)
+        {
+            _toolbar.Visibility = Visibility.Collapsed;
+            _hintText.Text = "标注工具条已隐藏 · 按空格重新显示";
+            return;
+        }
+
+        ShowToolbar(
+            _selectionBounds.Left,
+            _selectionBounds.Top,
+            _selectionBounds.Width,
+            _selectionBounds.Height);
+        _hintText.Text = "标注工具条已显示 · 按空格可隐藏";
+    }
+
+    private void ApplySelectionRegion(PixelRegion region, bool selectionFromDetectedTarget)
+    {
+        _detectedRegion = null;
+        _pressedDetectedRegion = null;
+        _selectedScreen = _screen.Crop(region.Left, region.Top, region.Width, region.Height);
+        _selectedRegion = region;
+        _selectionFromDetectedTarget = selectionFromDetectedTarget;
+        _selectionBounds = PixelRegionToCanvasBounds(region);
+        UpdateSelection(
+            new Point(_selectionBounds.Left, _selectionBounds.Top),
+            new Point(_selectionBounds.Right, _selectionBounds.Bottom));
+        Canvas.SetLeft(_annotationHost, _selectionBounds.Left);
+        Canvas.SetTop(_annotationHost, _selectionBounds.Top);
+        _annotations.Begin(
+            _screen,
+            region,
+            _selectionBounds.Width,
+            _selectionBounds.Height);
+        PositionSelectionHandles();
+        ShowToolbar(
+            _selectionBounds.Left,
+            _selectionBounds.Top,
+            _selectionBounds.Width,
+            _selectionBounds.Height);
+    }
+
+    private Rect PixelRegionToCanvasBounds(PixelRegion region) => new(
+        region.Left / (double)_screen.Width * _canvas.ActualWidth,
+        region.Top / (double)_screen.Height * _canvas.ActualHeight,
+        region.Width / (double)_screen.Width * _canvas.ActualWidth,
+        region.Height / (double)_screen.Height * _canvas.ActualHeight);
+
+    private void UpdateDetectedTargetFromCursor()
+    {
+        var cursor = ScreenCaptureService.GetCursorPosition();
+        if (!DisplayBounds.Contains(cursor.X, cursor.Y) || _canvas.ActualWidth <= 0 || _canvas.ActualHeight <= 0)
+        {
+            return;
+        }
+
+        UpdateDetectedTarget(new Point(
+            (cursor.X - _screen.Left) / (double)_screen.Width * _canvas.ActualWidth,
+            (cursor.Y - _screen.Top) / (double)_screen.Height * _canvas.ActualHeight));
+    }
+
+    private void UpdateDetectedTarget(Point canvasPoint)
+    {
+        if (_selectedScreen is not null || _start is not null ||
+            _canvas.ActualWidth <= 0 || _canvas.ActualHeight <= 0)
+        {
+            return;
+        }
+
+        var desktopPoint = new PointInt32(
+            _screen.Left + Math.Clamp(
+                (int)Math.Floor(canvasPoint.X / _canvas.ActualWidth * _screen.Width),
+                0,
+                _screen.Width - 1),
+            _screen.Top + Math.Clamp(
+                (int)Math.Floor(canvasPoint.Y / _canvas.ActualHeight * _screen.Height),
+                0,
+                _screen.Height - 1));
+        var target = _targetDetector.FindTarget(_detectionMode, desktopPoint);
+        _detectedRegion = target is { } bounds
+            ? CaptureTargetPolicy.MapClippedToDisplay(DisplayBounds, bounds)
+            : null;
+        if (_detectedRegion is { } region)
+        {
+            var canvasBounds = PixelRegionToCanvasBounds(region);
+            UpdateSelection(
+                new Point(canvasBounds.Left, canvasBounds.Top),
+                new Point(canvasBounds.Right, canvasBounds.Bottom));
+        }
+        else
+        {
+            ResetDetectionPreview();
+        }
+    }
+
+    private string CreateReadyHint() => _detectionMode == CaptureDetectionMode.Window
+        ? "窗口检测 · 单击选中，拖动自由选择 · Tab 切换界面元素 · R 恢复上次区域"
+        : "界面元素检测 · 单击选中，拖动自由选择 · Tab 切换窗口 · R 恢复上次区域";
 
     private Point Clamp(Point point) => new(
         Math.Clamp(point.X, 0, _canvas.ActualWidth),
@@ -655,24 +822,37 @@ internal sealed class CaptureOverlayWindow : Window
 
     private void ResetShade()
     {
+        ResetDetectionPreview();
+        _annotations.Reset();
+        _toolbar.Visibility = Visibility.Collapsed;
+        _selectedScreen = null;
+        _selectedRegion = null;
+        _selectionFromDetectedTarget = false;
+        _detectedRegion = null;
+        _pressedDetectedRegion = null;
+        _drawingAnnotation = false;
+        _adjustingSelection = CaptureSelectionHandle.None;
+        _canvas.SetCursor(InputSystemCursorShape.Cross);
+        _hintText.Text = CreateReadyHint();
+    }
+
+    private void ResetDetectionPreview()
+    {
         _fullShade.Visibility = Visibility.Visible;
         _topShade.Visibility = Visibility.Collapsed;
         _leftShade.Visibility = Visibility.Collapsed;
         _rightShade.Visibility = Visibility.Collapsed;
         _bottomShade.Visibility = Visibility.Collapsed;
         _selection.Visibility = Visibility.Collapsed;
-        _annotations.Reset();
-        _toolbar.Visibility = Visibility.Collapsed;
-        _selectedScreen = null;
-        _selectedRegion = null;
-        _drawingAnnotation = false;
-        _hintText.Text = "在任意显示器拖动选择唯一截图区域 · Esc 取消";
+        HideSelectionHandles();
+        _detectedRegion = null;
     }
 
     private void CancelSelection()
     {
         _start = null;
         ResetShade();
+        UpdateDetectedTargetFromCursor();
     }
 
     private async Task SaveSelectionAsync()
@@ -708,8 +888,10 @@ internal sealed class CaptureOverlayWindow : Window
         _completingSelection = true;
         try
         {
-            var rendered = await _annotations.RenderAsync();
-            Complete(new CaptureCompletion(rendered, action, saveDestination));
+            var output = action == CaptureCompletionAction.RecognizeText
+                ? _selectedScreen
+                : await _annotations.RenderAsync();
+            Complete(new CaptureCompletion(output, action, saveDestination));
         }
         catch (Exception exception)
         {
@@ -725,5 +907,17 @@ internal sealed class CaptureOverlayWindow : Window
         _completed = true;
         Completed?.Invoke(result);
         Close();
+    }
+
+    private sealed class CursorCanvas : Canvas
+    {
+        private InputSystemCursorShape? _shape;
+
+        internal void SetCursor(InputSystemCursorShape shape)
+        {
+            if (_shape == shape) return;
+            ProtectedCursor = InputSystemCursor.Create(shape);
+            _shape = shape;
+        }
     }
 }

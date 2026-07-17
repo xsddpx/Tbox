@@ -7,6 +7,25 @@ namespace Tbox.App;
 
 internal sealed record CapturedScreen(int Left, int Top, int Width, int Height, byte[] Pixels)
 {
+    internal static async Task<CapturedScreen> LoadAsync(string filePath)
+    {
+        var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(filePath);
+        using var stream = await file.OpenReadAsync();
+        var decoder = await BitmapDecoder.CreateAsync(stream);
+        var pixelData = await decoder.GetPixelDataAsync(
+            BitmapPixelFormat.Bgra8,
+            BitmapAlphaMode.Straight,
+            new BitmapTransform(),
+            ExifOrientationMode.IgnoreExifOrientation,
+            ColorManagementMode.DoNotColorManage);
+        return new CapturedScreen(
+            0,
+            0,
+            checked((int)decoder.PixelWidth),
+            checked((int)decoder.PixelHeight),
+            pixelData.DetachPixelData());
+    }
+
     internal CapturedScreen Crop(int left, int top, int width, int height)
     {
         left = Math.Clamp(left, 0, Width - 1);
@@ -47,7 +66,12 @@ internal sealed record CapturedScreen(int Left, int Top, int Width, int Height, 
     internal async Task<BitmapImage> CreateBitmapSourceAsync()
     {
         using var stream = await CreatePngStreamAsync();
-        var source = new BitmapImage();
+        var source = new BitmapImage
+        {
+            DecodePixelType = DecodePixelType.Physical,
+            DecodePixelWidth = Width,
+            DecodePixelHeight = Height
+        };
         await source.SetSourceAsync(stream);
         return source;
     }

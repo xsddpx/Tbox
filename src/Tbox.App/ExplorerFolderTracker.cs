@@ -189,6 +189,8 @@ internal sealed class ExplorerFolderTracker : IDisposable
         AppLog.Write("Explorer capture started.");
         var targetRoot = NativeMethods.GetAncestor(hwnd, NativeMethods.GaRoot);
         if (targetRoot == IntPtr.Zero) targetRoot = hwnd;
+        var activeTabWindow = ExplorerShellViewResolver.FindActiveTabWindow(targetRoot);
+        var candidates = new List<ExplorerTabCandidate>();
         object? shellObject = null;
         object? windowsObject = null;
         try
@@ -220,17 +222,33 @@ internal sealed class ExplorerFolderTracker : IDisposable
                         if (IsStableShellPath(shellPath) || attempt == 3) break;
                         Thread.Sleep(25);
                     }
-                    Volatile.Write(ref _lastShellPath, shellPath);
-                    var resolved = FolderTargetPolicy.Resolve(shellPath, _userProfile);
-                    Volatile.Write(ref _currentFolder, resolved);
-                    AppLog.Write("Explorer folder captured.");
-                    return;
+                    var tabWindow = activeTabWindow == IntPtr.Zero
+                        ? IntPtr.Zero
+                        : ExplorerShellViewResolver.TryGetTabWindow(itemObject, targetRoot);
+                    candidates.Add(new ExplorerTabCandidate(tabWindow.ToInt64(), shellPath));
                 }
                 catch (COMException)
                 {
                     // Explorer windows may disappear while enumerating.
                 }
             }
+
+            var selected = ExplorerTabSelectionPolicy.SelectActive(
+                candidates,
+                activeTabWindow.ToInt64());
+            if (selected is null)
+            {
+                AppLog.Write("Explorer capture skipped because the active tab could not be resolved.");
+                return;
+            }
+
+            var selectedShellPath = selected.Value.ShellPath;
+            Volatile.Write(ref _lastShellPath, selectedShellPath);
+            var resolved = FolderTargetPolicy.Resolve(selectedShellPath, _userProfile);
+            Volatile.Write(ref _currentFolder, resolved);
+            AppLog.Write(activeTabWindow == IntPtr.Zero
+                ? "Explorer folder captured."
+                : "Explorer active-tab folder captured.");
         }
         catch (Exception exception) when (exception is COMException or InvalidCastException)
         {

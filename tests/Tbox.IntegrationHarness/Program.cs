@@ -11,6 +11,8 @@ namespace Tbox.IntegrationHarness;
 internal static partial class Program
 {
     private const uint WmClose = 0x0010;
+    private const ushort VkTab = 0x09;
+    private const ushort VkT = 0x54;
 
     [STAThread]
     private static int Main(string[] args)
@@ -37,8 +39,11 @@ internal static partial class Program
         var durations = new List<long>();
         var failures = new List<string>();
         var trackerSucceeded = false;
+        var multiTabTrackerSucceeded = false;
         var annotationRendererSucceeded = false;
+        var clipboardTextRendererSucceeded = false;
         var screenCaptureSucceeded = false;
+        var captureTargetDetectionSucceeded = false;
         try
         {
             if (!FileDialogNavigator.AddressTextMatches(
@@ -61,13 +66,31 @@ internal static partial class Program
             annotationRendererSucceeded = annotationOutcome.Success;
             if (!annotationOutcome.Success) failures.Add($"截图标注渲染失败：{annotationOutcome.Error}");
 
+            var clipboardTextOutcome = ExerciseClipboardTextRenderer();
+            clipboardTextRendererSucceeded = clipboardTextOutcome.Success;
+            if (!clipboardTextOutcome.Success)
+            {
+                failures.Add($"剪贴板文字贴图渲染失败：{clipboardTextOutcome.Error}");
+            }
+
             var captureOutcome = ExerciseScreenCapture();
             screenCaptureSucceeded = captureOutcome.Success;
             if (!captureOutcome.Success) failures.Add($"多显示器截图捕获失败：{captureOutcome.Error}");
 
+            var targetDetectionOutcome = ExerciseCaptureTargetDetection();
+            captureTargetDetectionSucceeded = targetDetectionOutcome.Success;
+            if (!targetDetectionOutcome.Success) failures.Add($"界面元素检测失败：{targetDetectionOutcome.Error}");
+
             var trackerOutcome = ExerciseExplorerTracker(target, attempts);
             trackerSucceeded = trackerOutcome.Success;
             if (!trackerSucceeded) failures.Add($"资源管理器目录追踪失败；捕获值={trackerOutcome.Value}。");
+
+            var multiTabTrackerOutcome = ExerciseExplorerMultiTabTracker(target);
+            multiTabTrackerSucceeded = multiTabTrackerOutcome.Success;
+            if (!multiTabTrackerSucceeded)
+            {
+                failures.Add($"资源管理器多标签目录追踪失败；{multiTabTrackerOutcome.Value}。");
+            }
             for (var index = 0; index < attempts; index++)
             {
                 var title = $"Tbox Integration {Guid.NewGuid():N}";
@@ -98,8 +121,11 @@ internal static partial class Program
                 maximumMs = durations.Count == 0 ? 0 : durations.Max(),
                 averageMs = durations.Count == 0 ? 0 : Math.Round(durations.Average(), 1),
                 trackerSucceeded,
+                multiTabTrackerSucceeded,
                 annotationRendererSucceeded,
+                clipboardTextRendererSucceeded,
                 screenCaptureSucceeded,
+                captureTargetDetectionSucceeded,
                 failures
             }));
             return failures.Count == 0 ? 0 : 1;
@@ -214,6 +240,51 @@ internal static partial class Program
                 $"toolPixels={JsonSerializer.Serialize(changedByTool)}");
     }
 
+    private static Outcome ExerciseClipboardTextRenderer()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"Tbox.ClipboardText.{Guid.NewGuid():N}.png");
+        try
+        {
+            var pngBytes = ClipboardTextCardRenderer.RenderPngAsync(
+                    "第一行\r\nSecond line\r第三行包含足够长的中英文内容，用于确认剪贴板文字卡片能够保留换行并自动折行。" +
+                    string.Concat(Enumerable.Repeat(" Tbox clipboard text wrapping", 18)))
+                .GetAwaiter()
+                .GetResult();
+            File.WriteAllBytes(path, pngBytes);
+            var rendered = CapturedScreen.LoadAsync(path).GetAwaiter().GetResult();
+            var nonBackgroundPixels = 0;
+            var alphaIsOpaque = true;
+            for (var index = 0; index < rendered.Pixels.Length; index += 4)
+            {
+                if (rendered.Pixels[index + 3] != 255) alphaIsOpaque = false;
+                if (rendered.Pixels[index] != 251 ||
+                    rendered.Pixels[index + 1] != 250 ||
+                    rendered.Pixels[index + 2] != 249)
+                {
+                    nonBackgroundPixels++;
+                }
+            }
+
+            return pngBytes.Length > 0 &&
+                   rendered.Width is >= 280 and <= 760 &&
+                   rendered.Height is > 112 and <= 4096 &&
+                   alphaIsOpaque &&
+                   nonBackgroundPixels >= 100
+                ? Outcome.Pass(0)
+                : Outcome.Fail(
+                    $"png={pngBytes.Length}; size={rendered.Width}x{rendered.Height}; " +
+                    $"opaque={alphaIsOpaque}; textPixels={nonBackgroundPixels}");
+        }
+        catch (Exception exception)
+        {
+            return Outcome.Fail($"{exception.GetType().Name}: {exception.Message}");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     private static Outcome ExerciseScreenCapture()
     {
         var expected = Screen.AllScreens
@@ -236,6 +307,44 @@ internal static partial class Program
             : Outcome.Fail(
                 $"expected={JsonSerializer.Serialize(expected.Select(bounds => new { bounds.Left, bounds.Top, bounds.Width, bounds.Height }))}; " +
                 $"captured={JsonSerializer.Serialize(captured.Select(screen => new { screen.Left, screen.Top, screen.Width, screen.Height, bytes = screen.Pixels.Length }))}");
+    }
+
+    private static Outcome ExerciseCaptureTargetDetection()
+    {
+        using var form = new System.Windows.Forms.Form
+        {
+            Text = "Tbox Capture Target Integration",
+            StartPosition = FormStartPosition.Manual,
+            Location = new System.Drawing.Point(120, 120),
+            ClientSize = new System.Drawing.Size(360, 220),
+            ShowInTaskbar = false
+        };
+        using var button = new System.Windows.Forms.Button
+        {
+            Text = "Detected control",
+            Location = new System.Drawing.Point(70, 65),
+            Size = new System.Drawing.Size(180, 54)
+        };
+        form.Controls.Add(button);
+        form.Show();
+        System.Windows.Forms.Application.DoEvents();
+        try
+        {
+            var center = button.PointToScreen(new System.Drawing.Point(button.Width / 2, button.Height / 2));
+            var detected = CaptureTargetDetector.FindAccessibleElementForTesting(
+                form.Handle,
+                new Windows.Graphics.PointInt32(center.X, center.Y));
+            return detected is { } bounds &&
+                   bounds.Contains(center.X, center.Y) &&
+                   bounds.Width <= form.Width &&
+                   bounds.Height <= form.Height
+                ? Outcome.Pass(0)
+                : Outcome.Fail($"point={center.X},{center.Y}; detected={detected?.ToString() ?? "<null>"}");
+        }
+        finally
+        {
+            form.Close();
+        }
     }
 
     private static (bool Success, string Value) ExerciseExplorerTracker(string target, int attempts)
@@ -346,6 +455,430 @@ internal static partial class Program
         {
             TryQuitExplorerWindow(matchedWindowHandle);
         }
+    }
+
+    private static (bool Success, string Value) ExerciseExplorerMultiTabTracker(string target)
+    {
+        var firstTabPath = Path.Combine(target, "multi-tab-a");
+        var secondTabPath = Path.Combine(target, "multi-tab-b");
+        Directory.CreateDirectory(firstTabPath);
+        Directory.CreateDirectory(secondTabPath);
+        var originalForeground = GetForegroundWindow();
+        Process.Start(new ProcessStartInfo("explorer.exe", $"/n,/e,\"{firstTabPath}\"") { UseShellExecute = true });
+
+        long explorerWindow = 0;
+        var deadline = Environment.TickCount64 + 8000;
+        do
+        {
+            TryFindExplorerWindow(firstTabPath, out explorerWindow);
+            if (explorerWindow == 0) Thread.Sleep(50);
+        }
+        while (explorerWindow == 0 && Environment.TickCount64 < deadline);
+        if (explorerWindow == 0) return (false, "测试窗口未出现");
+
+        var window = new IntPtr(explorerWindow);
+        try
+        {
+            if (!TryInvokeExplorerButton(window, "AddButton") &&
+                !SendShortcut(window, [NativeMethods.VkControl], VkT))
+            {
+                return (false, "无法在测试窗口创建第二个标签");
+            }
+
+            deadline = Environment.TickCount64 + 5000;
+            IReadOnlyList<string?> paths;
+            do
+            {
+                paths = GetExplorerPaths(explorerWindow);
+                if (paths.Count >= 2) break;
+                Thread.Sleep(50);
+            }
+            while (Environment.TickCount64 < deadline);
+            if (paths.Count < 2) return (false, $"Shell 只暴露了 {paths.Count} 个标签");
+
+            if (!TryNavigateActiveExplorerTab(window, secondTabPath, out var navigationError))
+            {
+                return (false, navigationError);
+            }
+
+            using var tracker = new ExplorerFolderTracker();
+            tracker.Start();
+            tracker.CaptureWindowForTesting(window);
+            var activeSecond = WaitForTrackedFolder(tracker, secondTabPath, TimeSpan.FromSeconds(5));
+            if (!PathsEqual(activeSecond, secondTabPath))
+            {
+                return (false, $"选中第二个标签时捕获到 {activeSecond ?? "<null>"}");
+            }
+
+            if (!TrySelectExplorerTab(window, 0) &&
+                !SendShortcut(window, [NativeMethods.VkControl, NativeMethods.VkShift], VkTab))
+            {
+                return (false, "无法切换回第一个标签");
+            }
+            var activeFirst = WaitForTrackedFolder(tracker, firstTabPath, TimeSpan.FromSeconds(5));
+            return PathsEqual(activeFirst, firstTabPath)
+                ? (true, $"{activeSecond} -> {activeFirst}")
+                : (false, $"切回第一个标签时捕获到 {activeFirst ?? "<null>"}");
+        }
+        finally
+        {
+            PostMessage(window, WmClose, IntPtr.Zero, IntPtr.Zero);
+            Thread.Sleep(750);
+            if (originalForeground != IntPtr.Zero)
+            {
+                ForceForegroundWindow(originalForeground);
+            }
+        }
+    }
+
+    private static string? WaitForTrackedFolder(
+        ExplorerFolderTracker tracker,
+        string expected,
+        TimeSpan timeout)
+    {
+        var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
+        string? captured;
+        do
+        {
+            captured = tracker.RefreshCurrentFolder();
+            if (PathsEqual(captured, expected)) return captured;
+            Thread.Sleep(50);
+        }
+        while (Environment.TickCount64 < deadline);
+        return captured;
+    }
+
+    private static bool TryNavigateActiveExplorerTab(
+        IntPtr explorerWindow,
+        string path,
+        out string error)
+    {
+        error = string.Empty;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            if (TryNavigateNewestExplorerTab(explorerWindow.ToInt64(), path, out error))
+            {
+                var deadline = Environment.TickCount64 + 5000;
+                do
+                {
+                    if (GetExplorerPaths(explorerWindow.ToInt64()).Any(candidate => PathsEqual(candidate, path)))
+                    {
+                        return true;
+                    }
+                    Thread.Sleep(50);
+                }
+                while (Environment.TickCount64 < deadline);
+                error = "第二个标签未导航到目标目录";
+            }
+
+            if (TryNavigateActiveExplorerTabOnce(explorerWindow, path, out error))
+            {
+                return true;
+            }
+            Thread.Sleep(100);
+        }
+        error = $"三次尝试后仍失败：{error}";
+        return false;
+    }
+
+    private static bool TryNavigateActiveExplorerTabOnce(
+        IntPtr explorerWindow,
+        string path,
+        out string error)
+    {
+        error = string.Empty;
+        var threadId = GetWindowThreadProcessId(explorerWindow, out _);
+        var deadline = Environment.TickCount64 + 1500;
+        IntPtr addressEditor = IntPtr.Zero;
+        AutomationElement? addressElement = null;
+        do
+        {
+            try
+            {
+                var root = AutomationElement.FromHandle(explorerWindow);
+                var editCondition = new PropertyCondition(
+                    AutomationElement.ControlTypeProperty,
+                    ControlType.Edit);
+                var edits = root.FindAll(TreeScope.Descendants, editCondition);
+                var leftmost = double.PositiveInfinity;
+                for (var index = 0; index < edits.Count; index++)
+                {
+                    var candidate = edits[index];
+                    var current = candidate.Current;
+                    if (current.ClassName != "TextBox" ||
+                        current.AutomationId != "TextBox" ||
+                        !candidate.TryGetCurrentPattern(ValuePattern.Pattern, out _))
+                    {
+                        continue;
+                    }
+
+                    if (current.BoundingRectangle.Left < leftmost)
+                    {
+                        leftmost = current.BoundingRectangle.Left;
+                        addressElement = candidate;
+                    }
+                }
+                if (addressElement is not null) break;
+            }
+            catch (ElementNotAvailableException)
+            {
+                // Explorer can replace the address element while Ctrl+L settles.
+            }
+
+            var info = new NativeMethods.GuiThreadInfo
+            {
+                size = Marshal.SizeOf<NativeMethods.GuiThreadInfo>()
+            };
+            if (NativeMethods.GetGUIThreadInfo(threadId, ref info) &&
+                info.focusWindow != IntPtr.Zero &&
+                NativeMethods.IsChild(explorerWindow, info.focusWindow))
+            {
+                var className = new char[64];
+                var length = NativeMethods.GetClassName(info.focusWindow, className, className.Length);
+                if (length > 0 && new string(className, 0, length) == "Edit")
+                {
+                    addressEditor = info.focusWindow;
+                    break;
+                }
+            }
+            Thread.Sleep(20);
+        }
+        while (Environment.TickCount64 < deadline);
+
+        if (addressElement is not null)
+        {
+            try
+            {
+                addressElement.SetFocus();
+                var valuePattern = (ValuePattern)addressElement.GetCurrentPattern(ValuePattern.Pattern);
+                valuePattern.SetValue(path);
+                Thread.Sleep(75);
+            }
+            catch (Exception exception) when (
+                exception is ElementNotAvailableException or InvalidOperationException)
+            {
+                error = "无法通过自动化设置资源管理器地址栏文本";
+                return false;
+            }
+        }
+        else if (addressEditor != IntPtr.Zero)
+        {
+            NativeMethods.SetFocus(addressEditor);
+            if (NativeMethods.SendMessageTimeout(
+                    addressEditor,
+                    NativeMethods.WmSetText,
+                    IntPtr.Zero,
+                    path,
+                    NativeMethods.SmtoAbortIfHung,
+                    750,
+                    out _) == IntPtr.Zero)
+            {
+                error = "无法设置资源管理器地址栏文本";
+                return false;
+            }
+        }
+        else
+        {
+            error = "资源管理器地址栏编辑器未出现";
+            return false;
+        }
+
+        if (!SendShortcut(explorerWindow, [], NativeMethods.VkReturn))
+        {
+            error = "无法提交资源管理器地址栏导航";
+            return false;
+        }
+
+        deadline = Environment.TickCount64 + 5000;
+        do
+        {
+            if (GetExplorerPaths(explorerWindow.ToInt64()).Any(candidate => PathsEqual(candidate, path)))
+            {
+                return true;
+            }
+            Thread.Sleep(50);
+        }
+        while (Environment.TickCount64 < deadline);
+        error = "第二个标签未导航到目标目录";
+        return false;
+    }
+
+    private static bool TryInvokeExplorerButton(IntPtr explorerWindow, string automationId)
+    {
+        try
+        {
+            var root = AutomationElement.FromHandle(explorerWindow);
+            var condition = new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, automationId));
+            var button = root.FindFirst(TreeScope.Descendants, condition);
+            if (button is null ||
+                !button.TryGetCurrentPattern(InvokePattern.Pattern, out var pattern))
+            {
+                return false;
+            }
+
+            ((InvokePattern)pattern).Invoke();
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is ElementNotAvailableException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TrySelectExplorerTab(IntPtr explorerWindow, int index)
+    {
+        try
+        {
+            var root = AutomationElement.FromHandle(explorerWindow);
+            var condition = new PropertyCondition(
+                AutomationElement.ControlTypeProperty,
+                ControlType.TabItem);
+            var tabs = root.FindAll(TreeScope.Descendants, condition);
+            if (index < 0 || index >= tabs.Count ||
+                !tabs[index].TryGetCurrentPattern(SelectionItemPattern.Pattern, out var pattern))
+            {
+                return false;
+            }
+
+            ((SelectionItemPattern)pattern).Select();
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is ElementNotAvailableException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    private static bool SendShortcut(IntPtr window, IReadOnlyList<ushort> modifiers, ushort key)
+    {
+        var deadline = Environment.TickCount64 + 2000;
+        do
+        {
+            ForceForegroundWindow(window);
+            if (GetForegroundWindow() == window) break;
+
+            // Test runners launched from a terminal can be subject to the
+            // foreground-lock timeout. SwitchToThisWindow gives the harness a
+            // deterministic fallback without changing application behavior.
+            SwitchToThisWindow(window, true);
+            if (GetForegroundWindow() == window) break;
+            Thread.Sleep(50);
+        }
+        while (Environment.TickCount64 < deadline);
+        if (GetForegroundWindow() != window) return false;
+
+        var inputs = new List<NativeMethods.INPUT>();
+        inputs.AddRange(modifiers.Select(modifier => KeyInput(modifier)));
+        inputs.Add(KeyInput(key));
+        inputs.Add(KeyInput(key, NativeMethods.KeyeventfKeyup));
+        for (var index = modifiers.Count - 1; index >= 0; index--)
+        {
+            inputs.Add(KeyInput(modifiers[index], NativeMethods.KeyeventfKeyup));
+        }
+
+        return NativeMethods.SendInput(
+            (uint)inputs.Count,
+            [.. inputs],
+            Marshal.SizeOf<NativeMethods.INPUT>()) == inputs.Count;
+    }
+
+    private static NativeMethods.INPUT KeyInput(ushort key, uint flags = 0)
+    {
+        return new NativeMethods.INPUT
+        {
+            type = NativeMethods.InputKeyboard,
+            union = new NativeMethods.InputUnion
+            {
+                keyboard = new NativeMethods.KEYBDINPUT
+                {
+                    virtualKey = key,
+                    flags = flags
+                }
+            }
+        };
+    }
+
+    private static IReadOnlyList<string?> GetExplorerPaths(long windowHandle)
+    {
+        var paths = new List<string?>();
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null) return paths;
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            foreach (dynamic item in shell.Windows())
+            {
+                try
+                {
+                    if (Convert.ToInt64(item.HWND) != windowHandle) continue;
+                    paths.Add(item.Document?.Folder?.Self?.Path);
+                }
+                catch
+                {
+                    // A tab may close while Shell windows are enumerated.
+                }
+            }
+        }
+        catch
+        {
+            // The caller retries until its deadline.
+        }
+        return paths;
+    }
+
+    private static bool TryNavigateNewestExplorerTab(long windowHandle, string targetPath, out string error)
+    {
+        error = string.Empty;
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null)
+            {
+                error = "Shell.Application 不可用";
+                return false;
+            }
+
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            object? newestTab = null;
+            foreach (dynamic item in shell.Windows())
+            {
+                try
+                {
+                    if (Convert.ToInt64(item.HWND) == windowHandle) newestTab = item;
+                }
+                catch
+                {
+                    // Explorer can mutate while tabs are enumerated.
+                }
+            }
+
+            if (newestTab is null)
+            {
+                error = "测试窗口已关闭";
+                return false;
+            }
+
+            ((dynamic)newestTab).Navigate2(targetPath);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = $"Shell 导航失败：{exception.Message}";
+            return false;
+        }
+    }
+
+    private static bool PathsEqual(string? first, string? second)
+    {
+        if (string.IsNullOrWhiteSpace(first) || string.IsNullOrWhiteSpace(second)) return false;
+        return string.Equals(
+            Path.GetFullPath(first),
+            Path.GetFullPath(second),
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryFindExplorerWindow(string targetPath, out long windowHandle)
@@ -575,4 +1108,7 @@ internal static partial class Program
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool BringWindowToTop(IntPtr window);
+
+    [LibraryImport("user32.dll")]
+    private static partial void SwitchToThisWindow(IntPtr window, [MarshalAs(UnmanagedType.Bool)] bool altTab);
 }

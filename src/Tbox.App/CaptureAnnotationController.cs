@@ -55,6 +55,7 @@ internal sealed class CaptureAnnotationController : IDisposable
     }
 
     internal event Action? StateChanged;
+    internal event Action? FinishRequested;
 
     internal AnnotationTool? CurrentTool { get; private set; }
     internal uint ColorArgb { get; private set; } = 0xFFFF3B30;
@@ -69,6 +70,39 @@ internal sealed class CaptureAnnotationController : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         Reset();
+        _screen = screen;
+        _region = region;
+        _host.Width = width;
+        _host.Height = height;
+        _surface.Width = width;
+        _surface.Height = height;
+        _host.Visibility = Visibility.Visible;
+        Invalidate();
+    }
+
+    internal void ResizeSurface(double width, double height)
+    {
+        if (_screen is null || width <= 0 || height <= 0) return;
+        _host.Width = width;
+        _host.Height = height;
+        _surface.Width = width;
+        _surface.Height = height;
+        Invalidate();
+    }
+
+    internal void PrepareForRegionAdjustment()
+    {
+        if (_screen is null) return;
+        CommitTextEditor();
+        FinishPolyline();
+        _eraserPoints = null;
+        CancelGesture();
+    }
+
+    internal void UpdateRegion(CapturedScreen screen, PixelRegion region, double width, double height)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (width <= 0 || height <= 0) return;
         _screen = screen;
         _region = region;
         _host.Width = width;
@@ -248,6 +282,18 @@ internal sealed class CaptureAnnotationController : IDisposable
         return false;
     }
 
+    internal void CompleteEditing()
+    {
+        if (_screen is null) return;
+        CommitTextEditor();
+        FinishPolyline();
+        _polylinePoints = null;
+        _eraserPoints = null;
+        CancelGesture();
+        CurrentTool = null;
+        NotifyStateChanged();
+    }
+
     internal void CancelPointerGesture()
     {
         _eraserPoints = null;
@@ -291,12 +337,6 @@ internal sealed class CaptureAnnotationController : IDisposable
             Invalidate();
             NotifyStateChanged();
         }
-    }
-
-    internal void TogglePairedTool()
-    {
-        if (CurrentTool is AnnotationTool.Rectangle) SetTool(AnnotationTool.Ellipse);
-        else if (CurrentTool is AnnotationTool.Ellipse) SetTool(AnnotationTool.Rectangle);
     }
 
     internal async Task<CapturedScreen> RenderAsync()
@@ -424,7 +464,8 @@ internal sealed class CaptureAnnotationController : IDisposable
         if (e.Key == VirtualKey.Escape)
         {
             e.Handled = true;
-            CancelTextEditor();
+            if (FinishRequested is not null) FinishRequested.Invoke();
+            else CancelTextEditor();
         }
     }
 
@@ -542,6 +583,7 @@ internal sealed class CaptureAnnotationController : IDisposable
         if (_disposed) return;
         _surface.Draw -= OnDraw;
         _surface.RemoveFromVisualTree();
+        FinishRequested = null;
         _disposed = true;
     }
 }

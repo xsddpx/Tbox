@@ -28,13 +28,17 @@ internal static partial class NativeMethods
     internal const uint GaRoot = 2;
     internal const uint ShgfiDisplayName = 0x000000200;
     private const int DwmwaTransitionsForcedisabled = 3;
+    private const int DwmwaExtendedFrameBounds = 9;
+    private const int DwmwaCloaked = 14;
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoOwnerZOrder = 0x0200;
+    private const int GwlpHwndParent = -8;
 
     internal delegate void WinEventDelegate(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time);
     internal delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
+    internal delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -84,11 +88,48 @@ internal static partial class NativeMethods
         }
     }
 
+    internal static void SetWindowOwner(IntPtr hwnd, IntPtr owner)
+    {
+        _ = SetWindowLongPtr(hwnd, GwlpHwndParent, owner);
+    }
+
+    internal static bool TryGetExtendedFrameBounds(IntPtr hwnd, out Rect bounds)
+    {
+        return DwmGetWindowAttributeRect(
+            hwnd,
+            DwmwaExtendedFrameBounds,
+            out bounds,
+            Marshal.SizeOf<Rect>()) == 0;
+    }
+
+    internal static bool IsWindowCloaked(IntPtr hwnd)
+    {
+        return DwmGetWindowAttributeInt(
+            hwnd,
+            DwmwaCloaked,
+            out var cloaked,
+            Marshal.SizeOf<int>()) == 0 && cloaked != 0;
+    }
+
     [LibraryImport("dwmapi.dll")]
     private static partial int DwmSetWindowAttribute(
         IntPtr hwnd,
         int attribute,
         ref int attributeValue,
+        int attributeSize);
+
+    [LibraryImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    private static partial int DwmGetWindowAttributeRect(
+        IntPtr hwnd,
+        int attribute,
+        out Rect attributeValue,
+        int attributeSize);
+
+    [LibraryImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    private static partial int DwmGetWindowAttributeInt(
+        IntPtr hwnd,
+        int attribute,
+        out int attributeValue,
         int attributeSize);
 
     [LibraryImport("user32.dll", SetLastError = true)]
@@ -102,8 +143,27 @@ internal static partial class NativeMethods
         int height,
         uint flags);
 
+    [LibraryImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static partial IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
+
     [LibraryImport("user32.dll")]
     internal static partial IntPtr GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindowVisible(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsIconic(IntPtr hwnd);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetWindowRect(IntPtr hwnd, out Rect bounds);
 
     [LibraryImport("user32.dll")]
     internal static partial uint GetDpiForWindow(IntPtr hwnd);
@@ -143,6 +203,16 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial IntPtr GetAncestor(IntPtr hwnd, uint flags);
+
+    [LibraryImport("user32.dll")]
+    internal static partial IntPtr GetParent(IntPtr hwnd);
+
+    [LibraryImport("user32.dll", EntryPoint = "FindWindowExW", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial IntPtr FindWindowEx(
+        IntPtr parent,
+        IntPtr childAfter,
+        string? className,
+        string? windowName);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
