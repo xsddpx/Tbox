@@ -15,6 +15,17 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && string.Equals(args[0], "--capture-only", StringComparison.OrdinalIgnoreCase))
+        {
+            var outcome = ExerciseScreenCapture();
+            Console.WriteLine(JsonSerializer.Serialize(new
+            {
+                screenCaptureSucceeded = outcome.Success,
+                error = outcome.Error
+            }));
+            return outcome.Success ? 0 : 1;
+        }
+
         var attempts = args.Length > 0 && int.TryParse(args[0], out var value) ? value : 10;
         var target = Path.Combine(Path.GetTempPath(), $"Tbox.Integration.{Guid.NewGuid():N}");
         var marker = "TBOX_NAVIGATION_SUCCESS";
@@ -27,6 +38,7 @@ internal static partial class Program
         var failures = new List<string>();
         var trackerSucceeded = false;
         var annotationRendererSucceeded = false;
+        var screenCaptureSucceeded = false;
         try
         {
             if (!FileDialogNavigator.AddressTextMatches(
@@ -48,6 +60,10 @@ internal static partial class Program
             var annotationOutcome = ExerciseAnnotationRenderer();
             annotationRendererSucceeded = annotationOutcome.Success;
             if (!annotationOutcome.Success) failures.Add($"截图标注渲染失败：{annotationOutcome.Error}");
+
+            var captureOutcome = ExerciseScreenCapture();
+            screenCaptureSucceeded = captureOutcome.Success;
+            if (!captureOutcome.Success) failures.Add($"多显示器截图捕获失败：{captureOutcome.Error}");
 
             var trackerOutcome = ExerciseExplorerTracker(target, attempts);
             trackerSucceeded = trackerOutcome.Success;
@@ -83,6 +99,7 @@ internal static partial class Program
                 averageMs = durations.Count == 0 ? 0 : Math.Round(durations.Average(), 1),
                 trackerSucceeded,
                 annotationRendererSucceeded,
+                screenCaptureSucceeded,
                 failures
             }));
             return failures.Count == 0 ? 0 : 1;
@@ -96,7 +113,7 @@ internal static partial class Program
     private static Outcome ExerciseAnnotationRenderer()
     {
         const int width = 140;
-        const int height = 114;
+        const int height = 150;
         var pixels = new byte[width * height * 4];
         for (var y = 0; y < height; y++)
         {
@@ -133,10 +150,15 @@ internal static partial class Program
                 style),
             new HighlighterAnnotationCommand(
                 [new AnnotationPoint(90, 94), new AnnotationPoint(128, 94)],
-                new AnnotationStyle(0x66FFFF00, 10, 14))
+                new AnnotationStyle(0x66FFFF00, 10, 14)),
+            new NumberAnnotationCommand(
+                12,
+                new AnnotationPoint(70, 130),
+                24,
+                new AnnotationStyle(0xFF007AFF, 2, 14))
         ];
 
-        var region = new PixelRegion(4, 4, 132, 106);
+        var region = new PixelRegion(4, 4, 132, 142);
         var baseline = screen.Crop(region.Left, region.Top, region.Width, region.Height);
         var plain = CaptureAnnotationRenderer.RenderAsync(
             screen,
@@ -175,20 +197,45 @@ internal static partial class Program
             ["text"] = CountChanged(new AnnotationBounds(84, 40, 132, 75)),
             ["polyline"] = CountChanged(new AnnotationBounds(6, 77, 39, 109)),
             ["pen"] = CountChanged(new AnnotationBounds(41, 77, 79, 109)),
-            ["highlighter"] = CountChanged(new AnnotationBounds(84, 84, 132, 101))
+            ["highlighter"] = CountChanged(new AnnotationBounds(84, 84, 132, 101)),
+            ["number"] = CountChanged(new AnnotationBounds(54, 114, 86, 146))
         };
         var alphaIsOpaque = rendered.Pixels.Where((_, index) => index % 4 == 3).All(alpha => alpha == 255);
         var allToolsRendered = changedByTool.All(pair => pair.Value >= 4);
 
         return plain.Pixels.SequenceEqual(baseline.Pixels) &&
                rendered.Left == 104 && rendered.Top == 204 &&
-               rendered.Width == 132 && rendered.Height == 106 &&
+               rendered.Width == 132 && rendered.Height == 142 &&
                alphaIsOpaque && allToolsRendered
             ? Outcome.Pass(0)
             : Outcome.Fail(
                 $"bounds={rendered.Left},{rendered.Top},{rendered.Width},{rendered.Height}; " +
                 $"plainExact={plain.Pixels.SequenceEqual(baseline.Pixels)}; alphaOpaque={alphaIsOpaque}; " +
                 $"toolPixels={JsonSerializer.Serialize(changedByTool)}");
+    }
+
+    private static Outcome ExerciseScreenCapture()
+    {
+        var expected = Screen.AllScreens
+            .Select(screen => screen.Bounds)
+            .OrderBy(bounds => bounds.Left)
+            .ThenBy(bounds => bounds.Top)
+            .ToArray();
+        var captured = ScreenCaptureService.CaptureAllMonitors();
+        var boundsMatch = expected.Length == captured.Count &&
+                          expected.Zip(captured).All(pair =>
+                              pair.First.Left == pair.Second.Left &&
+                              pair.First.Top == pair.Second.Top &&
+                              pair.First.Width == pair.Second.Width &&
+                              pair.First.Height == pair.Second.Height);
+        var buffersMatch = captured.All(screen =>
+            screen.Pixels.Length == checked(screen.Width * screen.Height * 4));
+
+        return boundsMatch && buffersMatch
+            ? Outcome.Pass(0)
+            : Outcome.Fail(
+                $"expected={JsonSerializer.Serialize(expected.Select(bounds => new { bounds.Left, bounds.Top, bounds.Width, bounds.Height }))}; " +
+                $"captured={JsonSerializer.Serialize(captured.Select(screen => new { screen.Left, screen.Top, screen.Width, screen.Height, bytes = screen.Pixels.Length }))}");
     }
 
     private static (bool Success, string Value) ExerciseExplorerTracker(string target, int attempts)
@@ -200,39 +247,21 @@ internal static partial class Program
         };
         foreach (var changedTarget in changedTargets) Directory.CreateDirectory(changedTarget);
         Process.Start(new ProcessStartInfo("explorer.exe", $"/n,/e,\"{target}\"") { UseShellExecute = true });
-        dynamic? matchedWindow = null;
-        var shellType = Type.GetTypeFromProgID("Shell.Application");
-        if (shellType is null) return (false, "<shell unavailable>");
-        dynamic shell = Activator.CreateInstance(shellType)!;
+        long matchedWindowHandle = 0;
         var deadline = Environment.TickCount64 + 5000;
         do
         {
-            foreach (dynamic item in shell.Windows())
-            {
-                try
-                {
-                    string? path = item.Document?.Folder?.Self?.Path;
-                    if (string.Equals(Path.GetFullPath(path ?? string.Empty), Path.GetFullPath(target), StringComparison.OrdinalIgnoreCase))
-                    {
-                        matchedWindow = item;
-                        break;
-                    }
-                }
-                catch
-                {
-                    // Explorer can mutate while enumerating.
-                }
-            }
-            if (matchedWindow is null) Thread.Sleep(50);
+            TryFindExplorerWindow(target, out matchedWindowHandle);
+            if (matchedWindowHandle == 0) Thread.Sleep(50);
         }
-        while (matchedWindow is null && Environment.TickCount64 < deadline);
-        if (matchedWindow is null) return (false, "<explorer window missing>");
+        while (matchedWindowHandle == 0 && Environment.TickCount64 < deadline);
+        if (matchedWindowHandle == 0) return (false, "<explorer window missing>");
 
         try
         {
             using var tracker = new ExplorerFolderTracker();
             tracker.Start();
-            tracker.CaptureWindowForTesting(new IntPtr(Convert.ToInt64(matchedWindow.HWND)));
+            tracker.CaptureWindowForTesting(new IntPtr(matchedWindowHandle));
             deadline = Environment.TickCount64 + 8000;
             do
             {
@@ -253,31 +282,29 @@ internal static partial class Program
             for (var attempt = 0; attempt < refreshAttempts; attempt++)
             {
                 var changedTarget = changedTargets[attempt % changedTargets.Length];
-                COMException? navigationException = null;
+                Exception? navigationException = null;
                 for (var navigationAttempt = 1; navigationAttempt <= 20; navigationAttempt++)
                 {
-                    try
+                    if (TryNavigateExplorerWindow(
+                            matchedWindowHandle,
+                            changedTarget,
+                            out navigationException))
                     {
-                        matchedWindow.Navigate(changedTarget);
-                        navigationException = null;
                         break;
                     }
-                    catch (COMException exception)
-                    {
-                        navigationException = exception;
-                        Thread.Sleep(50);
-                    }
+                    Thread.Sleep(50);
                 }
                 if (navigationException is not null)
                 {
                     return (false,
-                        $"Explorer rejected navigation #{attempt + 1}; HRESULT=0x{navigationException.HResult:X8}");
+                        $"Explorer rejected navigation #{attempt + 1}; " +
+                        $"type={navigationException.GetType().Name}; HRESULT=0x{navigationException.HResult:X8}");
                 }
                 deadline = Environment.TickCount64 + 5000;
                 string? navigatedPath = null;
                 do
                 {
-                    try { navigatedPath = matchedWindow.Document?.Folder?.Self?.Path; } catch { }
+                    TryGetExplorerWindowPath(matchedWindowHandle, out navigatedPath);
                     if (string.Equals(
                             Path.GetFullPath(navigatedPath ?? string.Empty),
                             Path.GetFullPath(changedTarget),
@@ -317,7 +344,134 @@ internal static partial class Program
         }
         finally
         {
-            try { matchedWindow.Quit(); } catch { }
+            TryQuitExplorerWindow(matchedWindowHandle);
+        }
+    }
+
+    private static bool TryFindExplorerWindow(string targetPath, out long windowHandle)
+    {
+        windowHandle = 0;
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null) return false;
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            foreach (dynamic item in shell.Windows())
+            {
+                try
+                {
+                    string? path = item.Document?.Folder?.Self?.Path;
+                    if (!string.Equals(
+                            Path.GetFullPath(path ?? string.Empty),
+                            Path.GetFullPath(targetPath),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    windowHandle = Convert.ToInt64(item.HWND);
+                    return windowHandle != 0;
+                }
+                catch
+                {
+                    // Explorer can mutate while enumerating.
+                }
+            }
+        }
+        catch
+        {
+            // Shell.Application can invalidate its collection between calls.
+        }
+        return false;
+    }
+
+    private static bool TryNavigateExplorerWindow(long windowHandle, string targetPath, out Exception? error)
+    {
+        error = null;
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null)
+            {
+                error = new InvalidOperationException("Shell.Application 不可用。");
+                return false;
+            }
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            foreach (dynamic item in shell.Windows())
+            {
+                try
+                {
+                    if (Convert.ToInt64(item.HWND) != windowHandle) continue;
+                    item.Navigate(targetPath);
+                    return true;
+                }
+                catch (Exception exception)
+                {
+                    error = exception;
+                    return false;
+                }
+            }
+            error = new InvalidOperationException("目标 Explorer 窗口已关闭。");
+        }
+        catch (Exception exception)
+        {
+            error = exception;
+        }
+        return false;
+    }
+
+    private static bool TryGetExplorerWindowPath(long windowHandle, out string? path)
+    {
+        path = null;
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null) return false;
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            foreach (dynamic item in shell.Windows())
+            {
+                try
+                {
+                    if (Convert.ToInt64(item.HWND) != windowHandle) continue;
+                    path = item.Document?.Folder?.Self?.Path;
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+        catch
+        {
+            // The caller retries until its deadline.
+        }
+        return false;
+    }
+
+    private static void TryQuitExplorerWindow(long windowHandle)
+    {
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("Shell.Application");
+            if (shellType is null) return;
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            foreach (dynamic item in shell.Windows())
+            {
+                try
+                {
+                    if (Convert.ToInt64(item.HWND) != windowHandle) continue;
+                    item.Quit();
+                    return;
+                }
+                catch
+                {
+                    return;
+                }
+            }
+        }
+        catch
+        {
+            // Cleanup must not hide the test result.
         }
     }
 

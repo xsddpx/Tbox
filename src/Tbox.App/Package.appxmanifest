@@ -8,7 +8,7 @@
   <Identity
     Name="Tbox"
     Publisher="CN=Tbox Development"
-    Version="1.0.0.0"
+    Version="1.0.9.0"
     ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Tbox</DisplayName>

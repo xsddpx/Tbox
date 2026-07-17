@@ -109,6 +109,9 @@ internal static class CaptureAnnotationRenderer
                 DrawLine(drawingSession, arrow.End, arrow.HeadPoint1, color, width, transform);
                 DrawLine(drawingSession, arrow.End, arrow.HeadPoint2, color, width, transform);
                 break;
+            case NumberAnnotationCommand number:
+                DrawNumber(drawingSession, number, color, transform);
+                break;
             case PolylineAnnotationCommand polyline:
                 DrawPath(drawingSession, polyline.Points, color, width, transform);
                 break;
@@ -133,6 +136,36 @@ internal static class CaptureAnnotationRenderer
                 }
                 break;
         }
+    }
+
+    private static void DrawNumber(
+        CanvasDrawingSession drawingSession,
+        NumberAnnotationCommand number,
+        Color fill,
+        RenderTransform transform)
+    {
+        var diameter = Math.Max(1, number.DiameterPixels * transform.AverageScale);
+        drawingSession.FillCircle(transform.Map(number.Center), (float)(diameter / 2), fill);
+
+        var brightness = (fill.R * 0.299) + (fill.G * 0.587) + (fill.B * 0.114);
+        var textColor = brightness >= 170 ? Colors.Black : Colors.White;
+        var digitScale = number.Number switch
+        {
+            < 100 => 1,
+            < 1000 => 0.82,
+            _ => 0.68
+        };
+        using var format = new CanvasTextFormat
+        {
+            FontFamily = "Segoe UI",
+            FontSize = (float)Math.Max(
+                8,
+                number.Style.FontSizePixels * transform.AverageScale * digitScale),
+            HorizontalAlignment = CanvasHorizontalAlignment.Center,
+            VerticalAlignment = CanvasVerticalAlignment.Center,
+            WordWrapping = CanvasWordWrapping.NoWrap
+        };
+        drawingSession.DrawText(number.Number.ToString(), transform.Map(number.Bounds), textColor, format);
     }
 
     private static void DrawLine(

@@ -8,6 +8,12 @@ public sealed class AnnotationDocumentTests
     private static readonly AnnotationStyle Red = new(0xFFFF0000, 4, 18);
 
     [Fact]
+    public void NumberAnnotationDefaultDiameterIsTwentyTwo()
+    {
+        Assert.Equal(22, AnnotationDefaults.NumberDiameter);
+    }
+
+    [Fact]
     public void ExposesAllDrawingToolsAndCommands()
     {
         var commands = new AnnotationCommand[]
@@ -17,6 +23,7 @@ public sealed class AnnotationDocumentTests
             new LineAnnotationCommand(Point(0, 0), Point(20, 10), Red),
             new PolylineAnnotationCommand([Point(0, 0), Point(10, 10), Point(20, 0)], Red),
             new ArrowAnnotationCommand(Point(0, 0), Point(20, 10), Red),
+            new NumberAnnotationCommand(1, Point(10, 10), 24, Red),
             new FreePathAnnotationCommand([Point(0, 0), Point(10, 10)], Red),
             new HighlighterAnnotationCommand([Point(0, 0), Point(10, 10)], new AnnotationStyle(0x66FFFF00, 12)),
             new MosaicAnnotationCommand([Point(0, 0), Point(10, 10)], new AnnotationStyle(0xFF000000, 16), 8),
@@ -30,6 +37,7 @@ public sealed class AnnotationDocumentTests
                 AnnotationTool.Line,
                 AnnotationTool.Polyline,
                 AnnotationTool.Arrow,
+                AnnotationTool.Number,
                 AnnotationTool.Pen,
                 AnnotationTool.Highlighter,
                 AnnotationTool.Mosaic,
@@ -37,6 +45,39 @@ public sealed class AnnotationDocumentTests
             ],
             commands.Select(command => command.Tool));
         Assert.Contains(AnnotationTool.Eraser, Enum.GetValues<AnnotationTool>());
+    }
+
+    [Fact]
+    public void NumberAnnotationsAutoIncrementAndUndoReusesTheRemovedNumber()
+    {
+        var document = new AnnotationDocument();
+        Assert.Equal(1, document.NextNumber);
+
+        var first = new NumberAnnotationCommand(document.NextNumber, Point(10, 10), 24, Red);
+        document.Commit(first);
+        var second = new NumberAnnotationCommand(document.NextNumber, Point(40, 10), 24, Red);
+        document.Commit(second);
+
+        Assert.Equal(3, document.NextNumber);
+        Assert.True(document.Undo());
+        Assert.Equal(2, document.NextNumber);
+        Assert.True(document.Redo());
+        Assert.Equal(3, document.NextNumber);
+    }
+
+    [Fact]
+    public void NumberAnnotationUsesCircularBoundsAndHitTesting()
+    {
+        var number = new NumberAnnotationCommand(12, Point(20, 20), 24, Red);
+
+        Assert.Equal(new AnnotationBounds(8, 8, 32, 32), number.Bounds);
+        Assert.True(number.HitTest(Point(20, 20)));
+        Assert.True(number.HitTest(Point(32, 20)));
+        Assert.False(number.HitTest(Point(40, 20)));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new NumberAnnotationCommand(0, Point(20, 20), 24, Red));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new NumberAnnotationCommand(1, Point(20, 20), 0, Red));
     }
 
     [Fact]

@@ -23,6 +23,7 @@ internal sealed class CaptureAnnotationController : IDisposable
         [AnnotationTool.Line] = 3,
         [AnnotationTool.Polyline] = 3,
         [AnnotationTool.Arrow] = 3,
+        [AnnotationTool.Number] = AnnotationDefaults.NumberDiameter,
         [AnnotationTool.Pen] = 3,
         [AnnotationTool.Highlighter] = 12,
         [AnnotationTool.Mosaic] = 18,
@@ -130,6 +131,9 @@ internal sealed class CaptureAnnotationController : IDisposable
                 return false;
             case AnnotationTool.Text:
                 StartTextEditor(point);
+                return false;
+            case AnnotationTool.Number:
+                CommitNumber(point);
                 return false;
             case AnnotationTool.Eraser:
                 _eraserPoints = [point];
@@ -293,8 +297,6 @@ internal sealed class CaptureAnnotationController : IDisposable
     {
         if (CurrentTool is AnnotationTool.Rectangle) SetTool(AnnotationTool.Ellipse);
         else if (CurrentTool is AnnotationTool.Ellipse) SetTool(AnnotationTool.Rectangle);
-        else if (CurrentTool is AnnotationTool.Line) SetTool(AnnotationTool.Arrow);
-        else if (CurrentTool is AnnotationTool.Arrow) SetTool(AnnotationTool.Line);
     }
 
     internal async Task<CapturedScreen> RenderAsync()
@@ -399,6 +401,22 @@ internal sealed class CaptureAnnotationController : IDisposable
         _textEditor = editor;
         _host.Children.Add(editor);
         editor.Focus(FocusState.Programmatic);
+    }
+
+    private void CommitNumber(AnnotationPoint center)
+    {
+        var diameter = ToPixelWidth(_toolWidths[AnnotationTool.Number]);
+        var style = new AnnotationStyle(
+            ColorArgb,
+            Math.Max(2, diameter / 12),
+            Math.Max(8, diameter * 0.52));
+        _document.Commit(new NumberAnnotationCommand(
+            _document.NextNumber,
+            center,
+            diameter,
+            style));
+        Invalidate();
+        NotifyStateChanged();
     }
 
     private void OnTextEditorKeyDown(object sender, KeyRoutedEventArgs e)

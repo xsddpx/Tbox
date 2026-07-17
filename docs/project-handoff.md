@@ -1,5 +1,8 @@
 # Tbox 项目交接与当前进度
 
+> [!IMPORTANT]
+> 本文件是 v1.0 时点的历史交接快照，不再承担当前需求清单职责。当前产品需求、历史修改要求和迁移语义以 [`product-requirements.md`](product-requirements.md) 为准，发布版本以 [`release-history.md`](release-history.md) 为准。
+
 > 快照时间：2026-07-13 13:55（Asia/Shanghai）
 >
 > 工作目录：`C:\Users\lihongbin.SOULAPP\Documents\Tbox`

@@ -2,6 +2,11 @@ using System.Collections.ObjectModel;
 
 namespace Tbox.Core;
 
+public static class AnnotationDefaults
+{
+    public const double NumberDiameter = 22;
+}
+
 public enum AnnotationTool
 {
     Rectangle,
@@ -9,6 +14,7 @@ public enum AnnotationTool
     Line,
     Polyline,
     Arrow,
+    Number,
     Pen,
     Highlighter,
     Mosaic,
@@ -301,6 +307,48 @@ public sealed record ArrowAnnotationCommand : AnnotationCommand
         AnnotationGeometry.DistanceToSegment(point, End, HeadPoint2) <= radiusPixels;
 }
 
+public sealed record NumberAnnotationCommand : AnnotationCommand
+{
+    public NumberAnnotationCommand(
+        int number,
+        AnnotationPoint center,
+        double diameterPixels,
+        AnnotationStyle style,
+        Guid? id = null)
+        : base(style, id)
+    {
+        if (number <= 0) throw new ArgumentOutOfRangeException(nameof(number));
+        if (!double.IsFinite(diameterPixels) || diameterPixels <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(diameterPixels));
+        }
+
+        Number = number;
+        Center = center;
+        DiameterPixels = diameterPixels;
+        var radius = diameterPixels / 2;
+        Bounds = new AnnotationBounds(
+            center.X - radius,
+            center.Y - radius,
+            center.X + radius,
+            center.Y + radius);
+    }
+
+    public int Number { get; }
+    public AnnotationPoint Center { get; }
+    public double DiameterPixels { get; }
+    public override AnnotationTool Tool => AnnotationTool.Number;
+    public override AnnotationBounds Bounds { get; }
+
+    protected override bool HitTestCore(AnnotationPoint point, double radiusPixels)
+    {
+        var deltaX = point.X - Center.X;
+        var deltaY = point.Y - Center.Y;
+        var hitRadius = (DiameterPixels / 2) + radiusPixels;
+        return (deltaX * deltaX) + (deltaY * deltaY) <= hitRadius * hitRadius;
+    }
+}
+
 public abstract record PathAnnotationCommand : AnnotationCommand
 {
     private readonly ReadOnlyCollection<AnnotationPoint> _points;
@@ -570,6 +618,18 @@ public sealed class AnnotationDocument
     public IReadOnlyList<AnnotationCommand> Commands => _readOnlyCommands;
     public bool CanUndo => _undo.Count != 0;
     public bool CanRedo => _redo.Count != 0;
+    public int NextNumber
+    {
+        get
+        {
+            var highest = _commands
+                .OfType<NumberAnnotationCommand>()
+                .Select(command => command.Number)
+                .DefaultIfEmpty(0)
+                .Max();
+            return checked(highest + 1);
+        }
+    }
 
     public void Commit(AnnotationCommand command)
     {

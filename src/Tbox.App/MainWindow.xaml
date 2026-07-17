@@ -102,7 +102,7 @@
                     </StackPanel>
                     <StackPanel x:Name="ScreenPastePanel" Spacing="18" Visibility="Collapsed">
                         <TextBlock Text="截图与贴图" Style="{StaticResource TitleTextBlockStyle}"/>
-                        <TextBlock Text="按 F6 框选截图，F7 贴出剪贴板图像，F8 整体显示或隐藏全部贴图。" Opacity="0.72"/>
+                        <TextBlock Text="按 F6 后可在任意显示器框选截图，F7 贴出剪贴板图像，F8 整体显示或隐藏全部贴图。" Opacity="0.72"/>
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="8" Padding="20">

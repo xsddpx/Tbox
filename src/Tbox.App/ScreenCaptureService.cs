@@ -9,16 +9,33 @@ internal static partial class ScreenCaptureService
     private const uint BiRgb = 0;
     private const uint SrcCopy = 0x00CC0020;
     private const uint CaptureBlt = 0x40000000;
-    private const uint MonitorDefaultToNearest = 2;
-
-    internal static CapturedScreen CaptureMonitorUnderCursor()
+    internal static IReadOnlyList<CapturedScreen> CaptureAllMonitors()
     {
-        if (!GetCursorPos(out var cursor))
+        var monitorHandles = new List<IntPtr>();
+        MonitorEnumProc callback = (IntPtr monitor, IntPtr _, ref Rect _, IntPtr _) =>
         {
-            throw new InvalidOperationException($"无法读取鼠标位置，Win32={Marshal.GetLastWin32Error()}。");
+            monitorHandles.Add(monitor);
+            return true;
+        };
+
+        if (!EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero))
+        {
+            throw new InvalidOperationException($"无法枚举显示器，Win32={Marshal.GetLastWin32Error()}。");
+        }
+        if (monitorHandles.Count == 0)
+        {
+            throw new InvalidOperationException("系统没有返回可截图的显示器。");
         }
 
-        var monitor = MonitorFromPoint(cursor, MonitorDefaultToNearest);
+        return monitorHandles
+            .Select(CaptureMonitor)
+            .OrderBy(screen => screen.Left)
+            .ThenBy(screen => screen.Top)
+            .ToArray();
+    }
+
+    private static CapturedScreen CaptureMonitor(IntPtr monitor)
+    {
         var info = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
         if (monitor == IntPtr.Zero || !GetMonitorInfo(monitor, ref info))
         {
@@ -151,12 +168,25 @@ internal static partial class ScreenCaptureService
         internal uint Colors;
     }
 
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private delegate bool MonitorEnumProc(
+        IntPtr monitor,
+        IntPtr monitorDc,
+        ref Rect monitorRect,
+        IntPtr data);
+
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetCursorPos(out Point point);
 
-    [LibraryImport("user32.dll")]
-    private static partial IntPtr MonitorFromPoint(Point point, uint flags);
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumDisplayMonitors(
+        IntPtr dc,
+        IntPtr clip,
+        MonitorEnumProc callback,
+        IntPtr data);
 
     [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

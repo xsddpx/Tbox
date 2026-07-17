@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -31,6 +32,11 @@ internal sealed record CaptureCompletion(
 
 internal sealed class CaptureOverlayWindow : Window
 {
+    private const double ToolbarButtonWidth = 30;
+    private const double ToolbarButtonHeight = 32;
+    private const double ToolbarSymbolIconSize = 17;
+    private const double ToolbarFluentIconSize = 14;
+    private const double ToolbarIconBoxSize = 20;
     private readonly CapturedScreen _screen;
     private readonly Grid _root;
     private readonly Canvas _canvas;
@@ -59,13 +65,19 @@ internal sealed class CaptureOverlayWindow : Window
     private bool _completed;
 
     internal event Action<CaptureCompletion?>? Completed;
+    internal event Action? SelectionStarted;
 
     private CaptureOverlayWindow(CapturedScreen screen, Image image)
     {
         _screen = screen;
         Title = "Tbox 截图";
 
-        _root = new Grid { Background = new SolidColorBrush(Colors.Black), IsTabStop = true };
+        _root = new Grid
+        {
+            Background = new SolidColorBrush(Colors.Black),
+            IsTabStop = true,
+            KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden
+        };
         image.Stretch = Stretch.Fill;
         _root.Children.Add(image);
 
@@ -97,7 +109,7 @@ internal sealed class CaptureOverlayWindow : Window
 
         _hintText = new TextBlock
         {
-            Text = "拖动选择截图区域 · Esc 取消",
+            Text = "在任意显示器拖动选择唯一截图区域 · Esc 取消",
             Foreground = new SolidColorBrush(Colors.White)
         };
         var hint = new Border
@@ -118,11 +130,7 @@ internal sealed class CaptureOverlayWindow : Window
         _canvas.PointerMoved += OnPointerMoved;
         _canvas.PointerReleased += OnPointerReleased;
         _canvas.PointerCanceled += OnPointerCanceled;
-        _canvas.DoubleTapped += (_, _) => _annotations.FinishPolyline();
-        _canvas.RightTapped += (_, _) =>
-        {
-            if (!_annotations.FinishPolyline()) _annotations.CancelCurrentOperation();
-        };
+        _canvas.RightTapped += (_, _) => _annotations.CancelCurrentOperation();
 
         var escape = new KeyboardAccelerator { Key = VirtualKey.Escape };
         escape.Invoked += (_, args) =>
@@ -167,27 +175,40 @@ internal sealed class CaptureOverlayWindow : Window
         return new CaptureOverlayWindow(screen, new Image { Source = source });
     }
 
-    internal void Show() => _appWindow.Show(activateWindow: true);
+    internal void Show(bool activate) => _appWindow.Show(activateWindow: activate);
+
+    internal void ResetForPeerSelection()
+    {
+        if (_completed) return;
+        _canvas.ReleasePointerCaptures();
+        CancelSelection();
+    }
 
     private Border CreateToolbar()
     {
-        var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3 };
+        var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         AddToolButton(tools, AnnotationTool.Rectangle, "□", "矩形（Shift：正方形）");
         AddToolButton(tools, AnnotationTool.Ellipse, "○", "椭圆（Shift：圆）");
-        AddToolButton(tools, AnnotationTool.Line, "╱", "直线（Shift：吸附 45°）");
-        AddToolButton(tools, AnnotationTool.Polyline, "⌁", "折线（双击或 Enter 完成）");
         AddToolButton(tools, AnnotationTool.Arrow, "➜", "箭头（Shift：吸附 45°）");
-        AddToolButton(tools, AnnotationTool.Pen, "✎", "画笔（B）");
-        AddToolButton(tools, AnnotationTool.Highlighter, "▰", "马克笔");
+        AddToolButton(tools, AnnotationTool.Number, "①", "序号（点击自动递增）");
+        AddToolButton(tools, AnnotationTool.Pen, "\uE76D", "画笔（B）", useFluentIcon: true);
         AddToolButton(tools, AnnotationTool.Mosaic, "▦", "马赛克");
         AddToolButton(tools, AnnotationTool.Text, "T", "文字（T，Ctrl+Enter 提交）");
-        AddToolButton(tools, AnnotationTool.Eraser, "⌫", "橡皮擦（只擦除标注）");
+        AddToolButton(tools, AnnotationTool.Eraser, "\uE75C", "橡皮擦（只擦除标注）", useFluentIcon: true);
         tools.Children.Add(CreateSeparator());
 
-        _colorButton = CreateToolbarButton("●", "标注颜色");
-        _colorButton.Foreground = new SolidColorBrush(ToColor(_annotations.ColorArgb));
-        var colorFlyout = new Flyout();
-        var colors = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, Padding = new Thickness(8) };
+        _colorButton = CreateToolbarButton("\uE790", "标注颜色", useFluentIcon: true);
+        SetToolbarIconColor(_colorButton, ToColor(_annotations.ColorArgb));
+        var colorFlyout = new Flyout
+        {
+            FlyoutPresenterStyle = CreateCompactFlyoutPresenterStyle()
+        };
+        var colors = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 2,
+            Padding = new Thickness(6)
+        };
         foreach (var choice in new (uint Value, string Name)[]
                  {
                      (0xFFFF3B30, "红色"),
@@ -198,8 +219,14 @@ internal sealed class CaptureOverlayWindow : Window
                      (0xFFFFFFFF, "白色")
                  })
         {
-            var swatch = CreateToolbarButton("●", choice.Name);
-            swatch.Foreground = new SolidColorBrush(ToColor(choice.Value));
+            var swatch = CreateToolbarButton(
+                "●",
+                choice.Name,
+                width: 26,
+                height: 26,
+                iconSize: 12,
+                iconBoxSize: 16);
+            SetToolbarIconColor(swatch, ToColor(choice.Value));
             swatch.Click += (_, _) =>
             {
                 _annotations.SetColor(choice.Value);
@@ -211,7 +238,7 @@ internal sealed class CaptureOverlayWindow : Window
         _colorButton.Flyout = colorFlyout;
         tools.Children.Add(_colorButton);
 
-        var thinner = CreateToolbarButton("−", "减小粗细（1）");
+        var thinner = CreateToolbarButton("\uE738", "减小粗细（1）", useFluentIcon: true);
         thinner.Click += (_, _) => _annotations.AdjustWidth(-1);
         tools.Children.Add(thinner);
         _widthText = new TextBlock
@@ -220,29 +247,30 @@ internal sealed class CaptureOverlayWindow : Window
             Foreground = new SolidColorBrush(Colors.White),
             VerticalAlignment = VerticalAlignment.Center,
             MinWidth = 24,
+            FontSize = 14,
             TextAlignment = TextAlignment.Center
         };
         tools.Children.Add(_widthText);
-        var thicker = CreateToolbarButton("+", "增大粗细（2）");
+        var thicker = CreateToolbarButton("\uE710", "增大粗细（2）", useFluentIcon: true);
         thicker.Click += (_, _) => _annotations.AdjustWidth(1);
         tools.Children.Add(thicker);
         tools.Children.Add(CreateSeparator());
 
-        _undoButton = CreateToolbarButton("↶", "撤销（Ctrl+Z）");
+        _undoButton = CreateToolbarButton("\uE7A7", "撤销（Ctrl+Z）", useFluentIcon: true);
         _undoButton.Click += (_, _) => _annotations.Undo();
         tools.Children.Add(_undoButton);
-        _redoButton = CreateToolbarButton("↷", "重做（Ctrl+Y）");
+        _redoButton = CreateToolbarButton("\uE7A6", "重做（Ctrl+Y）", useFluentIcon: true);
         _redoButton.Click += (_, _) => _annotations.Redo();
         tools.Children.Add(_redoButton);
         tools.Children.Add(CreateSeparator());
 
-        var saveButton = CreateToolbarButton("💾", "另存为（Ctrl+S）");
+        var saveButton = CreateToolbarButton("\uE792", "另存为（Ctrl+S）", useFluentIcon: true);
         saveButton.Click += async (_, _) => await SaveSelectionAsync();
         tools.Children.Add(saveButton);
-        var copyButton = CreateToolbarButton("复制", "复制并完成（Ctrl+C / Enter）", 50);
+        var copyButton = CreateToolbarButton("\uE8C8", "复制并完成（Ctrl+C / Enter）", useFluentIcon: true);
         copyButton.Click += async (_, _) => await CompleteSelectionAsync(CaptureCompletionAction.Copy);
         tools.Children.Add(copyButton);
-        var pinButton = CreateToolbarButton("贴图", "贴图固定（Ctrl+T / 鼠标中键）", 50);
+        var pinButton = CreateToolbarButton("\uE718", "贴图固定（Ctrl+T / 鼠标中键）", useFluentIcon: true);
         pinButton.Click += async (_, _) => await CompleteSelectionAsync(CaptureCompletionAction.Pin);
         tools.Children.Add(pinButton);
 
@@ -257,44 +285,124 @@ internal sealed class CaptureOverlayWindow : Window
 
         return new Border
         {
+            RequestedTheme = ElementTheme.Dark,
             Background = new SolidColorBrush(Color.FromArgb(245, 32, 32, 32)),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 72, 72, 72)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(255, 112, 112, 112)),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(5),
-            Padding = new Thickness(5),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(4),
             Visibility = Visibility.Collapsed,
             Child = toolScroller
         };
     }
 
-    private void AddToolButton(StackPanel panel, AnnotationTool tool, string content, string toolTip)
+    private void AddToolButton(
+        StackPanel panel,
+        AnnotationTool tool,
+        string content,
+        string toolTip,
+        bool useFluentIcon = false)
     {
-        var button = CreateToolbarButton(content, toolTip);
+        var button = CreateToolbarButton(content, toolTip, useFluentIcon: useFluentIcon);
         button.Click += (_, _) => _annotations.SetTool(tool);
         _toolButtons[tool] = button;
         panel.Children.Add(button);
     }
 
-    private static Button CreateToolbarButton(string content, string toolTip, double width = 34)
+    private static Button CreateToolbarButton(
+        string glyph,
+        string toolTip,
+        double width = ToolbarButtonWidth,
+        bool useFluentIcon = false,
+        double height = ToolbarButtonHeight,
+        double? iconSize = null,
+        double iconBoxSize = ToolbarIconBoxSize)
     {
+        var icon = new FontIcon
+        {
+            Glyph = glyph,
+            FontFamily = new FontFamily(useFluentIcon ? "Segoe Fluent Icons" : "Segoe UI Symbol"),
+            FontSize = iconSize ?? (useFluentIcon ? ToolbarFluentIconSize : ToolbarSymbolIconSize),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var iconHost = new Grid
+        {
+            Width = iconBoxSize,
+            Height = iconBoxSize,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        iconHost.Children.Add(icon);
         var button = new Button
         {
-            Content = content,
+            Content = iconHost,
             Width = width,
-            Height = 34,
-            Padding = new Thickness(3),
+            Height = height,
+            Padding = new Thickness(0),
+            Foreground = new SolidColorBrush(Colors.White),
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderBrush = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center
         };
+        ApplyToolbarButtonVisualState(button, selected: false);
         ToolTipService.SetToolTip(button, toolTip);
+        AutomationProperties.SetName(button, toolTip);
         return button;
+    }
+
+    private static Style CreateCompactFlyoutPresenterStyle()
+    {
+        var style = new Style(typeof(FlyoutPresenter));
+        style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d));
+        style.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 0d));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0)));
+        return style;
+    }
+
+    private static void SetToolbarIconColor(Button button, Color color)
+    {
+        if (button.Content is Grid { Children.Count: > 0 } host &&
+            host.Children[0] is FontIcon icon)
+        {
+            icon.Foreground = new SolidColorBrush(color);
+        }
+    }
+
+    private static void ApplyToolbarButtonVisualState(Button button, bool selected)
+    {
+        var normal = selected
+            ? Color.FromArgb(255, 0, 120, 212)
+            : Colors.Transparent;
+        var hover = selected
+            ? Color.FromArgb(255, 20, 135, 230)
+            : Color.FromArgb(255, 58, 58, 58);
+        var pressed = selected
+            ? Color.FromArgb(255, 0, 96, 170)
+            : Color.FromArgb(255, 76, 76, 76);
+        var hoverBorder = selected
+            ? Color.FromArgb(255, 96, 180, 240)
+            : Color.FromArgb(255, 105, 105, 105);
+
+        button.Background = new SolidColorBrush(normal);
+        button.BorderBrush = new SolidColorBrush(Colors.Transparent);
+        button.Resources["ButtonBackgroundPointerOver"] = new SolidColorBrush(hover);
+        button.Resources["ButtonBackgroundPressed"] = new SolidColorBrush(pressed);
+        button.Resources["ButtonBorderBrushPointerOver"] = new SolidColorBrush(hoverBorder);
+        button.Resources["ButtonBorderBrushPressed"] = new SolidColorBrush(hoverBorder);
+        button.Resources["ButtonBackgroundDisabled"] = new SolidColorBrush(Colors.Transparent);
+        button.Resources["ButtonBorderBrushDisabled"] = new SolidColorBrush(Colors.Transparent);
+        button.Resources["ButtonForegroundDisabled"] = new SolidColorBrush(Color.FromArgb(255, 105, 105, 105));
     }
 
     private static Border CreateSeparator() => new()
     {
         Width = 1,
-        Height = 26,
-        Margin = new Thickness(3, 4, 3, 4),
+        Height = 22,
+        Margin = new Thickness(3, 5, 3, 5),
         Background = new SolidColorBrush(Color.FromArgb(255, 90, 90, 90))
     };
 
@@ -302,11 +410,9 @@ internal sealed class CaptureOverlayWindow : Window
     {
         foreach (var pair in _toolButtons)
         {
-            pair.Value.Background = pair.Key == _annotations.CurrentTool
-                ? new SolidColorBrush(Color.FromArgb(255, 0, 120, 212))
-                : new SolidColorBrush(Color.FromArgb(0, 0, 0, 0));
+            ApplyToolbarButtonVisualState(pair.Value, pair.Key == _annotations.CurrentTool);
         }
-        _colorButton.Foreground = new SolidColorBrush(ToColor(_annotations.ColorArgb));
+        SetToolbarIconColor(_colorButton, ToColor(_annotations.ColorArgb));
         _widthText.Text = Math.Round(_annotations.CurrentWidth).ToString();
         _undoButton.IsEnabled = _annotations.CanUndo;
         _redoButton.IsEnabled = _annotations.CanRedo;
@@ -329,10 +435,8 @@ internal sealed class CaptureOverlayWindow : Window
         AddKeyboardAccelerator(VirtualKey.Tab, VirtualKeyModifiers.None, _annotations.TogglePairedTool);
         AddKeyboardAccelerator(VirtualKey.Number1, VirtualKeyModifiers.None, () => _annotations.AdjustWidth(-1));
         AddKeyboardAccelerator(VirtualKey.Number2, VirtualKeyModifiers.None, () => _annotations.AdjustWidth(1));
-        AddKeyboardAccelerator(VirtualKey.Enter, VirtualKeyModifiers.None, () =>
-        {
-            if (!_annotations.FinishPolyline()) _ = CompleteSelectionAsync(CaptureCompletionAction.Copy);
-        });
+        AddKeyboardAccelerator(VirtualKey.Enter, VirtualKeyModifiers.None,
+            () => _ = CompleteSelectionAsync(CaptureCompletionAction.Copy));
     }
 
     private void AddKeyboardAccelerator(VirtualKey key, VirtualKeyModifiers modifiers, Action action)
@@ -388,7 +492,8 @@ internal sealed class CaptureOverlayWindow : Window
         _selectedScreen = null;
         _selectedRegion = null;
         _toolbar.Visibility = Visibility.Collapsed;
-        _hintText.Text = "拖动选择截图区域 · Esc 取消";
+        _hintText.Text = "在任意显示器拖动选择唯一截图区域 · Esc 取消";
+        SelectionStarted?.Invoke();
         _start = Clamp(point.Position);
         _canvas.CapturePointer(e.Pointer);
         UpdateSelection(_start.Value, _start.Value);
@@ -408,14 +513,6 @@ internal sealed class CaptureOverlayWindow : Window
 
     private void OnPointerMoved(object sender, PointerRoutedEventArgs e)
     {
-        if (_selectedScreen is not null && _annotations.CurrentTool is AnnotationTool.Polyline)
-        {
-            var position = e.GetCurrentPoint(_canvas).Position;
-            if (_selectionBounds.Contains(position))
-            {
-                _annotations.PointerMoved(ToSelectionPoint(position), IsShiftDown());
-            }
-        }
         if (_drawingAnnotation)
         {
             _annotations.PointerMoved(
@@ -479,13 +576,22 @@ internal sealed class CaptureOverlayWindow : Window
 
     private void OnPointerCanceled(object sender, PointerRoutedEventArgs e)
     {
-        if (_drawingAnnotation)
+        switch (CaptureInteractionPolicy.ResolvePointerCancellation(
+                    _drawingAnnotation,
+                    _start is not null))
         {
-            _annotations.CancelPointerGesture();
-            _drawingAnnotation = false;
-            return;
+            case CapturePointerCancellationAction.CancelAnnotationGesture:
+                _annotations.CancelPointerGesture();
+                _drawingAnnotation = false;
+                e.Handled = true;
+                break;
+            case CapturePointerCancellationAction.CancelRegionSelection:
+                CancelSelection();
+                e.Handled = true;
+                break;
+            case CapturePointerCancellationAction.PreserveSelection:
+                break;
         }
-        CancelSelection();
     }
 
     private void ShowToolbar(double left, double top, double width, double height)
@@ -560,7 +666,7 @@ internal sealed class CaptureOverlayWindow : Window
         _selectedScreen = null;
         _selectedRegion = null;
         _drawingAnnotation = false;
-        _hintText.Text = "拖动选择截图区域 · Esc 取消";
+        _hintText.Text = "在任意显示器拖动选择唯一截图区域 · Esc 取消";
     }
 
     private void CancelSelection()
@@ -577,7 +683,7 @@ internal sealed class CaptureOverlayWindow : Window
             var picker = new FileSavePicker
             {
                 SuggestedStartLocation = PickerLocationId.PicturesLibrary,
-                SuggestedFileName = $"Tbox-{DateTime.Now:yyyyMMdd-HHmmss}"
+                SuggestedFileName = $"{DateTime.Now:yyyy-MM-dd_HH-mm-ss}"
             };
             picker.FileTypeChoices.Add("PNG 图像", [".png"]);
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));

@@ -44,8 +44,13 @@ internal sealed class PinnedImageWindow : Window
         CacheFilePath = cacheFilePath;
         _notify = notify;
         Title = "Tbox 贴图";
-        _root = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Black), IsTabStop = true };
-        _root.Children.Add(new Image { Source = source, Stretch = Stretch.Uniform });
+        _root = new Grid
+        {
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Black),
+            IsTabStop = true,
+            KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden
+        };
+        _root.Children.Add(new Image { Source = source, Stretch = Stretch.Fill });
         Content = _root;
 
         var menu = new MenuFlyout();

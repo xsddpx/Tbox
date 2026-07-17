@@ -28,6 +28,63 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public void CaptureCanActivateAnyDisplayIncludingNegativeCoordinates()
+    {
+        CaptureDisplayBounds[] displays =
+        [
+            new(-1920, 0, 1920, 1080),
+            new(0, 0, 2560, 1440),
+            new(2560, -400, 1600, 900)
+        ];
+
+        Assert.Equal(0, CaptureDisplayPolicy.FindContainingDisplayIndex(displays, -100, 500));
+        Assert.Equal(1, CaptureDisplayPolicy.FindContainingDisplayIndex(displays, 100, 500));
+        Assert.Equal(2, CaptureDisplayPolicy.FindContainingDisplayIndex(displays, 3000, -100));
+    }
+
+    [Fact]
+    public void CaptureDisplayBoundsUseExclusiveRightAndBottomEdges()
+    {
+        var display = new CaptureDisplayBounds(100, 200, 800, 600);
+
+        Assert.True(display.Contains(100, 200));
+        Assert.True(display.Contains(899, 799));
+        Assert.False(display.Contains(900, 799));
+        Assert.False(display.Contains(899, 800));
+    }
+
+    [Fact]
+    public void CaptureSessionTransfersTheOnlyActiveSelectionBetweenDisplays()
+    {
+        var session = new CaptureSelectionSession();
+
+        Assert.Null(session.BeginSelection(0, 2));
+        Assert.Equal(0, session.ActiveDisplayIndex);
+        Assert.Equal(0, session.BeginSelection(1, 2));
+        Assert.Equal(1, session.ActiveDisplayIndex);
+        Assert.Equal(1, session.BeginSelection(1, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => session.BeginSelection(2, 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => session.BeginSelection(0, 0));
+    }
+
+    [Theory]
+    [InlineData(false, false, CapturePointerCancellationAction.PreserveSelection)]
+    [InlineData(false, true, CapturePointerCancellationAction.CancelRegionSelection)]
+    [InlineData(true, false, CapturePointerCancellationAction.CancelAnnotationGesture)]
+    [InlineData(true, true, CapturePointerCancellationAction.CancelAnnotationGesture)]
+    public void PointerCancellationOnlyClearsAnActiveGesture(
+        bool annotationGestureInProgress,
+        bool regionSelectionInProgress,
+        CapturePointerCancellationAction expected)
+    {
+        Assert.Equal(
+            expected,
+            CaptureInteractionPolicy.ResolvePointerCancellation(
+                annotationGestureInProgress,
+                regionSelectionInProgress));
+    }
+
+    [Fact]
     public void CropCopiesOnlySelectedBgraPixels()
     {
         var source = Enumerable.Range(0, 16).Select(value => (byte)value).ToArray();

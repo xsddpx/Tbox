@@ -20,12 +20,13 @@ internal sealed class ScreenPasteModule : ITboxModule
     private CaptureCache _captureCache;
     private readonly List<PinnedImageWindow> _pins = [];
     private Task _pendingCaptureSaveTask = Task.CompletedTask;
-    private CaptureOverlayWindow? _captureOverlay;
+    private readonly List<CaptureOverlayWindow> _captureOverlays = [];
+    private bool _captureStarting;
     private bool _disposed;
 
     public string Id => "screen-paste";
     public string DisplayName => "截图与贴图";
-    public string Description => "使用 F6 截图、F7 贴出剪贴板图像、F8 整体显示或隐藏全部贴图。";
+    public string Description => "使用 F6 在任意显示器截图、F7 贴出剪贴板图像、F8 整体显示或隐藏全部贴图。";
     public bool IsEnabled { get; private set; }
     public event EventHandler<bool>? EnabledChanged;
 
@@ -120,23 +121,76 @@ internal sealed class ScreenPasteModule : ITboxModule
 
     private async Task StartCaptureAsync()
     {
-        if (_captureOverlay is not null) return;
+        if (_captureStarting || _captureOverlays.Count > 0) return;
+        _captureStarting = true;
+        var overlays = new List<CaptureOverlayWindow>();
         try
         {
-            var screen = ScreenCaptureService.CaptureMonitorUnderCursor();
-            var overlay = await CaptureOverlayWindow.CreateAsync(screen);
-            _captureOverlay = overlay;
-            overlay.Completed += result =>
+            var screens = ScreenCaptureService.CaptureAllMonitors();
+            foreach (var screen in screens)
             {
-                _captureOverlay = null;
-                if (result is not null) QueueCapture(result);
-            };
-            overlay.Show();
+                overlays.Add(await CaptureOverlayWindow.CreateAsync(screen));
+            }
+            if (_disposed || !IsEnabled)
+            {
+                foreach (var overlay in overlays) overlay.Close();
+                return;
+            }
+
+            _captureOverlays.AddRange(overlays);
+            var sessionCompleted = false;
+            var selectionSession = new CaptureSelectionSession();
+            for (var index = 0; index < overlays.Count; index++)
+            {
+                var overlayIndex = index;
+                var overlay = overlays[index];
+                var completingOverlay = overlay;
+                overlay.SelectionStarted += () =>
+                {
+                    var previousIndex = selectionSession.BeginSelection(overlayIndex, overlays.Count);
+                    if (previousIndex is { } peerIndex && peerIndex != overlayIndex)
+                    {
+                        overlays[peerIndex].ResetForPeerSelection();
+                    }
+                };
+                overlay.Completed += result =>
+                {
+                    if (sessionCompleted) return;
+                    sessionCompleted = true;
+                    _captureOverlays.Clear();
+                    foreach (var peer in overlays)
+                    {
+                        if (!ReferenceEquals(peer, completingOverlay)) peer.Close();
+                    }
+                    if (result is not null) QueueCapture(result);
+                };
+            }
+
+            var cursor = ScreenCaptureService.GetCursorPosition();
+            var activeIndex = CaptureDisplayPolicy.FindContainingDisplayIndex(
+                screens.Select(screen => new CaptureDisplayBounds(
+                    screen.Left,
+                    screen.Top,
+                    screen.Width,
+                    screen.Height)).ToArray(),
+                cursor.X,
+                cursor.Y);
+            for (var index = 0; index < overlays.Count; index++)
+            {
+                if (index != activeIndex) overlays[index].Show(activate: false);
+            }
+            overlays[activeIndex].Show(activate: true);
         }
         catch (Exception exception)
         {
+            _captureOverlays.Clear();
+            foreach (var overlay in overlays) overlay.Close();
             AppLog.Write($"Screen capture failed: {exception}");
             _notify("无法开始截图，Tbox 已保持运行。");
+        }
+        finally
+        {
+            _captureStarting = false;
         }
     }
 
@@ -284,8 +338,8 @@ internal sealed class ScreenPasteModule : ITboxModule
 
     private void CloseWindows()
     {
-        _captureOverlay?.Close();
-        _captureOverlay = null;
+        foreach (var overlay in _captureOverlays.ToArray()) overlay.Close();
+        _captureOverlays.Clear();
         ClosePins();
     }
 

@@ -8,16 +8,25 @@ public sealed class CaptureCache
     public const long DefaultMaximumTotalBytes = 512L * 1024 * 1024;
     public static readonly TimeSpan DefaultMaximumAge = TimeSpan.FromDays(30);
 
+    private readonly Func<DateTime> _getLocalNow;
+
     public string DirectoryPath { get; }
 
     public CaptureCache(string directoryPath)
+        : this(directoryPath, () => DateTime.Now)
+    {
+    }
+
+    internal CaptureCache(string directoryPath, Func<DateTime> getLocalNow)
     {
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
             throw new ArgumentException("缓存目录不能为空。", nameof(directoryPath));
         }
 
+        ArgumentNullException.ThrowIfNull(getLocalNow);
         DirectoryPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directoryPath));
+        _getLocalNow = getLocalNow;
     }
 
     public async Task<string> SaveAsync(ReadOnlyMemory<byte> pngBytes, CancellationToken cancellationToken = default)
@@ -25,30 +34,57 @@ public sealed class CaptureCache
         if (pngBytes.IsEmpty) throw new ArgumentException("截图内容不能为空。", nameof(pngBytes));
 
         Directory.CreateDirectory(DirectoryPath);
-        var stem = DateTime.UtcNow.ToString("yyyyMMddHHmmssfffffff", CultureInfo.InvariantCulture);
-        var filePath = Path.Combine(DirectoryPath, $"{stem}-{Guid.NewGuid():N}.png");
-        var temporaryPath = filePath + ".tmp";
-
-        try
+        var stem = _getLocalNow().ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
+        for (var sequence = 0; ; sequence++)
         {
-            await using (var output = new FileStream(
-                temporaryPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None,
-                bufferSize: 81920,
-                FileOptions.Asynchronous))
+            var suffix = sequence == 0
+                ? string.Empty
+                : $"_{sequence.ToString("D3", CultureInfo.InvariantCulture)}";
+            var filePath = Path.Combine(DirectoryPath, $"{stem}{suffix}.png");
+            var temporaryPath = filePath + ".tmp";
+            var ownsTemporaryFile = false;
+
+            if (File.Exists(filePath) || File.Exists(temporaryPath)) continue;
+
+            try
             {
-                await output.WriteAsync(pngBytes, cancellationToken);
-                await output.FlushAsync(cancellationToken);
-            }
+                FileStream output;
+                try
+                {
+                    output = new FileStream(
+                        temporaryPath,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        bufferSize: 81920,
+                        FileOptions.Asynchronous);
+                }
+                catch (IOException) when (File.Exists(temporaryPath) || File.Exists(filePath))
+                {
+                    continue;
+                }
 
-            File.Move(temporaryPath, filePath);
-            return filePath;
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+                ownsTemporaryFile = true;
+                await using (output)
+                {
+                    await output.WriteAsync(pngBytes, cancellationToken);
+                    await output.FlushAsync(cancellationToken);
+                }
+
+                try
+                {
+                    File.Move(temporaryPath, filePath);
+                    return filePath;
+                }
+                catch (IOException) when (File.Exists(filePath))
+                {
+                    continue;
+                }
+            }
+            finally
+            {
+                if (ownsTemporaryFile && File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
         }
     }
 
@@ -58,7 +94,11 @@ public sealed class CaptureCache
 
         return Directory
             .EnumerateFiles(DirectoryPath, "*.png", SearchOption.TopDirectoryOnly)
-            .MaxBy(Path.GetFileName, StringComparer.Ordinal);
+            .Select(path => new FileInfo(path))
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .ThenByDescending(file => file.Name, StringComparer.Ordinal)
+            .FirstOrDefault()
+            ?.FullName;
     }
 
     public int Prune(
@@ -82,7 +122,8 @@ public sealed class CaptureCache
 
         var files = new DirectoryInfo(DirectoryPath)
             .EnumerateFiles("*.png", SearchOption.TopDirectoryOnly)
-            .OrderByDescending(file => file.Name, StringComparer.Ordinal)
+            .OrderByDescending(file => file.LastWriteTimeUtc)
+            .ThenByDescending(file => file.Name, StringComparer.Ordinal)
             .ToList();
         var retainedCount = files.Count;
         var retainedBytes = files.Sum(file => file.Length);
