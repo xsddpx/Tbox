@@ -38,7 +38,13 @@ $visualStudioPath = & $vsWhere -latest -products * -requires Microsoft.Component
 if ($LASTEXITCODE -ne 0 -or -not $visualStudioPath) {
     throw "Visual Studio 2022 Build Tools with MSBuild were not found."
 }
-$msBuild = Join-Path $visualStudioPath "MSBuild\Current\Bin\MSBuild.exe"
+$msBuild64 = Join-Path $visualStudioPath "MSBuild\Current\Bin\amd64\MSBuild.exe"
+$msBuild = if (Test-Path -LiteralPath $msBuild64) {
+    $msBuild64
+}
+else {
+    Join-Path $visualStudioPath "MSBuild\Current\Bin\MSBuild.exe"
+}
 $vsTest = Join-Path $visualStudioPath "Common7\IDE\Extensions\TestPlatform\vstest.console.exe"
 if (-not (Test-Path -LiteralPath $msBuild) -or -not (Test-Path -LiteralPath $vsTest)) {
     throw "MSBuild or VSTest was not found under: $visualStudioPath"

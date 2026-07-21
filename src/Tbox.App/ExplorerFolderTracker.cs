@@ -189,71 +189,102 @@ internal sealed class ExplorerFolderTracker : IDisposable
         AppLog.Write("Explorer capture started.");
         var targetRoot = NativeMethods.GetAncestor(hwnd, NativeMethods.GaRoot);
         if (targetRoot == IntPtr.Zero) targetRoot = hwnd;
-        var activeTabWindow = ExplorerShellViewResolver.FindActiveTabWindow(targetRoot);
-        var candidates = new List<ExplorerTabCandidate>();
-        object? shellObject = null;
-        object? windowsObject = null;
-        try
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            var shellType = Type.GetTypeFromProgID("Shell.Application");
-            if (shellType is null) return;
-            shellObject = Activator.CreateInstance(shellType);
-            if (shellObject is null) return;
-            dynamic shell = shellObject;
-            windowsObject = shell.Windows();
-            dynamic windows = windowsObject;
-            var count = Convert.ToInt32(windows.Count);
-            for (var index = 0; index < count; index++)
+            var titleBeforeCapture = GetWindowTitle(targetRoot);
+            var activeTabWindow = ExplorerShellViewResolver.FindUnambiguousTabWindow(targetRoot);
+            var candidates = new List<ExplorerTabCandidate>();
+            object? shellObject = null;
+            object? windowsObject = null;
+            try
             {
-                object? itemObject = null;
-                try
+                var shellType = Type.GetTypeFromProgID("Shell.Application");
+                if (shellType is null) return;
+                shellObject = Activator.CreateInstance(shellType);
+                if (shellObject is null) return;
+                dynamic shell = shellObject;
+                windowsObject = shell.Windows();
+                dynamic windows = windowsObject;
+                var count = Convert.ToInt32(windows.Count);
+                for (var index = 0; index < count; index++)
                 {
-                    itemObject = windows.Item(index);
-                    if (itemObject is null) continue;
-                    dynamic item = itemObject;
-                    var itemWindow = new IntPtr(Convert.ToInt64(item.HWND));
-                    var itemRoot = NativeMethods.GetAncestor(itemWindow, NativeMethods.GaRoot);
-                    if (itemRoot == IntPtr.Zero) itemRoot = itemWindow;
-                    if (itemRoot != targetRoot) continue;
-                    string? shellPath = null;
-                    for (var attempt = 1; attempt <= 3; attempt++)
+                    object? itemObject = null;
+                    try
                     {
-                        shellPath = item.Document?.Folder?.Self?.Path;
-                        if (IsStableShellPath(shellPath) || attempt == 3) break;
-                        Thread.Sleep(25);
+                        itemObject = windows.Item(index);
+                        if (itemObject is null) continue;
+                        dynamic item = itemObject;
+                        var itemWindow = new IntPtr(Convert.ToInt64(item.HWND));
+                        var itemRoot = NativeMethods.GetAncestor(itemWindow, NativeMethods.GaRoot);
+                        if (itemRoot == IntPtr.Zero) itemRoot = itemWindow;
+                        if (itemRoot != targetRoot) continue;
+                        string? shellPath = null;
+                        for (var pathAttempt = 1; pathAttempt <= 3; pathAttempt++)
+                        {
+                            shellPath = item.Document?.Folder?.Self?.Path;
+                            if (IsStableShellPath(shellPath) || pathAttempt == 3) break;
+                            Thread.Sleep(25);
+                        }
+                        var displayName = Convert.ToString(item.LocationName);
+                        var tabWindow = activeTabWindow == IntPtr.Zero
+                            ? IntPtr.Zero
+                            : ExplorerShellViewResolver.TryGetTabWindow(itemObject, targetRoot);
+                        candidates.Add(new ExplorerTabCandidate(
+                            tabWindow.ToInt64(),
+                            shellPath,
+                            displayName));
                     }
-                    var tabWindow = activeTabWindow == IntPtr.Zero
-                        ? IntPtr.Zero
-                        : ExplorerShellViewResolver.TryGetTabWindow(itemObject, targetRoot);
-                    candidates.Add(new ExplorerTabCandidate(tabWindow.ToInt64(), shellPath));
+                    catch (COMException)
+                    {
+                        // Explorer windows may disappear while enumerating.
+                    }
                 }
-                catch (COMException)
+
+                var titleAfterCapture = GetWindowTitle(targetRoot);
+                if (!string.Equals(
+                        titleBeforeCapture,
+                        titleAfterCapture,
+                        StringComparison.Ordinal))
                 {
-                    // Explorer windows may disappear while enumerating.
+                    AppLog.Write($"Explorer capture retry #{attempt}: the selected tab changed during capture.");
+                }
+                else
+                {
+                    var selected = ExplorerTabSelectionPolicy.SelectActive(
+                        candidates,
+                        activeTabWindow.ToInt64(),
+                        titleAfterCapture);
+                    if (selected is not null)
+                    {
+                        var selectedShellPath = selected.Value.ShellPath;
+                        Volatile.Write(ref _lastShellPath, selectedShellPath);
+                        var resolved = FolderTargetPolicy.Resolve(selectedShellPath, _userProfile);
+                        Volatile.Write(ref _currentFolder, resolved);
+                        AppLog.Write(candidates.Count > 1
+                            ? "Explorer active-tab folder captured from the window title."
+                            : "Explorer folder captured.");
+                        return;
+                    }
+
+                    AppLog.Write($"Explorer capture retry #{attempt}: the active tab could not be resolved among {candidates.Count} views.");
                 }
             }
-
-            var selected = ExplorerTabSelectionPolicy.SelectActive(
-                candidates,
-                activeTabWindow.ToInt64());
-            if (selected is null)
+            catch (Exception exception) when (exception is COMException or InvalidCastException)
             {
-                AppLog.Write("Explorer capture skipped because the active tab could not be resolved.");
-                return;
+                AppLog.Write($"Explorer capture retry #{attempt} failed: {exception.GetType().Name}");
             }
 
-            var selectedShellPath = selected.Value.ShellPath;
-            Volatile.Write(ref _lastShellPath, selectedShellPath);
-            var resolved = FolderTargetPolicy.Resolve(selectedShellPath, _userProfile);
-            Volatile.Write(ref _currentFolder, resolved);
-            AppLog.Write(activeTabWindow == IntPtr.Zero
-                ? "Explorer folder captured."
-                : "Explorer active-tab folder captured.");
+            if (attempt < 3) Thread.Sleep(25);
         }
-        catch (Exception exception) when (exception is COMException or InvalidCastException)
-        {
-            AppLog.Write($"Explorer capture failed: {exception.GetType().Name}");
-        }
+
+        AppLog.Write("Explorer capture skipped after three attempts because the active tab could not be resolved.");
+    }
+
+    private static string? GetWindowTitle(IntPtr hwnd)
+    {
+        var title = new char[512];
+        var length = NativeMethods.GetWindowText(hwnd, title, title.Length);
+        return length > 0 ? new string(title, 0, length) : null;
     }
 
     private static bool IsStableShellPath(string? shellPath)

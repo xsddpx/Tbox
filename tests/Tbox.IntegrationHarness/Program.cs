@@ -602,15 +602,29 @@ internal static partial class Program
                 return (false, $"选中第二个标签时捕获到 {activeSecond ?? "<null>"}");
             }
 
-            if (!TrySelectExplorerTab(window, 0) &&
-                !SendShortcut(window, [NativeMethods.VkControl, NativeMethods.VkShift], VkTab))
+            var transitions = new List<string>();
+            for (var switchIndex = 0; switchIndex < 10; switchIndex++)
             {
-                return (false, "无法切换回第一个标签");
+                var tabIndex = switchIndex % 2;
+                var expectedPath = tabIndex == 0 ? firstTabPath : secondTabPath;
+                var fallbackModifiers = tabIndex == 0
+                    ? new ushort[] { NativeMethods.VkControl, NativeMethods.VkShift }
+                    : [NativeMethods.VkControl];
+                if (!TrySelectExplorerTab(window, tabIndex) &&
+                    !SendShortcut(window, fallbackModifiers, VkTab))
+                {
+                    return (false, $"第 {switchIndex + 1} 次切换到标签 {tabIndex + 1} 失败");
+                }
+
+                var captured = WaitForTrackedFolder(tracker, expectedPath, TimeSpan.FromSeconds(5));
+                if (!PathsEqual(captured, expectedPath))
+                {
+                    return (false, $"第 {switchIndex + 1} 次切换到标签 {tabIndex + 1} 后捕获到 {captured ?? "<null>"}");
+                }
+                transitions.Add(Path.GetFileName(expectedPath));
             }
-            var activeFirst = WaitForTrackedFolder(tracker, firstTabPath, TimeSpan.FromSeconds(5));
-            return PathsEqual(activeFirst, firstTabPath)
-                ? (true, $"{activeSecond} -> {activeFirst}")
-                : (false, $"切回第一个标签时捕获到 {activeFirst ?? "<null>"}");
+
+            return (true, $"{activeSecond} -> {string.Join(" -> ", transitions)}");
         }
         finally
         {

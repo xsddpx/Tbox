@@ -238,11 +238,14 @@ public sealed class SettingsTests
     {
         ExplorerTabCandidate[] candidates =
         [
-            new(101, @"C:\Users\tester\Desktop"),
-            new(202, @"C:\Users\tester\Documents")
+            new(0, @"C:\Users\tester\Desktop", "桌面"),
+            new(0, @"C:\Users\tester\Documents", "文档")
         ];
 
-        var selected = ExplorerTabSelectionPolicy.SelectActive(candidates, 202);
+        var selected = ExplorerTabSelectionPolicy.SelectActive(
+            candidates,
+            activeTabWindowHandle: 0,
+            "文档 和 1 个其他选项卡 - 文件资源管理器");
 
         Assert.Equal(@"C:\Users\tester\Documents", selected?.ShellPath);
     }
@@ -252,17 +255,37 @@ public sealed class SettingsTests
     {
         ExplorerTabCandidate[] candidates =
         [
-            new(0, @"C:\Users\tester\Desktop"),
-            new(0, @"C:\Users\tester\Documents")
+            new(0, @"C:\Users\tester\First\Reports", "Reports"),
+            new(0, @"C:\Users\tester\Second\Reports", "Reports")
         ];
 
-        Assert.Null(ExplorerTabSelectionPolicy.SelectActive(candidates, 202));
-        Assert.Equal(
-            candidates[0],
-            ExplorerTabSelectionPolicy.SelectActive(candidates, activeTabWindowHandle: 0));
+        Assert.Null(ExplorerTabSelectionPolicy.SelectActive(
+            candidates,
+            activeTabWindowHandle: 0,
+            "Reports and 1 more tab - File Explorer"));
+        Assert.Null(ExplorerTabSelectionPolicy.SelectActive(
+            candidates,
+            activeTabWindowHandle: 0));
         Assert.Equal(
             candidates[0],
             ExplorerTabSelectionPolicy.SelectActive([candidates[0]], 202));
+    }
+
+    [Fact]
+    public void ExplorerTabSelectionUsesTheMostSpecificWindowTitleMatch()
+    {
+        ExplorerTabCandidate[] candidates =
+        [
+            new(0, @"C:\Work\Design", "Design"),
+            new(0, @"C:\Work\Design Assets", "Design Assets")
+        ];
+
+        var selected = ExplorerTabSelectionPolicy.SelectActive(
+            candidates,
+            activeTabWindowHandle: 0,
+            "Design Assets and 1 more tab - File Explorer");
+
+        Assert.Equal(@"C:\Work\Design Assets", selected?.ShellPath);
     }
 
     [Fact]

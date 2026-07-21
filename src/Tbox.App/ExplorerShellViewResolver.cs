@@ -7,13 +7,21 @@ internal static class ExplorerShellViewResolver
     private static readonly Guid TopLevelBrowserService = new("4C96BE40-915C-11CF-99D3-00AA004AE837");
     private static readonly Guid ShellBrowserInterface = new("000214E2-0000-0000-C000-000000000046");
 
-    internal static IntPtr FindActiveTabWindow(IntPtr explorerRoot)
+    internal static IntPtr FindUnambiguousTabWindow(IntPtr explorerRoot)
     {
-        return NativeMethods.FindWindowEx(
+        var firstTab = NativeMethods.FindWindowEx(
             explorerRoot,
             IntPtr.Zero,
             "ShellTabWindowClass",
             null);
+        if (firstTab == IntPtr.Zero) return IntPtr.Zero;
+
+        var secondTab = NativeMethods.FindWindowEx(
+            explorerRoot,
+            firstTab,
+            "ShellTabWindowClass",
+            null);
+        return secondTab == IntPtr.Zero ? firstTab : IntPtr.Zero;
     }
 
     internal static IntPtr TryGetTabWindow(object shellWindow, IntPtr explorerRoot)
