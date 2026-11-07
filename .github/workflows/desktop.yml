@@ -74,3 +74,34 @@ jobs:
       - name: Test macOS signing safeguards
         if: runner.os == 'macOS'
         run: bash tests/macos/test-signing-policy.sh
+
+  signing-readiness:
+    # Explicit, temporary opt-in for configuring persistent identities. No Tbox
+    # package or public Release is produced, and PRs never receive these secrets.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/feat-macos-basic' && vars.TBOX_VERIFY_SIGNING == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate Windows signing identity on an isolated fixture
+        if: runner.os == 'Windows'
+        shell: powershell
+        env:
+          TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
+          TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
+          TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+        run: ./scripts/release/sign-and-package-windows.ps1 -VerifyIdentityOnly
+      - name: Validate Mac signing identity on an isolated fixture
+        if: runner.os == 'macOS'
+        env:
+          TBOX_MAC_P12_BASE64: ${{ secrets.TBOX_MAC_P12_BASE64 }}
+          TBOX_MAC_P12_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD }}
+          TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
+          TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
+        run: bash scripts/release/sign-and-package-macos.sh --verify-identity-only

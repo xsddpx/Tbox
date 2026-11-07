@@ -19,14 +19,18 @@
 
 | 类型 | 名称 | 内容 |
 | --- | --- | --- |
-| Secret | `TBOX_WINDOWS_PFX_BASE64` | 原 Windows 签名证书及私钥的 PFX，Base64 编码；发布者必须是 `CN=Tbox Development` |
+| Secret | `TBOX_WINDOWS_PFX_BASE64` | 已固定的 Windows 签名证书及私钥的 PFX，Base64 编码；发布者必须是 `CN=Tbox Development` |
 | Secret | `TBOX_WINDOWS_PFX_PASSWORD` | PFX 密码，使用非空密码 |
 | Secret | `TBOX_MAC_P12_BASE64` | 当前持久 Mac 签名身份的 P12，仅导出 Tbox 这一个身份；Base64 编码 |
 | Secret | `TBOX_MAC_P12_PASSWORD` | P12 密码，使用非空密码 |
 | Secret | `TBOX_RELEASE_TOKEN` | 仅授权 `xsddpx/Tbox-releases`、Repository Contents **Read and write** 的 fine-grained token；下载用户不需要该令牌 |
-| Variable | `TBOX_WINDOWS_CERT_SHA1` | 原 Windows 签名证书的 40 位指纹，无空格/冒号 |
+| Variable | `TBOX_WINDOWS_CERT_SHA1` | 已固定的 Windows 签名证书的 40 位指纹，无空格/冒号 |
 | Variable | `TBOX_MAC_CERT_SHA1` | 原 Mac 签名证书的 40 位指纹，无空格/冒号 |
 | Variable | `TBOX_MAC_SIGN_IDENTITY` | 可选；默认 `Tbox Local Development` |
+
+2026-11-08：用户确认没有原 Windows PFX；本机及项目相关下载目录未找到可恢复副本，已一次性建立 Windows 持久开发签名身份并存入 Actions Secrets。Windows 指纹为 `10859D3FDA689CC8CCC92143C79DA6CCFCDA5D92`。发布者仍为 `CN=Tbox Development`，旧 Windows 用户需首次信任新的公钥证书；原电脑覆盖升级尚未验证，不能承诺无提示升级。以后不得逐轮生成新证书。
+
+Windows 加密 PFX、原 Mac 身份导出的加密 P12 均备份在本机 `~/Library/Application Support/Tbox/Signing/`，目录权限 0700、私钥包权限 0600；密码保存在登录钥匙串。仅导出匹配 Tbox 指纹的 Mac 身份，没有导出其他钥匙串身份。四个证书 Secrets 和两平台指纹变量已配置；公开发布令牌正在浏览器中等待最后的范围确认。
 
 当前本机 Mac 指纹为 `FA0F60B5D7C8EE3DCFE356A0D564F8F0B1BE2EE6`。只传同一个身份，不重新生成证书。不能把本机 `gh` 的广泛账号令牌直接保存为发布 Secret。
 
@@ -60,6 +64,6 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 python3 -m unittest discover -s tests/release -v
 ```
 
-现有双平台 CI 也运行这些测试。签名私钥、Windows 指纹及公开仓库发布令牌尚未配置，故**尚未执行真实签名自动发布**；离线测试或未签名 MSIX 验证不代表首次发布完成。当前跨平台迁移分支仍未合入 main，工作流会随该需求合并后启用。
+现有双平台 CI 也运行这些测试，提交 `46a8da0` 的 [双平台检查](https://github.com/xsddpx/Tbox/actions/runs/42389041205) 全部通过。临时变量 `TBOX_VERIFY_SIGNING=true` 可在当前迁移分支的推送中启用证书导入、实际签名、验签和指纹核对：仅签名隔离的系统可执行文件副本，不生成 Tbox 安装包，PR 不获得证书；验证完成后关闭该变量。签名私钥与指纹已配置，公开仓库发布令牌仍待生成；签名的云端独立夹具检查已接入，故**尚未执行真实签名自动发布**；离线测试或未签名 MSIX 验证不代表首次发布完成。当前跨平台迁移分支仍未合入 main，工作流会随该需求合并后启用。
 
 事件与 runner 的选择依据 [GitHub Release 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)、[托管 runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)；上传校验使用 [Release assets API](https://docs.github.com/en/rest/releases/assets) 的 `size`、`state`、`digest`。

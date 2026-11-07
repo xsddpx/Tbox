@@ -1,3 +1,4 @@
+param([switch]$VerifyIdentityOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
@@ -18,12 +19,28 @@ try {
     Remove-Item Env:\TBOX_WINDOWS_PFX_BASE64, Env:\TBOX_WINDOWS_PFX_PASSWORD
     $signer = @($certificates | Where-Object { $_.HasPrivateKey })
     if ($signer.Count -ne 1 -or $signer[0].Thumbprint -ne $env:TBOX_WINDOWS_CERT_SHA1 -or $signer[0].Subject -ne 'CN=Tbox Development') {
-        throw 'PFX must contain exactly the original Tbox signing identity.'
+        throw 'PFX must contain exactly the configured persistent Tbox signing identity.'
     }
     $public = Join-Path $env:RUNNER_TEMP 'tbox-public.cer'
     Export-Certificate -Cert $signer[0] -FilePath $public | Out-Null
     # Trust only this leaf certificate on the disposable runner; never install a root CA.
     $trusted = @(Import-Certificate -FilePath $public -CertStoreLocation Cert:\CurrentUser\TrustedPeople)
+    if ($VerifyIdentityOnly) {
+        $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
+            Sort-Object { try { [Version]$_.Name } catch { [Version]'0.0' } } -Descending |
+            ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
+            Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if (-not $signTool) { throw 'Windows SDK SignTool is required.' }
+        $fixture = Join-Path $env:RUNNER_TEMP 'tbox-signing-fixture.exe'
+        Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\where.exe') -Destination $fixture
+        & $signTool sign /sha1 $signer[0].Thumbprint /fd SHA256 $fixture
+        if ($LASTEXITCODE -ne 0) { throw 'Fixture signing failed.' }
+        & $signTool verify /pa /v $fixture
+        if ($LASTEXITCODE -ne 0) { throw 'Fixture signature validation failed.' }
+        $actual = Get-AuthenticodeSignature -LiteralPath $fixture
+        if ($actual.SignerCertificate.Thumbprint -ne $env:TBOX_WINDOWS_CERT_SHA1) { throw 'Fixture signer mismatch.' }
+        return
+    }
     if (-not (Get-AppxPackage -Name Microsoft.VCLibs.140.00.UWPDesktop | Where-Object { $_.Architecture -eq 'X64' -and $_.Version -ge [Version]'14.0.30704.0' })) {
         $dependency = Join-Path $env:RUNNER_TEMP 'Microsoft.VCLibs.x64.14.00.Desktop.appx'
         Invoke-WebRequest -UseBasicParsing -Uri 'https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx' -OutFile $dependency

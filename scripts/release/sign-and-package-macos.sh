@@ -18,7 +18,8 @@ trap cleanup EXIT
 umask 077
 python3 - <<'PY'
 import base64, os, pathlib
-pathlib.Path(os.environ['RUNNER_TEMP'], 'tbox-signing.p12').write_bytes(base64.b64decode(os.environ['TBOX_MAC_P12_BASE64'], validate=True))
+encoded = ''.join(os.environ['TBOX_MAC_P12_BASE64'].split())
+pathlib.Path(os.environ['RUNNER_TEMP'], 'tbox-signing.p12').write_bytes(base64.b64decode(encoded, validate=True))
 PY
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 security set-keychain-settings -lut 21600 "$KEYCHAIN"
@@ -29,9 +30,18 @@ unset TBOX_MAC_P12_BASE64 TBOX_MAC_P12_PASSWORD
 security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
 security find-identity -p codesigning "$KEYCHAIN" | grep -Fqi "$TBOX_MAC_CERT_SHA1" || { echo 'Imported identity differs from the persistent signing certificate.' >&2; exit 1; }
-bash scripts/package-macos.sh osx-arm64
-# Check the actual bundle signer as well as the imported identity.
+if [[ "${1:-}" == --verify-identity-only ]]; then
+  # An isolated OS executable tests import/sign/verify without producing a Tbox version.
+  TARGET="$RUNNER_TEMP/tbox-signing-fixture"
+  cp /usr/bin/true "$TARGET"
+  codesign --force --sign "$TBOX_SIGN_IDENTITY" --timestamp=none "$TARGET"
+  codesign --verify --strict "$TARGET"
+else
+  bash scripts/package-macos.sh osx-arm64
+  TARGET=TEMP/build/osx-arm64/Tbox.app
+fi
+# Check the actual signer as well as the imported identity.
 CERT_DIR="$(mktemp -d "$RUNNER_TEMP/tbox-signer.XXXXXX")"
-codesign -d --extract-certificates "$CERT_DIR/cert" TEMP/build/osx-arm64/Tbox.app
+codesign -d --extract-certificates "$CERT_DIR/cert" "$TARGET"
 ACTUAL="$(openssl x509 -inform DER -in "$CERT_DIR/cert0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')"
 [[ "$(printf '%s' "$ACTUAL" | tr 'a-f' 'A-F')" == "$(printf '%s' "$TBOX_MAC_CERT_SHA1" | tr 'a-f' 'A-F')" ]] || { echo 'Bundle signer mismatch.' >&2; exit 1; }
