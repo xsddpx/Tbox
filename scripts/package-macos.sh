@@ -8,7 +8,7 @@ if [[ "$RID" != "osx-arm64" || "$(uname -m)" != "arm64" ]]; then
 fi
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' src/Tbox.Desktop/Platform/macos/Info.plist)"
 PACKAGE="$ROOT/artifacts/Tbox_${VERSION}_${RID}.zip"
-if [[ -e "$PACKAGE" ]] || rg -q "[|] ${VERSION//./\.} [|] macOS $RID [|]" docs/release-history.md; then
+if [[ -e "$PACKAGE" ]] || grep -Eq "[|] ${VERSION//./\.} [|] macOS $RID [|]" docs/release-history.md; then
   echo "此版本已经发布，禁止覆盖。请同步提升项目和 Info.plist 版本。" >&2; exit 1
 fi
 DOTNET="${TBOX_DOTNET:-$(command -v dotnet || true)}"
@@ -34,7 +34,7 @@ ditto -c -k --sequesterRsrc --keepParent "$APP" "$TEMP_PACKAGE"
 ln "$TEMP_PACKAGE" "$PACKAGE"
 HASH="$(shasum -a 256 "$PACKAGE" | cut -d ' ' -f 1)"
 STAMP="$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S %z')"
-if ! rg -q '^## macOS 开发包' docs/release-history.md; then
+if ! grep -q '^## macOS 开发包' docs/release-history.md; then
   cat >> docs/release-history.md <<'EOF'
 
 ## macOS 开发包

@@ -21,10 +21,10 @@ codesign --verify --deep --strict "$APP"
 if bash "$ROOT/scripts/check-macos-identity.sh" "$APP" > "$FIXTURE/output" 2>&1; then
   echo "测试失败：临时签名被接受。" >&2; exit 1
 fi
-rg -q '缺少持久证书签名身份' "$FIXTURE/output"
+grep -Fq '缺少持久证书签名身份' "$FIXTURE/output"
 /usr/libexec/PlistBuddy -c 'Set CFBundleIdentifier com.example.other' "$APP/Contents/Info.plist"
 if bash "$ROOT/scripts/check-macos-identity.sh" "$APP" > "$FIXTURE/output" 2>&1; then
   echo "测试失败：其他应用标识被接受。" >&2; exit 1
 fi
-rg -q '应用标识发生变化' "$FIXTURE/output"
+grep -Fq '应用标识发生变化' "$FIXTURE/output"
 echo "签名策略测试通过：拒绝临时身份和错误应用标识。"
