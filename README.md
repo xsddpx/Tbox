@@ -1,6 +1,58 @@
 # Tbox
 
-Tbox 是一个面向 Windows 11 的模块化效率工具底座，采用 C#、.NET 8 和 WinUI 3。
+Tbox 是一个面向 Windows 和 macOS 的模块化效率工具。现有 Windows 完整版使用 C#、.NET 8 和 WinUI 3；共用 Avalonia 界面的跨平台版本正在迁移，先交付 Mac 的截图、贴图和 OCR 基础工作流，最终对齐现有全部功能。
+
+## 跨平台迁移
+
+`src/Tbox.Desktop` 共用设置、截图交互、贴图、剪贴板与 OCR 结果界面，并直接复用 `Tbox.Core`。截图取帧、系统 OCR 等能力通过平台适配层接入。当前先在 Apple Silicon Mac 验证，尚未替代 Windows 完整版；逐项进度以 [活需求文档](docs/product-requirements.md) 和 [技术与验收记录](docs/cross-platform-architecture.md) 为准。
+
+Mac 开发需要 `global.json` 指定的 .NET SDK（9.0.313）、.NET 8 运行时，以及 Apple Command Line Tools。应用包自带运行时，使用者无需安装 .NET。
+
+```bash
+dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
+dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
+bash scripts/build-macos.sh osx-arm64
+bash scripts/package-macos.sh osx-arm64
+bash scripts/install-macos.sh
+```
+
+若 SDK 不在 PATH，可通过 `TBOX_DOTNET=/完整路径/dotnet` 指定。首次开发运行 `bash scripts/setup-macos-signing.sh` 创建持久本地签名身份；后续必须复用登录钥匙串中的证书。构建产物在 `TEMP/build/osx-arm64/Tbox.app`；正式生成的开发包在 `artifacts/`，禁止覆盖同版本。打包会运行测试、构建并签名验签，再实际启动应用验证离线 OCR 与像素裁剪，最后记录哈希。当前为本机开发证书签名，没有 Apple 公证。
+
+固定安装位置为 `~/Applications/Tbox.app`。安装脚本在覆盖前检查新包是否满足旧包的签名身份，不主动清空权限；普通构建禁止退回 ad hoc 签名。私钥保存在登录钥匙串，不进 Git、不随应用分发。首次从旧临时签名迁移需要重新登记一次 Tbox 权限；之后通过兼容签名保留系统识别的应用身份。
+
+升级验证需先正常打开已安装的 Tbox，再执行 `~/Applications/Tbox.app/Contents/MacOS/Tbox.Desktop --permission-probe`；它查询正在运行的应用进程，只报告权限及取帧尺寸，不保存屏幕图像。本机已通过 1.1.1 → 1.1.2 → 1.1.3 两次覆盖升级验证，屏幕授权及实际取帧均保留，见 [验证记录](docs/macos-permission-upgrade-verification.md)。辅助功能权限尚未完成实机验收。
+
+Mac 全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴图、`Control+Shift+3` 全部贴图显隐。图片复制、保存和固定使用 `Command+C/S/T`，`Esc` 取消截图或关闭贴图。第一次截图需要在系统设置中允许 Tbox 屏幕录制。缺少权限时截图只显示应用内提示；只有点击授权按钮才请求一次，再次点击打开系统设置。已有图片的识别和剪贴板贴图无需屏幕录制权限。
+
+共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。当前尚未完成新工程的 Windows 安装及完整功能回归，继续以原 Windows 完整版作为可用版本。
+
+Windows 共用版使用 `scripts/package-desktop-windows.ps1`，与旧 WinUI 打包脚本分开。它保留原 MSIX 的 `Tbox` 包身份、发布者和 `App`/启动项标识，入口改为 `Tbox.Desktop.exe`；应用自带 .NET 运行时，首次启动会在新版设置不存在时导入旧偏好，旧设置与缓存文件保留。Windows 开发机需 Windows 11 x64、Windows SDK、.NET SDK，及原有持久签名证书；脚本不生成证书或自动修改系统信任。
+
+```powershell
+# CI/开发机：发布自包含二进制，验证版本、运行库、媒体导出与 MSIX 结构。
+# 仅在 TEMP 生成未签名验证包，不作为用户下载包。
+.\scripts\package-desktop-windows.ps1 -VerifyOnly
+
+# Windows 实机：复用已有证书签名、安装、运行系统 OCR/界面验证，通过后记录版本和哈希。
+.\scripts\package-desktop-windows.ps1 -CertificateThumbprint '<现有证书指纹>'
+
+# 安装已经签名且在当前电脑受信任的共用版本；可通过 -DependencyPath 传入官方 VCLibs 框架包。
+.\scripts\install-desktop-windows.ps1 -PackagePath '.\artifacts\Tbox_<版本>_win-x64.msix'
+```
+
+签名阶段需证书主题与 manifest 发布者一致；MSIX 实机安装需要受信任签名及所声明的 VCLibs 框架，详见 [Microsoft 签名说明](https://learn.microsoft.com/en-us/windows/msix/package/create-certificate-package-signing)。当前 Mac 环境没有 Windows 原签名证书或 Windows 实机，因此新脚本的签名/安装阶段仍待验证；CI 包结构通过不能替代这一步。
+
+Mac 媒体构建另需 Xcode Command Line Tools、`make` 与 `pkg-config`（`brew install pkgconf`）。`scripts/prepare-macos-media.sh` 校验固定下载哈希，从源码构建 FFmpeg 8.1.2 + libwebp 1.6.0，并准备 VLC 3.0.24 的本地 MP4 回放插件。首次构建需要联网，后续复用 `TEMP/` 中的依赖。
+
+共用媒体检查使用合成视频，不采集屏幕：
+
+```sh
+dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
+```
+
+检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试与原有 FFmpeg。完整功能及安装验收通过后，软件下载放在独立的公开仓库 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)，无需登录；源码仓库保持私有。应用内“常规 → 检查更新”使用同一公开渠道。当前公开仓库尚无正式安装包，实际在线升级待发布后验收，详见 [更新机制](docs/online-updates.md)。
+
+## Windows 完整版
 
 首个模块“文件夹跳转”会记住最近使用的文件资源管理器目录；多标签窗口以当前选中的标签为准。当标准文件打开/保存对话框位于前台时，按 `Ctrl+G` 可直接跳转到该目录。
 
@@ -16,7 +68,7 @@ Tbox 是一个面向 Windows 11 的模块化效率工具底座，采用 C#、.NE
 
 产品行为、历史修改要求和跨平台迁移语义统一维护在 [`docs/product-requirements.md`](docs/product-requirements.md)。
 
-设置、主页、文字识别和结果回放统一采用 Tbox UI 1.0 暖灰双主题；截图、贴图、长截图和录屏浮层固定使用共享的高对比深色工具条。全产品复用 `28/16/14/12` 四级字号、`4/8/12/16/24/32` 间距序列、统一圆角、图标度量及交互状态，详细规范见 [`docs/ui-design-system.md`](docs/ui-design-system.md)。
+设置、主页、文字识别和结果回放统一迁移到 Tbox UI 2.0 共用浅深主题（移除搜索）；截图、贴图、长截图和录屏浮层固定使用共享的高对比深色工具条。全产品复用 `28/16/14/12` 四级字号、`4/8/12/16/24/32` 间距序列、统一圆角、图标度量及交互状态，详细规范见 [`docs/ui-design-system.md`](docs/ui-design-system.md)。
 
 贴图支持拖动、鼠标滚轮沿指针位置缩放、`Ctrl+C` 复制图像，以及通过空格或右键“显示工具条”进入标注；工具条紧邻贴图显示在图像外部，空间不足时自动切换到贴图上方，不遮挡图像内容。在贴图上按住鼠标右键拖动可框选并裁剪当前可见区域，短按右键仍打开菜单；裁剪不会改写原图，可通过“恢复完整贴图”撤销，复制、另存为和文字识别只处理当前可见区域。贴图和截图共用同一套单行工具条尺寸与顺序，贴图末尾以完成对号替代固定贴图按钮且不显示横向滚动条；工具条按所在显示器 DPI 换算完整窗口尺寸，在 100%/125%/150% 缩放下均保留右侧 OCR、保存、复制和完成按钮。点击对号或在工具条显示时按 `Esc` 会提交有效文字和折线、放弃未完成手势并隐藏工具条；工具条隐藏时按 `Esc` 关闭贴图。复制和另存为会合成当前标注。右键菜单同时提供“恢复完整贴图 / 复制图像 / 图像另存为… / 关闭”。默认缓存位于 Windows 用户“图片”文件夹下的 `screenshots`；可在“截图与贴图”设置页查看、更换或打开缓存文件夹。更换目录只影响后续截图，不会移动已有缓存。缓存按 30 天、200 个文件和 512 MB 三重上限自动清理，当前仍在显示的贴图文件会被保留。录屏临时文件单独位于 `%LOCALAPPDATA%\Tbox\cache\recordings`，保存或放弃后自动删除。
 
@@ -98,3 +150,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -
 ```
 
 脚本会串行执行 Release 构建、单元测试、真实 Explorer/文件对话框集成测试、打包、签名和验签；成功后才会生成 `artifacts/Tbox_<版本>_x64.msix`，并将时间和 SHA-256 追加到 `docs/release-history.md`。脚本会检测验证期间的历史文件并发修改，并在发布失败时回滚包和历史记录；版本不一致、二进制过期、版本已发布、包已存在或任一验证失败都会终止发布。
+
+## GitHub 自动发布
+
+在源码仓库发布版本后，GitHub Actions 自动构建 Windows MSIX 与 Apple Silicon Mac ZIP，全部校验通过后上传并公开到 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)。签名凭据、版本准备、失败恢复和当前启用状态见 [自动发布说明](docs/automatic-releases.md)。

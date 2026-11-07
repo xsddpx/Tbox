@@ -77,11 +77,11 @@ internal static class FileDialogNavigator
 
         NativeMethods.PostMessage(addressBar, NativeMethods.WmKeyDown, NativeMethods.VkReturn, IntPtr.Zero);
         NativeMethods.PostMessage(addressBar, NativeMethods.WmKeyUp, NativeMethods.VkReturn, IntPtr.Zero);
-        if (WaitForNavigation(dialog, path, TimeSpan.FromMilliseconds(350))) return true;
+        if (WaitForNavigation(dialog, addressBar, path, TimeSpan.FromMilliseconds(350))) return true;
 
         NativeMethods.SetFocus(addressBar);
         NativeMethods.PostMessage(addressBar, NativeMethods.WmChar, NativeMethods.VkReturn, IntPtr.Zero);
-        if (WaitForNavigation(dialog, path, TimeSpan.FromMilliseconds(350))) return true;
+        if (WaitForNavigation(dialog, addressBar, path, TimeSpan.FromMilliseconds(350))) return true;
 
         NativeMethods.SetForegroundWindow(dialog);
         NativeMethods.SetFocus(addressBar);
@@ -94,7 +94,7 @@ internal static class FileDialogNavigator
             (uint)enterInputs.Length,
             enterInputs,
             System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
-        return WaitForNavigation(dialog, path, TimeSpan.FromMilliseconds(500));
+        return WaitForNavigation(dialog, addressBar, path, TimeSpan.FromMilliseconds(500));
     }
 
     private static bool FocusAddressBar(IntPtr dialog)
@@ -115,6 +115,14 @@ internal static class FileDialogNavigator
 
     private static IntPtr WaitForAddressBar(IntPtr dialog, TimeSpan timeout)
     {
+        var toolbar = FindAddressToolbar(dialog);
+        var addressHost = NativeMethods.GetParent(toolbar);
+        // Native open/save dialogs put the breadcrumb and editor in sibling
+        // containers below Address Band Root (the breadcrumb hides on Ctrl+L).
+        for (var depth = 0; depth < 4 && addressHost != IntPtr.Zero && addressHost != dialog &&
+             !HasClass(addressHost, "Address Band Root"); depth++)
+            addressHost = NativeMethods.GetParent(addressHost);
+        if (toolbar == IntPtr.Zero || !HasClass(addressHost, "Address Band Root")) return IntPtr.Zero;
         var threadId = NativeMethods.GetWindowThreadProcessId(dialog, out _);
         var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         do
@@ -125,7 +133,11 @@ internal static class FileDialogNavigator
             };
             if (NativeMethods.GetGUIThreadInfo(threadId, ref info) &&
                 info.focusWindow != IntPtr.Zero &&
-                NativeMethods.IsChild(dialog, info.focusWindow) &&
+                // SendInput queues Ctrl+L; the file-name Edit may still own
+                // focus until the dialog processes it. Only accept the editor
+                // within the address band, never any dialog Edit.
+                NativeMethods.IsChild(addressHost, info.focusWindow) &&
+                NativeMethods.IsWindowVisible(info.focusWindow) &&
                 HasClass(info.focusWindow, "Edit"))
             {
                 return info.focusWindow;
@@ -155,13 +167,14 @@ internal static class FileDialogNavigator
         }
     }
 
-    private static bool WaitForNavigation(IntPtr dialog, string targetPath, TimeSpan timeout)
+    private static bool WaitForNavigation(IntPtr dialog, IntPtr editor, string targetPath, TimeSpan timeout)
     {
         var shellDisplayName = GetShellDisplayName(targetPath);
         var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         do
         {
-            if (TryGetCurrentAddress(dialog, out var addressText) &&
+            if (!NativeMethods.IsWindowVisible(editor) &&
+                TryGetCurrentAddress(dialog, out var addressText) &&
                 AddressTextMatches(targetPath, addressText, shellDisplayName))
             {
                 return true;
@@ -175,7 +188,7 @@ internal static class FileDialogNavigator
     internal static bool TryGetCurrentAddress(IntPtr dialog, out string addressText)
     {
         addressText = string.Empty;
-        var addressToolbar = FindDescendantById(dialog, AddressToolbarId);
+        var addressToolbar = FindAddressToolbar(dialog);
         if (addressToolbar == IntPtr.Zero) return false;
 
         var text = new char[512];
@@ -234,12 +247,14 @@ internal static class FileDialogNavigator
         return null;
     }
 
-    private static IntPtr FindDescendantById(IntPtr parent, int controlId)
+    private static IntPtr FindAddressToolbar(IntPtr parent)
     {
         var found = IntPtr.Zero;
         NativeMethods.EnumChildProc callback = (window, _) =>
         {
-            if (NativeMethods.GetDlgCtrlID(window) != controlId) return true;
+            // Save dialogs also use ID 1001 for the file-name Edit. Control
+            // IDs are only unique within their own parent, not the dialog tree.
+            if (NativeMethods.GetDlgCtrlID(window) != AddressToolbarId || !HasClass(window, "ToolbarWindow32")) return true;
             found = window;
             return false;
         };

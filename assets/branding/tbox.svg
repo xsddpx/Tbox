@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <title>Tbox — Standard Inverted Pin</title>
+  <g fill="#FFFFFF">
+    <rect x="40" y="40" width="80" height="80"/>
+    <rect x="136" y="40" width="80" height="80"/>
+    <rect x="88" y="136" width="80" height="80"/>
+  </g>
+</svg>

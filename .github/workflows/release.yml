@@ -1,0 +1,194 @@
+name: Publish desktop installers
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# Serialize all versions; an interrupted run must never publish a partial release.
+concurrency:
+  group: tbox-public-release
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.release.tag_name }}
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify release configuration
+        env:
+          HAS_WINDOWS_PFX: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 != '' }}
+          HAS_WINDOWS_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD != '' }}
+          HAS_MAC_P12: ${{ secrets.TBOX_MAC_P12_BASE64 != '' }}
+          HAS_MAC_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD != '' }}
+          HAS_RELEASE_TOKEN: ${{ secrets.TBOX_RELEASE_TOKEN != '' }}
+          WINDOWS_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+          MAC_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
+        run: |
+          python - <<'PY'
+          import os, re
+          missing = [k for k, v in os.environ.items() if k.startswith('HAS_') and v != 'true']
+          for name in ('WINDOWS_SHA1', 'MAC_SHA1'):
+              if not re.fullmatch('[a-fA-F0-9]{40}', os.environ.get(name, '')):
+                  missing.append(name)
+          if missing:
+              raise SystemExit('Missing signing/release configuration: ' + ', '.join(missing) + '. See docs/automatic-releases.md')
+          PY
+      - name: Check tests, version, notes and repository visibility
+        env:
+          GH_TOKEN: ${{ secrets.TBOX_RELEASE_TOKEN }}
+          TBOX_SOURCE_TOKEN: ${{ github.token }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          python -m unittest discover -s tests/release -v
+          python scripts/release/release.py preflight --tag "$RELEASE_TAG"
+
+  windows-media:
+    needs: preflight
+    uses: ./.github/workflows/windows-media.yml
+
+  third-party-sources:
+    needs: preflight
+    uses: ./.github/workflows/third-party-sources.yml
+
+  windows:
+    needs: [preflight, windows-media]
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.313
+            8.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-media-runtime
+          path: TEMP/media-runtime/windows
+      - name: Verify Explorer and native file dialogs
+        timeout-minutes: 5
+        run: dotnet run --project tests/Tbox.FolderSmoke/Tbox.FolderSmoke.csproj -c Release -- TEMP/folder-smoke
+      - name: Preserve native folder verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-folder-verification
+          path: |
+            TEMP/folder-smoke/result.json
+            TEMP/folder-smoke/tbox.log
+            TEMP/folder-smoke/windows.json
+          if-no-files-found: ignore
+      - name: Sign, package, install and verify Windows
+        shell: powershell
+        env:
+          TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
+          TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
+          TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+        run: |
+          ./scripts/release/sign-and-package-windows.ps1 -VerifyCapture -VerifyRecording
+          python scripts/release/release.py build-record --tag $env:RELEASE_TAG --directory artifacts --platform win-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            artifacts/Tbox_*_win-x64.msix
+            artifacts/Tbox-Development.cer
+            artifacts/win-x64-build.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  macos:
+    needs: preflight
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.313
+            8.0.x
+      - name: Check Apple Silicon runner and media tools
+        run: |
+          test "$(uname -m)" = arm64
+          command -v pkg-config || brew install pkgconf
+      - name: Sign, package and verify Mac
+        env:
+          TBOX_MAC_P12_BASE64: ${{ secrets.TBOX_MAC_P12_BASE64 }}
+          TBOX_MAC_P12_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD }}
+          TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
+          TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
+        run: |
+          bash scripts/release/sign-and-package-macos.sh
+          python3 scripts/release/release.py build-record --tag "$RELEASE_TAG" --directory artifacts --platform osx-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-installer
+          path: |
+            artifacts/Tbox_*_osx-arm64.zip
+            artifacts/osx-arm64-build.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  publish:
+    needs: [preflight, windows, macos, third-party-sources]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*-installer'
+          path: TEMP/release-assets
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: third-party-sources
+          path: TEMP/release-assets
+      - name: Create checksums, upload draft and publish complete release
+        env:
+          GH_TOKEN: ${{ secrets.TBOX_RELEASE_TOKEN }}
+          TBOX_SOURCE_TOKEN: ${{ github.token }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          python scripts/release/release.py collect --tag "$RELEASE_TAG"
+          args=()
+          if [[ "$IS_PRERELEASE" == true ]]; then args+=(--prerelease); fi
+          python scripts/release/release.py publish --tag "$RELEASE_TAG" "${args[@]}"
+          printf '公开下载：[Tbox %s](https://github.com/xsddpx/Tbox-releases/releases/tag/%s)\n' "$RELEASE_TAG" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
