@@ -1,6 +1,30 @@
 # Tbox
 
-Tbox 是一个面向 Windows 11 的模块化效率工具底座，采用 C#、.NET 8 和 WinUI 3。
+Tbox 是一个面向 Windows 和 macOS 的模块化效率工具。现有 Windows 完整版使用 C#、.NET 8 和 WinUI 3；共用 Avalonia 界面的跨平台版本正在迁移，先交付 Mac 的截图、贴图和 OCR 基础工作流，最终对齐现有全部功能。
+
+## 跨平台迁移
+
+`src/Tbox.Desktop` 共用设置、截图交互、贴图、剪贴板与 OCR 结果界面，并直接复用 `Tbox.Core`。截图取帧、系统 OCR 等能力通过平台适配层接入。当前先在 Apple Silicon Mac 验证，尚未替代 Windows 完整版；逐项进度以 [活需求文档](docs/product-requirements.md) 和 [技术与验收记录](docs/cross-platform-architecture.md) 为准。
+
+Mac 开发需要 `global.json` 指定的 .NET SDK（9.0.313）、.NET 8 运行时，以及 Apple Command Line Tools。应用包自带运行时，使用者无需安装 .NET。
+
+```bash
+dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
+dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
+bash scripts/build-macos.sh osx-arm64
+bash scripts/package-macos.sh osx-arm64
+bash scripts/install-macos.sh
+```
+
+若 SDK 不在 PATH，可通过 `TBOX_DOTNET=/完整路径/dotnet` 指定。首次开发运行 `bash scripts/setup-macos-signing.sh` 创建持久本地签名身份；后续必须复用登录钥匙串中的证书。构建产物在 `TEMP/build/osx-arm64/Tbox.app`；正式生成的开发包在 `artifacts/`，禁止覆盖同版本。打包会运行测试、构建并签名验签，再实际启动应用验证离线 OCR 与像素裁剪，最后记录哈希。当前为本机开发证书签名，没有 Apple 公证。
+
+固定安装位置为 `~/Applications/Tbox.app`。安装脚本在覆盖前检查新包是否满足旧包的签名身份，不主动清空权限；普通构建禁止退回 ad hoc 签名。私钥保存在登录钥匙串，不进 Git、不随应用分发。首次从旧临时签名迁移需要重新登记一次 Tbox 权限；之后通过兼容签名保留系统识别的应用身份。
+
+Mac 全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴图、`Control+Shift+3` 全部贴图显隐。图片复制、保存和固定使用 `Command+C/S/T`，`Esc` 取消截图或关闭贴图。第一次截图需要在系统设置中允许 Tbox 屏幕录制。已有图片的识别和剪贴板贴图无需屏幕录制权限。
+
+共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。当前尚未完成新工程的 Windows 安装及完整功能回归，继续以原 Windows 完整版作为可用版本。
+
+## Windows 完整版
 
 首个模块“文件夹跳转”会记住最近使用的文件资源管理器目录；多标签窗口以当前选中的标签为准。当标准文件打开/保存对话框位于前台时，按 `Ctrl+G` 可直接跳转到该目录。
 

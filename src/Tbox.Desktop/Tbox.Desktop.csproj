@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <TboxWindows Condition="'$(TboxWindows)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</TboxWindows>
+    <TargetFramework Condition="'$(TboxWindows)' == 'true'">net8.0-windows10.0.26100.0</TargetFramework>
+    <EnableWindowsTargeting Condition="'$(TboxWindows)' == 'true'">true</EnableWindowsTargeting>
+    <SupportedOSPlatformVersion Condition="'$(TboxWindows)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <ProjectReference Include="../Tbox.Core/Tbox.Core.csproj" />
+    <AvaloniaResource Include="../Tbox.App/Assets/AppIcon.png" Link="Assets/AppIcon.png" />
+    <InternalsVisibleTo Include="Tbox.Desktop.Tests" />
+  </ItemGroup>
+</Project>

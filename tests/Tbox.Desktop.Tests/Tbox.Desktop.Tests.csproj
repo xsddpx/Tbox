@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <TboxWindows Condition="'$(TboxWindows)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</TboxWindows>
+    <TargetFramework Condition="'$(TboxWindows)' == 'true'">net8.0-windows10.0.26100.0</TargetFramework>
+    <EnableWindowsTargeting Condition="'$(TboxWindows)' == 'true'">true</EnableWindowsTargeting>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" PrivateAssets="all" />
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.22" />
+    <ProjectReference Include="../../src/Tbox.Desktop/Tbox.Desktop.csproj" />
+  </ItemGroup>
+</Project>

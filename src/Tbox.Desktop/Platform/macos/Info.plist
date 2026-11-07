@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.xsddpx.tbox</string>
+  <key>CFBundleName</key><string>Tbox</string>
+  <key>CFBundleDisplayName</key><string>Tbox</string>
+  <key>CFBundleExecutable</key><string>Tbox.Desktop</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>1.1.0</string>
+  <key>CFBundleVersion</key><string>1.1.0.0</string>
+  <key>CFBundleIconFile</key><string>Tbox.icns</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>LSUIElement</key><true/>
+  <key>NSScreenCaptureUsageDescription</key><string>Tbox 需要捕获屏幕以提供截图、长截图和区域录屏。</string>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+</dict>
+</plist>

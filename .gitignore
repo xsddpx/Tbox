@@ -9,4 +9,5 @@ obj/
 TestResults/
 AppPackages/
 artifacts/
+TEMP/
 *.pfx

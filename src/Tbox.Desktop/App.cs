@@ -1,0 +1,66 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform;
+using Avalonia.Themes.Fluent;
+using Avalonia.Threading;
+using Tbox.Desktop.Platform;
+using Tbox.Desktop.Views;
+
+namespace Tbox.Desktop;
+
+public sealed class App : Application
+{
+    public App() => Name = "Tbox";
+    internal static SingleInstance? Instance { get; set; }
+    private DesktopController? _controller;
+    private TrayIcon? _tray;
+    public override void Initialize() => Styles.Add(new FluentTheme());
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime lifetime)
+        {
+            IPlatformServices platform;
+#if WINDOWS
+            platform = new WindowsPlatformServices();
+#else
+            platform = OperatingSystem.IsMacOS() ? new MacPlatformServices()
+                : throw new PlatformNotSupportedException("当前支持 macOS 和 Windows。Windows 请使用 Windows 目标构建。");
+#endif
+            _controller = new DesktopController(platform, lifetime);
+            var main = new MainWindow(_controller);
+            lifetime.MainWindow = main;
+            _controller.Main = main;
+            var menu = new NativeMenu();
+            Add(menu, "打开 Tbox", _controller.ShowMain);
+            menu.Add(new NativeMenuItemSeparator());
+            Add(menu, $"区域截图   {ShortcutLabels.Capture}", () => _controller.Run(_controller.CaptureAsync));
+            Add(menu, $"剪贴板贴图   {ShortcutLabels.Pin}", () => _controller.Run(_controller.PinClipboardAsync));
+            Add(menu, $"隐藏 / 显示贴图   {ShortcutLabels.Toggle}", _controller.TogglePins);
+            menu.Add(new NativeMenuItemSeparator());
+            Add(menu, "退出 Tbox", _controller.Quit);
+            _tray = new TrayIcon
+            {
+                Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/AppIcon.png"))),
+                ToolTipText = "Tbox", Menu = menu, IsVisible = true
+            };
+            _tray.Clicked += (_, _) => _controller.ShowMain();
+            TrayIcon.SetIcons(this, new TrayIcons { _tray });
+            lifetime.Exit += (_, _) => { _tray.Dispose(); _controller.Dispose(); };
+            _ = Instance?.ListenAsync(command => Dispatcher.UIThread.Post(() =>
+            {
+                if (command == 2) _controller.Quit(); else _controller.ShowMain();
+            }));
+            main.Opened += (_, _) => _controller.Run(() => _controller.InitializeAsync(lifetime.Args ?? []));
+        }
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private static void Add(NativeMenu menu, string title, Action action)
+    {
+        var item = new NativeMenuItem(title);
+        item.Click += (_, _) => action();
+        menu.Add(item);
+    }
+}
