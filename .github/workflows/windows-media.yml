@@ -1,0 +1,73 @@
+name: Build reproducible Windows media
+
+on:
+  push:
+    branches: ['codex/**']
+    paths: ['scripts/prepare-windows-media.sh', '.github/workflows/windows-media.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install cross compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 nasm pkg-config
+      - name: Build pinned source archives
+        run: bash scripts/prepare-windows-media.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-media-runtime
+          path: TEMP/media-runtime/windows/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-media-source
+          path: TEMP/windows-ffmpeg-sources.tar.xz
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-media-build-logs
+          path: |
+            TEMP/windows-media-build/*-build.log
+            TEMP/windows-media-build/ffmpeg-8.1.2/ffbuild/config.log
+          if-no-files-found: ignore
+
+  verify:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.313
+            8.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-media-runtime
+          path: TEMP/media-runtime/windows
+      - name: Verify runtime identity and actual GIF/WebP export
+        shell: pwsh
+        run: |
+          $runtime = 'TEMP/media-runtime/windows'
+          $record = Get-Content "$runtime/BUILD-INFO.json" -Raw | ConvertFrom-Json
+          if ((Get-FileHash "$runtime/bin/ffmpeg.exe").Hash -ne $record.binarySha256) { throw 'Runtime hash differs.' }
+          & "$runtime/bin/ffmpeg.exe" -version
+          if ($LASTEXITCODE -ne 0) { throw 'Windows runtime did not start.' }
+          dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/windows-media-smoke "$runtime/bin/ffmpeg.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Actual exporter verification failed.' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-media-verification
+          path: TEMP/windows-media-smoke/**
+          if-no-files-found: ignore
