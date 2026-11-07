@@ -25,3 +25,5 @@ designated => identifier "com.xsddpx.tbox" and certificate root = H"fa0f60b5d7c8
 后续 UI 重构升级（2026-11-07）：1.1.4 → 1.1.5 在同一位置覆盖安装并独立启动后，进程 48101 返回屏幕权限已允许、实际取帧 3024×1964 成功，没有重新申请授权。原始诊断结果位于本地 `TEMP/permission-upgrade/1.1.5-authorized.json`。
 
 Windows 交付流程共用版本升级（2026-11-07）：1.1.5 → 1.1.6 覆盖安装、独立启动后，进程 53695 的屏幕权限与 3024×1964 实际取帧均通过，未重新授权。诊断原文：本地 `TEMP/permission-upgrade/1.1.6-authorized.json`。
+
+公开更新入口升级（2026-11-07）：1.1.6 → 1.1.7 通过本地安装脚本覆盖安装，独立启动后进程 61528 返回 `screenPermission=true`、`captureVerified=true`、3024×1964，未重新申请授权。诊断原文：本地 `TEMP/permission-upgrade/1.1.7-authorized.json`。本次验证是本地覆盖升级，不是公开渠道下载与安装的端到端验收。

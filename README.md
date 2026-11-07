@@ -50,7 +50,7 @@ Mac 媒体构建另需 Xcode Command Line Tools、`make` 与 `pkg-config`（`bre
 dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
 ```
 
-检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试与原有 FFmpeg。完整功能及安装验收通过后，软件下载放在当前私有 GitHub 仓库的 Releases，仅授权用户可访问。
+检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试与原有 FFmpeg。完整功能及安装验收通过后，软件下载放在独立的公开仓库 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)，无需登录；源码仓库保持私有。应用内“常规 → 检查更新”使用同一公开渠道。当前公开仓库尚无正式安装包，实际在线升级待发布后验收，详见 [更新机制](docs/online-updates.md)。
 
 ## Windows 完整版
 

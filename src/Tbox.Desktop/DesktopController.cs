@@ -33,6 +33,7 @@ public sealed class DesktopController : IDisposable
     private readonly List<RecordingReviewWindow> _reviews = [];
     private bool _quitRequested;
     private OcrWindow? _ocr;
+    private UpdateWindow? _update;
     private AppSettings _settings = new();
     private CaptureCache _cache;
     private bool _capturing;
@@ -42,6 +43,18 @@ public sealed class DesktopController : IDisposable
     public CaptureHistory CaptureHistory { get; } = new();
     public MainWindow Main { get; set; } = null!;
     public bool IsQuitting { get; private set; }
+    internal bool HasOpenWorkForUpdate => _capturing || _capture is not null || _longCapture is not null || _recording is not null ||
+        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window => window != Main && window != _update && window is not FailureNotificationWindow);
+    public void ShowUpdates()
+    {
+        if (_update is null)
+        {
+            _update = new UpdateWindow(this);
+            _update.Closed += (_, _) => _update = null;
+            _update.Show(Main);
+        }
+        else _update.Activate();
+    }
     public string CacheDirectory => _cache.DirectoryPath;
     public AppSettings Settings => _settings;
     public string FolderDirectory => _folders.CurrentDirectory;

@@ -68,7 +68,7 @@ public sealed class MainWindow : Window
         {
             Ui.Button("欢迎使用 Tbox", () => { Navigate(SettingsPage.Home); SetStatus("从主页快速启动截图、贴图和文件夹跳转。"); }),
             Ui.Button("新增内容", () => SetStatus("共用桌面界面现已支持截图、贴图、离线识别、长截图和区域录屏，持续进行平台验收。")),
-            Ui.Button("提供反馈", () => SetStatus("请在已授权访问的 Tbox 项目仓库中提交问题，附上版本与复现步骤。"))
+            Ui.Button("提供反馈", () => SetStatus("请在公开下载仓库 Tbox-releases 中提交问题，附上版本与复现步骤。"))
         }};
         foreach (var button in footer.Children.OfType<Button>())
         {
@@ -154,7 +154,7 @@ public sealed class MainWindow : Window
                 Setting("文件夹跳转", "在系统文件面板中快速定位最近目录。", ModuleToggle(false))),
             Section("快捷键", ShortcutRows(), _conflicts));
         AddPage(SettingsPage.General, "常规", "管理应用外观与行为",
-            Section("版本和更新", Setting("当前版本", $"Tbox {Version} · 跨平台预览版", Ui.Button("检查版本", () => SetStatus($"当前版本 {Version}。授权用户可在私有仓库 Releases 查看可用安装包。")))),
+            Section("版本和更新", Setting("当前版本", $"Tbox {Version} · 跨平台预览版", Ui.Button("检查更新", _controller.ShowUpdates))),
             Section("外观和行为", Setting("应用主题", "应用于设置、文字识别和图片结果窗口。", _theme),
                 Setting("登录时启动", "登录电脑后启动 Tbox。", _startupToggle), _startupStatus, _cancelStartup,
                 Setting("失败通知", "关闭通知后，页面内仍保留操作状态。", _failureToggle)),

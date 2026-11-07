@@ -8,9 +8,9 @@
     <SupportedOSPlatformVersion Condition="'$(TboxWindows)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
     <Platform Condition="'$(TboxWindows)' == 'true' and ('$(Platform)' == '' or '$(Platform)' == 'AnyCPU')">x64</Platform>
     <PlatformTarget Condition="'$(TboxWindows)' == 'true'">$(Platform)</PlatformTarget>
-    <Version>1.1.6</Version>
-    <AssemblyVersion>1.1.6.0</AssemblyVersion>
-    <FileVersion>1.1.6.0</FileVersion>
+    <Version>1.1.7</Version>
+    <AssemblyVersion>1.1.7.0</AssemblyVersion>
+    <FileVersion>1.1.7.0</FileVersion>
     <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">../Tbox.App/Assets/Tbox.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -27,6 +27,7 @@
     <Compile Include="../Tbox.App/AppLog.cs" Link="Platform/AppLog.cs" />
     <InternalsVisibleTo Include="Tbox.Desktop.Tests" />
     <InternalsVisibleTo Include="Tbox.MediaSmoke" />
+    <EmbeddedResource Include="Updates/install-macos-update.sh" />
   </ItemGroup>
   <ItemGroup Condition="'$(TboxWindows)' == 'true'">
     <PackageReference Include="ScreenRecorderLib" Version="6.6.0" />
