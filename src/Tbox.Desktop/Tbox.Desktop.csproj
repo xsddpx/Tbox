@@ -8,9 +8,10 @@
     <SupportedOSPlatformVersion Condition="'$(TboxWindows)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
     <Platform Condition="'$(TboxWindows)' == 'true' and ('$(Platform)' == '' or '$(Platform)' == 'AnyCPU')">x64</Platform>
     <PlatformTarget Condition="'$(TboxWindows)' == 'true'">$(Platform)</PlatformTarget>
-    <Version>1.1.5</Version>
-    <AssemblyVersion>1.1.5.0</AssemblyVersion>
-    <FileVersion>1.1.5.0</FileVersion>
+    <Version>1.1.6</Version>
+    <AssemblyVersion>1.1.6.0</AssemblyVersion>
+    <FileVersion>1.1.6.0</FileVersion>
+    <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">../Tbox.App/Assets/Tbox.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

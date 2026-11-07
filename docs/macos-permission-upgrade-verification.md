@@ -23,3 +23,5 @@ designated => identifier "com.xsddpx.tbox" and certificate root = H"fa0f60b5d7c8
 自动检查：95 项核心、42 项桌面测试通过；开发包启动后的离线 OCR/像素裁剪、实际 H.264 解码以及 GIF/WebP/MP4 导出验证通过。Windows 实机安装与截图不在本次验收范围内。
 
 后续 UI 重构升级（2026-11-07）：1.1.4 → 1.1.5 在同一位置覆盖安装并独立启动后，进程 48101 返回屏幕权限已允许、实际取帧 3024×1964 成功，没有重新申请授权。原始诊断结果位于本地 `TEMP/permission-upgrade/1.1.5-authorized.json`。
+
+Windows 交付流程共用版本升级（2026-11-07）：1.1.5 → 1.1.6 覆盖安装、独立启动后，进程 53695 的屏幕权限与 3024×1964 实际取帧均通过，未重新授权。诊断原文：本地 `TEMP/permission-upgrade/1.1.6-authorized.json`。

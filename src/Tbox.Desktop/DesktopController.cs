@@ -19,6 +19,8 @@ public sealed class DesktopController : IDisposable
 {
     private readonly IClassicDesktopStyleApplicationLifetime _lifetime;
     private readonly JsonSettingsStore _settingsStore;
+    private readonly string _settingsPath;
+    private readonly string? _legacySettingsPath;
     private readonly CancellationTokenSource _stop = new();
     private readonly IFolderNavigation _folders;
     private readonly IStartupRegistration _startup;
@@ -56,12 +58,16 @@ public sealed class DesktopController : IDisposable
         _startup = platform.CreateStartupRegistration();
         _hotkeys = new HotkeyConfiguration(mask => platform.RegisterHotkeys(OnHotkey, mask));
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _settingsStore = new JsonSettingsStore(settingsPath ?? Path.Combine(local, "Tbox", "desktop-settings.json"));
+        _settingsPath = settingsPath ?? Path.Combine(local, "Tbox", "desktop-settings.json");
+        _legacySettingsPath = settingsPath is null && OperatingSystem.IsWindows() ? Path.Combine(local, "Tbox", "settings.json") : null;
+        _settingsStore = new JsonSettingsStore(_settingsPath);
         _cache = CreateCache(null);
     }
 
     public async Task InitializeAsync(string[] args)
     {
+        var migrationNotice = _legacySettingsPath is null || args.Contains("--smoke-test") ? null
+            : await SettingsMigration.ImportIfMissingAsync(_settingsPath, _legacySettingsPath, _stop.Token);
         _settings = await _settingsStore.LoadAsync(_stop.Token);
         _cache = CreateCache(_settings.ScreenCaptureCacheDirectory);
         var index = _settings.AppTheme switch { "light" => 1, "dark" => 2, _ => 0 };
@@ -80,6 +86,7 @@ public sealed class DesktopController : IDisposable
             Main.Refresh();
             PruneCache();
             RecordingWorkspace.CleanupExpired();
+            if (migrationNotice is not null) Main.SetStatus(migrationNotice);
         }
         else
         {

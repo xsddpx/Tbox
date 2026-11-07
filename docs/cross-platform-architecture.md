@@ -33,7 +33,7 @@
 
 ## 权限与发布
 
-屏幕捕获只在用户触发截图时申请屏幕录制权限。已有图片的 OCR 和贴图不依赖此权限。macOS 使用登录钥匙串中持久的 `Tbox Local Development` 自签代码签名身份，固定 Bundle ID `com.xsddpx.tbox` 和安装位置 `~/Applications/Tbox.app`；不使用随二进制变化的 ad hoc 身份，不改变系统根证书信任。私钥不进仓库、不分发。签名探针已验证指定要求为标识符和稳定证书根哈希；实际连续升级后的权限保留仍需验收。此签名不等于 Apple Developer ID 或公证。Windows 版本继续遵守原有 MSIX 签名、测试和覆盖升级流程。
+屏幕捕获缺少授权时只显示说明；仅显式授权按钮可以申请屏幕录制权限，每次运行最多一次。已有图片的 OCR 和贴图不依赖此权限。macOS 使用登录钥匙串中持久的 `Tbox Local Development` 自签代码签名身份，固定 Bundle ID `com.xsddpx.tbox` 和安装位置 `~/Applications/Tbox.app`；不使用随二进制变化的 ad hoc 身份，不改变系统根证书信任。私钥不进仓库、不分发。签名探针已验证指定要求为标识符和稳定证书根哈希；本机连续升级后的屏幕权限已验证，见 `macos-permission-upgrade-verification.md`。此签名不等于 Apple Developer ID 或公证。Windows 版本继续遵守原有 MSIX 签名、测试和覆盖升级流程。
 
 当前迁移工程尚在实现；跨平台代码、编译通过、模拟测试通过、本机实际验收是不同状态，必须分别记录。Intel Mac、混合缩放多屏和 Windows 实机没有证据时标记未验证。
 
@@ -58,3 +58,13 @@
 - [Apple AX 元素坐标查询](https://developer.apple.com/documentation/applicationservices/1462077-axuielementcopyelementatposition)
 - [Windows OCR 的应用身份要求](https://learn.microsoft.com/en-us/uwp/api/windows.media.ocr?view=winrt-26100)
 - [SharpHook 平台权限约束](https://sharphook.tolik.io/articles/os-constraints.html)
+
+## Windows 共用版打包与设置升级
+
+`Platform/windows/Package.appxmanifest` 保留原包名、发布者、App ID 和 StartupTask ID，改为共用桌面入口。`package-desktop-windows.ps1` 在 Windows 使用自包含发布与 SDK MakeAppx（不跳过语义校验），检查版本、原生运行库和许可文件，并针对实际发布目录做媒体解码/导出后解包再次检查。正式模式要求显式提供原有证书指纹，签名验证后调用安装脚本；安装脚本校验包身份、已有发布者及签名，再覆盖安装并通过包身份运行离线 OCR、像素裁剪与界面渲染检查。只有通过后才登记最终包和哈希。
+
+CI 的 `-VerifyOnly` 不签名、不导入证书、不安装、不发布完成版；仅保留验证 JSON 报告。默认正式模式不会悄悄降级成未签名包。安装、启动项、屏幕集成与升级保留数据仍需 Windows 实机验证。
+
+`SettingsMigration` 仅在 Windows 正常启动且 `desktop-settings.json` 缺失时尝试导入 `settings.json`。校验有效 JSON 后通过同目录临时文件和不覆盖重命名落盘，保留旧文件原始字节；已有新版设置优先，损坏/无权限的旧配置不删除且返回非致命状态。系统开机启动状态单独读取，不把旧配置字段当作系统授权。
+
+官方机制：[MakeAppx 打包和解包](https://learn.microsoft.com/en-us/windows/msix/package/create-app-package-with-makeappx-tool)、[包身份下运行验证进程](https://learn.microsoft.com/en-us/powershell/module/appx/invoke-commandindesktoppackage?view=windowsserver2025-ps)。

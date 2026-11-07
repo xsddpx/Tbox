@@ -39,7 +39,7 @@ internal static class SmokeTest
             using var preview = new RenderTargetBitmap(new PixelSize((int)Math.Ceiling(client.Width), (int)Math.Ceiling(client.Height)), new Vector(96, 96));
             preview.Render(controller.Main);
             preview.Save(Path.Combine(directory, "main-window.png"));
-            await File.WriteAllTextAsync(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new
+            await WriteResultAsync(directory, JsonSerializer.Serialize(new
             {
                 success = true, nativeOcr = true, pixelCrop = true, uiRendered = true,
                 screenPermission = controller.Platform.HasScreenPermission, captureVerified, displayCount, recognizedText = ocr.Text
@@ -47,9 +47,17 @@ internal static class SmokeTest
         }
         catch (Exception error)
         {
-            await File.WriteAllTextAsync(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new { success = false, error = error.ToString() }));
+            await WriteResultAsync(directory, JsonSerializer.Serialize(new { success = false, error = error.ToString() }));
             Environment.ExitCode = 1;
         }
         finally { controller.Quit(); }
+    }
+
+    private static async Task WriteResultAsync(string directory, string json)
+    {
+        var path = Path.Combine(directory, "result.json");
+        var temporary = path + ".tmp";
+        await File.WriteAllTextAsync(temporary, json);
+        File.Move(temporary, path, overwrite: true);
     }
 }

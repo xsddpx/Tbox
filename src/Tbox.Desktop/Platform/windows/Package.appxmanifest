@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap5 rescap">
+  <!-- Retain the original family and App ID so this is an upgrade, not a second app. -->
+  <Identity Name="Tbox" Publisher="CN=Tbox Development" Version="1.1.6.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Tbox</DisplayName>
+    <PublisherDisplayName>Tbox</PublisherDisplayName>
+    <Description>跨平台桌面效率工具</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+    <PackageDependency Name="Microsoft.VCLibs.140.00.UWPDesktop"
+      Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" MinVersion="14.0.30704.0" />
+  </Dependencies>
+  <Resources><Resource Language="zh-CN" /><Resource Language="en-US" /></Resources>
+  <Applications>
+    <Application Id="App" Executable="Tbox.Desktop.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Tbox" Description="跨平台桌面效率工具" BackgroundColor="transparent"
+        Square44x44Logo="Assets\Square44x44Logo.png" Square150x150Logo="Assets\Square150x150Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <uap5:Extension Category="windows.startupTask" Executable="Tbox.Desktop.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="TboxStartupTask" Enabled="false" DisplayName="Tbox" />
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities><rescap:Capability Name="runFullTrust" /></Capabilities>
+</Package>

@@ -9,7 +9,7 @@ if (args.Length < 3) throw new ArgumentException("参数：测试 MP4、输出�
 var source = Path.GetFullPath(args[0]); var output = Path.GetFullPath(args[1]);
 Directory.CreateDirectory(output);
 Environment.SetEnvironmentVariable("TBOX_FFMPEG", Path.GetFullPath(args[2]));
-if (OperatingSystem.IsMacOS()) Environment.SetEnvironmentVariable("TBOX_VLC_DIRECTORY", Path.GetFullPath(args[3]));
+if (args.Length > 3) Environment.SetEnvironmentVariable("TBOX_VLC_DIRECTORY", Path.GetFullPath(args[3]));
 using var engine = MediaRuntime.Create();
 using var media = new Media(engine, source, FromType.FromPath);
 using var player = new MediaPlayer(engine);

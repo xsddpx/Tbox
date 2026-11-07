@@ -34,7 +34,7 @@ public sealed class SettingsTests
             {
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Equal(width >= 1080, window.HasFixedSidebar);
-                Assert.Empty(window.GetVisualDescendants().OfType<TextBox>().Where(t => t.IsEffectivelyVisible));
+                Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
                 Assert.True(window.CurrentPageView.Bounds.Width > width - (width >= 1080 ? 250 : 10));
                 foreach (var control in window.CurrentPageView.GetVisualDescendants().OfType<Control>()
                     .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or ToggleSwitch or ComboBox))

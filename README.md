@@ -26,6 +26,22 @@ Mac 全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴
 
 共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。当前尚未完成新工程的 Windows 安装及完整功能回归，继续以原 Windows 完整版作为可用版本。
 
+Windows 共用版使用 `scripts/package-desktop-windows.ps1`，与旧 WinUI 打包脚本分开。它保留原 MSIX 的 `Tbox` 包身份、发布者和 `App`/启动项标识，入口改为 `Tbox.Desktop.exe`；应用自带 .NET 运行时，首次启动会在新版设置不存在时导入旧偏好，旧设置与缓存文件保留。Windows 开发机需 Windows 11 x64、Windows SDK、.NET SDK，及原有持久签名证书；脚本不生成证书或自动修改系统信任。
+
+```powershell
+# CI/开发机：发布自包含二进制，验证版本、运行库、媒体导出与 MSIX 结构。
+# 仅在 TEMP 生成未签名验证包，不作为用户下载包。
+.\scripts\package-desktop-windows.ps1 -VerifyOnly
+
+# Windows 实机：复用已有证书签名、安装、运行系统 OCR/界面验证，通过后记录版本和哈希。
+.\scripts\package-desktop-windows.ps1 -CertificateThumbprint '<现有证书指纹>'
+
+# 安装已经签名且在当前电脑受信任的共用版本；可通过 -DependencyPath 传入官方 VCLibs 框架包。
+.\scripts\install-desktop-windows.ps1 -PackagePath '.\artifacts\Tbox_<版本>_win-x64.msix'
+```
+
+签名阶段需证书主题与 manifest 发布者一致；MSIX 实机安装需要受信任签名及所声明的 VCLibs 框架，详见 [Microsoft 签名说明](https://learn.microsoft.com/en-us/windows/msix/package/create-certificate-package-signing)。当前 Mac 环境没有 Windows 原签名证书或 Windows 实机，因此新脚本的签名/安装阶段仍待验证；CI 包结构通过不能替代这一步。
+
 Mac 媒体构建另需 Xcode Command Line Tools、`make` 与 `pkg-config`（`brew install pkgconf`）。`scripts/prepare-macos-media.sh` 校验固定下载哈希，从源码构建 FFmpeg 8.1.2 + libwebp 1.6.0，并准备 VLC 3.0.24 的本地 MP4 回放插件。首次构建需要联网，后续复用 `TEMP/` 中的依赖。
 
 共用媒体检查使用合成视频，不采集屏幕：
