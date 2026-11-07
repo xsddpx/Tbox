@@ -48,7 +48,7 @@ internal sealed class LongCaptureSession
         _toolbar.KeyDown += (_, e) => { if (e.Key == Key.Escape) { Stop(); e.Handled = true; } };
         _preview = Floating("Tbox 长截图实时预览", new Border
         {
-            Background = Brush.Parse("#242424"), BorderBrush = Brush.Parse("#666666"), BorderThickness = new Thickness(1),
+            Background = Ui.ToolbarBackground, BorderBrush = Brush.Parse(DesignTokens.TaskBorder), BorderThickness = new Thickness(1),
             Padding = new Thickness(6), Child = _surface
         });
         _preview.Width = 240; _preview.Height = 480; _preview.ShowActivated = false;

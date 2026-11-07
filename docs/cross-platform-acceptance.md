@@ -1,6 +1,6 @@
 # 跨平台逐项验收表
 
-当前共用桌面测试已增至 53 项，新增剪贴板回退、受限重试、超长文字画布及模块热键回滚。提交 `b74fa61` 的 [两平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42377475447) 已通过 95 核心 + 36 桌面测试及实际媒体解码/导出。文件夹适配与热键模块开关在提交 `15572d0` 的双平台 CI 通过（95 核心 + 39 桌面）；仍待实机文件面板验收。
+当前共用桌面测试为 49 项（UI 2.0 移除 6 项旧搜索用例，增加 2 项浅深配色对比度用例）；保留剪贴板回退、受限重试、超长文字画布及模块热键回滚验证。提交 `b74fa61` 的 [两平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42377475447) 已通过 95 核心 + 36 桌面测试及实际媒体解码/导出。文件夹适配与热键模块开关在提交 `15572d0` 的双平台 CI 通过（95 核心 + 39 桌面）；仍待实机文件面板验收。
 
 媒体集成证据（2026-11-07，本机 Apple Silicon）：`Tbox.MediaSmoke` 对库内合成视频实际解码 36 次输出回调；GIF 导出 24 帧、2000 ms；WebP 导出 20 个合并帧、1999 ms，循环且不放大 320×240；MP4 复制哈希相同。此检查已接入 CI；不验证实际系统采集、音频、原生视频窗口或安装授权。
 
@@ -11,6 +11,10 @@
 连续升级第一轮：1.1.1 → 1.1.2 在固定安装位置覆盖安装，二进制 SHA-256 不同、指定签名要求相同。由系统正常打开后，两版均通过权限检查与 3024×1964 实际取帧；升级过程未再次申请/登记屏幕权限。1.1.2 开发 ZIP 已通过 95 核心 + 42 桌面测试、离线 OCR、裁剪和实际媒体导出验证。
 
 设置迁移（1.1.4）：四页共用导航、标题区搜索、宽屏固定/窄屏浮层导航、设置行折叠、串行保存、失败通知与缓存不可写回退已实现。53 项桌面测试覆盖所有页面在 1280/900/520 宽度及来回切换下的控件边界、并发设置写入、启动状态待批准/失败恢复与关闭通知。Mac 实际中文搜索“启动”进入常规页、点击截图页与已有屏幕权限显示通过。开机启动的注册、重新登录、系统拒绝及跨升级行为尚未实机验收；当前本地包返回系统尚无启动项登记。Windows 目标构建通过，实机界面仍待验收。
+
+UI 2.0 重构（1.1.5，2026-11-07）：按最新要求移除应用搜索与搜索路由，四页共用现代主题令牌、线性图标、快捷操作卡片和滑动开关；OCR 工作区与任务浮层复用对应表面。49 项桌面测试、95 项核心测试和 Windows 目标构建通过。四页在浅色/深色、1280/900/520 宽度反复切换后均无可见搜索输入及操作控件横向越界，生成 24 张共用控件渲染预览；文字及图标对比度通过。预览在本地 `TEMP/ui-2.0-preview/`，属于本轮验收产物。
+
+Mac 1.1.5 已覆盖安装至固定位置，独立启动后实际导航常规与截图页通过；选择合成中英文图片完成离线 OCR，结果两行可编辑，展开原图成功。没有改动用户主题、启动项或模块偏好。权限探测通过（应用进程 48101，`screenPermission=true`、`captureVerified=true`，3024×1964），没有再次申请权限。打包同时通过离线 OCR、像素裁剪、实际媒体解码和 GIF/WebP/MP4 导出检查。Windows 实际窗口、各任务浮层完整交互与安装验收仍未完成，不能把交叉编译视为全平台交付。
 
 冻结基线：`0f88802717d6a2a6ad86e117c20ec35ead91f96c`（Windows 1.0.45）。原产品要求可通过 `git show 0f88802:docs/product-requirements.md` 复核。表中的原平台证据是源码定位，不代替迁移后的实机复验。
 
@@ -77,20 +81,20 @@
 | PIN-008 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | APP-001 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
 | APP-002 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-003 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
+| APP-003 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；1.1.5 已移除搜索，Mac 页面导航与图片 OCR 通过；启动注册及其他交互待实机验收 |
 | APP-004 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-005 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
+| APP-005 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；1.1.5 已移除搜索，Mac 页面导航与图片 OCR 通过；启动注册及其他交互待实机验收 |
 | APP-006 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
 | APP-007 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-008 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
+| APP-008 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；1.1.5 已移除搜索，Mac 页面导航与图片 OCR 通过；启动注册及其他交互待实机验收 |
 | APP-009 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-010 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
-| APP-011 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
-| APP-012 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
-| UI-001 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
-| UI-002 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
-| UI-003 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
-| UI-004 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
+| APP-010 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；1.1.5 已移除搜索，Mac 页面导航与图片 OCR 通过；启动注册及其他交互待实机验收 |
+| APP-011 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；1.1.5 已移除搜索，Mac 页面导航与图片 OCR 通过；启动注册及其他交互待实机验收 |
+| APP-012 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；1.1.5 已移除搜索，Mac 页面导航与图片 OCR 通过；启动注册及其他交互待实机验收 |
+| UI-001 | 已实现 | TboxUi.cs / MainWindow.xaml（旧外观已被本轮需求覆盖） | Views/DesignTokens.cs / Views/Ui.cs / Views/MainWindow.cs | 1.1.5 共用令牌、浅深布局及对比度测试通过；Mac 导航通过；Windows 实机待验收 |
+| UI-002 | 已实现 | TboxUi.cs / MainWindow.xaml（旧外观已被本轮需求覆盖） | Views/DesignTokens.cs / Views/Ui.cs / Views/MainWindow.cs | 1.1.5 共用令牌、浅深布局及对比度测试通过；Mac 导航通过；Windows 实机待验收 |
+| UI-003 | 已实现 | TboxUi.cs / MainWindow.xaml（旧外观已被本轮需求覆盖） | Views/DesignTokens.cs / Views/Ui.cs / Views/MainWindow.cs | 1.1.5 共用令牌、浅深布局及对比度测试通过；Mac 导航通过；Windows 实机待验收 |
+| UI-004 | 已实现 | TboxUi.cs / MainWindow.xaml（旧外观已被本轮需求覆盖） | Views/DesignTokens.cs / Views/Ui.cs / Views/MainWindow.cs | 1.1.5 共用令牌、浅深布局及对比度测试通过；Mac 导航通过；Windows 实机待验收 |
 | UI-005 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-006 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-007 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |

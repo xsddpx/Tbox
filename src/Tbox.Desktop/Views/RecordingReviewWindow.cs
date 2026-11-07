@@ -46,7 +46,7 @@ internal sealed class RecordingReviewWindow : Window
     {
         _controller = controller; _workspace = workspace; _area = area; _output = output; _duration = duration;
         Ui.Configure(this, $"Tbox 录屏 · {area.PixelWidth} × {area.PixelHeight} · {FormatTime(duration)} · {(output.HasSystemAudio ? "系统声音已启用" : "静音")}", 960, 720);
-        RequestedThemeVariant = ThemeVariant.Dark; Background = Brush.Parse("#202020"); MinWidth = 700; MinHeight = 450;
+        RequestedThemeVariant = ThemeVariant.Dark; Background = Ui.ToolbarBackground; MinWidth = 700; MinHeight = 450;
         _play = Ui.Button("▶", () => controller.Run(TogglePlaybackAsync), "播放 / 暂停 · Space");
         _save = Ui.Button("保存", () => controller.Run(SaveAsync), "保存录屏 · Command / Ctrl + S"); _save.Classes.Add("accent");
         _cancelExport = Ui.Button("取消导出", () => _exportCancellation?.Cancel()); _cancelExport.IsVisible = false;

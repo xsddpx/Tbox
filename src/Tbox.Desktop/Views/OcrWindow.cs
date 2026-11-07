@@ -34,15 +34,19 @@ public sealed class OcrWindow : Window
         var topmost = new CheckBox { Content = "置顶" };
         topmost.IsCheckedChanged += (_, _) => Topmost = topmost.IsChecked == true;
         Activated += (_, _) => topmost.IsChecked = Topmost;
-        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto"), Margin = new Thickness(20) };
-        var header = Ui.Row(Ui.Text("文字识别", 16), expand, topmost);
+        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto"), Margin = new Thickness(24) };
+        var title = Ui.Text("文字识别", DesignTokens.PageTitle); title.FontWeight = FontWeight.SemiBold;
+        var header = new DockPanel();
+        var options = Ui.Row(expand, topmost); DockPanel.SetDock(options, Dock.Right);
+        header.Children.Add(options); header.Children.Add(title);
         header.Margin = new Thickness(0, 0, 0, 12);
         layout.Children.Add(header);
         Grid.SetRow(_original, 1); layout.Children.Add(_original);
         var workspace = new Grid { ColumnDefinitions = new ColumnDefinitions("44,*"), Margin = new Thickness(0, 12) };
         workspace.Children.Add(new LogicalLineGutter(_editor));
         Grid.SetColumn(_editor, 1); workspace.Children.Add(_editor);
-        Grid.SetRow(workspace, 2); layout.Children.Add(workspace);
+        var editorCard = Ui.Card(workspace); editorCard.Padding = new Thickness(8); editorCard.Margin = new Thickness(0, 12);
+        Grid.SetRow(editorCard, 2); layout.Children.Add(editorCard);
         var actions = new DockPanel { LastChildFill = true };
         var copy = Ui.Button("复制全部", () => controller.Run(async () =>
         {

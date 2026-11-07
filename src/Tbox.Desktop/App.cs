@@ -15,7 +15,7 @@ public sealed class App : Application
     internal static SingleInstance? Instance { get; set; }
     private DesktopController? _controller;
     private TrayIcon? _tray;
-    public override void Initialize() => Styles.Add(new FluentTheme());
+    public override void Initialize() => Styles.Add(DesignTokens.CreateTheme());
 
     public override void OnFrameworkInitializationCompleted()
     {

@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -13,18 +14,18 @@ namespace Tbox.Desktop.Views;
 public sealed class MainWindow : Window
 {
     private readonly DesktopController _controller;
-    private readonly TextBlock _status = Ui.Text("正在启动…", 12);
-    private readonly TextBlock _permission = Ui.Text("", 12);
-    private readonly TextBlock _cache = Ui.Text("", 12);
-    private readonly TextBlock _folder = Ui.Text("", 12);
-    private readonly TextBlock _startupStatus = Ui.Text("", 12);
-    private readonly TextBlock _summary = Ui.Text("", 12);
-    private readonly TextBlock _conflicts = Ui.Text("", 12);
-    private readonly List<CheckBox> _captureToggles = [];
-    private readonly List<CheckBox> _folderToggles = [];
+    private readonly TextBlock _status = Ui.Caption("正在启动…");
+    private readonly TextBlock _permission = Ui.Caption("");
+    private readonly TextBlock _cache = Ui.Caption("");
+    private readonly TextBlock _folder = Ui.Caption("");
+    private readonly TextBlock _startupStatus = Ui.Caption("");
+    private readonly TextBlock _summary = Ui.Caption("");
+    private readonly TextBlock _conflicts = Ui.Caption("");
+    private readonly List<ToggleSwitch> _captureToggles = [];
+    private readonly List<ToggleSwitch> _folderToggles = [];
     private readonly List<Control> _captureActions = [];
-    private readonly CheckBox _startupToggle = new() { Content = "开机启动" };
-    private readonly CheckBox _failureToggle = new() { Content = "功能失败时通知" };
+    private readonly ToggleSwitch _startupToggle = new() { OnContent = null, OffContent = null };
+    private readonly ToggleSwitch _failureToggle = new() { OnContent = null, OffContent = null };
     private readonly ComboBox _theme = new() { ItemsSource = new[] { "跟随系统", "浅色", "深色" }, MinWidth = 120 };
     private readonly Button _folderPermission;
     private readonly Button _screenPermission;
@@ -33,7 +34,6 @@ public sealed class MainWindow : Window
     private readonly ListBox _navigation;
     private readonly SplitView _split;
     private readonly Button _menu;
-    private readonly TextBox _search = new() { Watermark = "搜索设置和工具", MaxWidth = 440, MinHeight = 32 };
     private bool _updatingSettings;
     private bool _initialSizeApplied;
     private static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
@@ -54,7 +54,15 @@ public sealed class MainWindow : Window
         _theme.SelectionChanged += (_, _) => { if (!_updatingSettings) controller.Run(() => controller.ChangeThemeAsync(_theme.SelectedIndex)); };
         _startupToggle.IsCheckedChanged += (_, _) => { if (!_updatingSettings) controller.Run(() => controller.SetStartupAsync(_startupToggle.IsChecked == true)); };
         _failureToggle.IsCheckedChanged += (_, _) => { if (!_updatingSettings) controller.Run(() => controller.SetFailureNotificationsAsync(_failureToggle.IsChecked == true)); };
+        AutomationProperties.SetName(_startupToggle, "开机启动");
+        AutomationProperties.SetName(_failureToggle, "功能失败时通知");
         _navigation = new ListBox { ItemsSource = new[] { "主页", "常规", "文件夹跳转", "截图与贴图" }, SelectedIndex = 0, Background = Brushes.Transparent };
+        _navigation.ItemTemplate = new FuncDataTemplate<string>((name, _) =>
+        {
+            var icon = name switch { "主页" => IconKind.Home, "常规" => IconKind.Settings, "文件夹跳转" => IconKind.Folder, _ => IconKind.Capture };
+            var row = Ui.Row(new LineIcon(icon), Ui.Text(name ?? "")); row.Spacing = 12; row.Margin = new Thickness(4, 8); return row;
+        });
+        _navigation.Margin = new Thickness(12, 16);
         AutomationProperties.SetName(_navigation, "页面导航");
         var footer = new StackPanel { Spacing = 4, Margin = new Thickness(12), Children =
         {
@@ -62,16 +70,21 @@ public sealed class MainWindow : Window
             Ui.Button("新增内容", () => SetStatus("共用桌面界面现已支持截图、贴图、离线识别、长截图和区域录屏，持续进行平台验收。")),
             Ui.Button("提供反馈", () => SetStatus("请在已授权访问的 Tbox 项目仓库中提交问题，附上版本与复现步骤。"))
         }};
+        foreach (var button in footer.Children.OfType<Button>())
+        {
+            button.Background = Brushes.Transparent; button.BorderThickness = new Thickness(0);
+            button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Left;
+        }
         DockPanel.SetDock(footer, Dock.Bottom);
         var sidebar = new DockPanel { LastChildFill = true, Children =
         {
             footer, new ScrollViewer { Content = _navigation, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
         }};
-        _split = new SplitView { Pane = sidebar, OpenPaneLength = 240, CompactPaneLength = 0, DisplayMode = SplitViewDisplayMode.Inline, IsPaneOpen = true };
+        _split = new SplitView { Pane = sidebar, OpenPaneLength = DesignTokens.SidebarWidth, CompactPaneLength = 0, DisplayMode = SplitViewDisplayMode.Inline, IsPaneOpen = true };
         _menu = Ui.Button("☰", () => _split.IsPaneOpen = !_split.IsPaneOpen, "打开或关闭导航");
         _menu.Width = 40; _menu.IsVisible = false;
         var brand = Ui.Text("Tbox", 16); brand.FontWeight = FontWeight.SemiBold;
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto"), ColumnSpacing = 12,
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*"), ColumnSpacing = 12,
             Margin = OperatingSystem.IsMacOS() ? new Thickness(88, 8, 16, 8) : new Thickness(16, 8, 140, 8) };
         header.PointerPressed += (_, e) =>
         {
@@ -79,13 +92,8 @@ public sealed class MainWindow : Window
                 BeginMoveDrag(e);
         };
         header.Children.Add(_menu); Grid.SetColumn(brand, 1); header.Children.Add(brand);
-        Grid.SetColumn(_search, 2); _search.HorizontalAlignment = HorizontalAlignment.Stretch; header.Children.Add(_search);
-        AutomationProperties.SetName(_search, "搜索设置和工具");
-        _search.KeyDown += (_, e) =>
-        {
-            if (e.Key != Key.Enter || string.IsNullOrWhiteSpace(_search.Text)) return;
-            Navigate(SettingsNavigation.Search(_search.Text)); _search.Text = ""; e.Handled = true;
-        };
+        var tagline = Ui.Caption("桌面工具"); tagline.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(tagline, 2); header.Children.Add(tagline);
         BuildPages();
         _navigation.SelectionChanged += (_, _) => { if (_navigation.SelectedIndex >= 0) Navigate((SettingsPage)_navigation.SelectedIndex); };
         var status = new Border { Padding = new Thickness(16, 8), Child = _status };
@@ -115,7 +123,7 @@ public sealed class MainWindow : Window
         controller.ThemeLoaded += _ => Refresh();
     }
 
-    private void ApplySidebarTheme() => _split.PaneBackground = Brush.Parse(ActualThemeVariant == ThemeVariant.Dark ? "#292929" : "#F7F4F1");
+    private void ApplySidebarTheme() => _split.PaneBackground = Brush.Parse(DesignTokens.Colors(ActualThemeVariant == ThemeVariant.Dark).SecondarySurface);
 
     internal void ApplyResponsiveLayout(double width)
     {
@@ -136,14 +144,14 @@ public sealed class MainWindow : Window
 
     private void BuildPages()
     {
-        var actions = Actions(
-            CaptureButton("开始截图", () => _controller.Run(_controller.CaptureAsync), ShortcutLabels.Capture),
-            CaptureButton("剪贴板贴图", () => _controller.Run(_controller.PinClipboardAsync), ShortcutLabels.Pin),
-            Ui.Button("文件夹跳转", () => Navigate(SettingsPage.Folders), "Control + G"));
-        AddPage(SettingsPage.Home, "主页", "高频操作与工具状态", _summary,
-            Section("快速访问", actions),
-            Section("实用程序", Setting("截图与贴图", "截图、标注、贴图、文字识别、长截图与录屏。", ModuleToggle(true)),
-                Setting("文件夹跳转", "在标准文件面板中快速定位最近目录。", ModuleToggle(false))),
+        var actions = new QuickActionGrid(
+            ActionCard("开始截图", "选区、标注与录屏", ShortcutLabels.Capture, IconKind.Capture, () => _controller.Run(_controller.CaptureAsync), true),
+            ActionCard("剪贴板贴图", "把图片或文字留在桌面", ShortcutLabels.Pin, IconKind.Pin, () => _controller.Run(_controller.PinClipboardAsync), true),
+            ActionCard("文件夹跳转", "快速回到最近目录", "Control + G", IconKind.Folder, () => Navigate(SettingsPage.Folders), false));
+        AddPage(SettingsPage.Home, "主页", "随时捕捉，高效处理。", _summary,
+            Block("快速开始", actions),
+            Section("工具", Setting("截图与贴图", "截图、标注、贴图、识别、长截图与录屏。", ModuleToggle(true)),
+                Setting("文件夹跳转", "在系统文件面板中快速定位最近目录。", ModuleToggle(false))),
             Section("快捷键", ShortcutRows(), _conflicts));
         AddPage(SettingsPage.General, "常规", "管理应用外观与行为",
             Section("版本和更新", Setting("当前版本", $"Tbox {Version} · 跨平台预览版", Ui.Button("检查版本", () => SetStatus($"当前版本 {Version}。授权用户可在私有仓库 Releases 查看可用安装包。")))),
@@ -171,7 +179,7 @@ public sealed class MainWindow : Window
     {
         var heading = Ui.Text(title, 28); heading.FontWeight = FontWeight.SemiBold;
         var panel = new StackPanel { Spacing = 16, MaxWidth = 1120, HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(32, 24) };
-        panel.Children.Add(heading); panel.Children.Add(Ui.Text(description));
+        panel.Children.Add(heading); panel.Children.Add(Ui.Caption(description));
         foreach (var child in content) panel.Children.Add(child);
         _pages[key] = new ScrollViewer { Content = panel, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     }
@@ -181,6 +189,35 @@ public sealed class MainWindow : Window
         var panel = new StackPanel { Spacing = 12, Children = { heading } };
         foreach (var child in children) panel.Children.Add(child);
         return Ui.Card(panel);
+    }
+    private static StackPanel Block(string title, Control child)
+    {
+        var heading = Ui.Text(title, DesignTokens.SectionTitle); heading.FontWeight = FontWeight.SemiBold;
+        return new StackPanel { Spacing = 12, Children = { heading, child } };
+    }
+    private Button ActionCard(string title, string description, string shortcut, IconKind icon, Action action, bool capture)
+    {
+        var heading = Ui.Text(title, DesignTokens.SectionTitle); heading.FontWeight = FontWeight.SemiBold;
+        var badge = new Border { Width = 40, Height = 40, CornerRadius = new CornerRadius(10),
+            Child = new LineIcon(icon, true) { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+        var keys = Ui.Caption(shortcut); keys.HorizontalAlignment = HorizontalAlignment.Right; keys.VerticalAlignment = VerticalAlignment.Center;
+        var top = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+        top.Children.Add(badge); Grid.SetColumn(keys, 1); top.Children.Add(keys);
+        var button = Ui.Button(title, action, title + " · " + shortcut);
+        button.Content = new StackPanel { Spacing = 12, Children = { top, heading, Ui.Caption(description) } };
+        button.Padding = new Thickness(20); button.CornerRadius = new CornerRadius(DesignTokens.CardRadius);
+        button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        void Update()
+        {
+            var colors = DesignTokens.Colors(button.ActualThemeVariant == ThemeVariant.Dark);
+            button.Background = Brush.Parse(colors.Surface); button.BorderBrush = Brush.Parse(colors.Border);
+            badge.Background = Brush.Parse(colors.AccentSurface);
+            button.Resources["ButtonBackgroundPointerOver"] = Brush.Parse(colors.Hover);
+            button.Resources["ButtonBackgroundPressed"] = Brush.Parse(colors.AccentSurface);
+        }
+        button.ActualThemeVariantChanged += (_, _) => Update(); Update();
+        if (capture) _captureActions.Add(button);
+        return button;
     }
     private static Control Setting(string title, string description, Control input) => new SettingsRow(title, description, input);
     private static WrapPanel Actions(params Control[] children)
@@ -194,9 +231,9 @@ public sealed class MainWindow : Window
         var button = Ui.Button(title, action, shortcut is null ? title : $"{title} · {shortcut}");
         _captureActions.Add(button); return button;
     }
-    private CheckBox ModuleToggle(bool capture)
+    private ToggleSwitch ModuleToggle(bool capture)
     {
-        var toggle = new CheckBox { Content = "启用", MinHeight = 40 };
+        var toggle = new ToggleSwitch { OnContent = null, OffContent = null, MinHeight = 40 };
         AutomationProperties.SetName(toggle, capture ? "启用截图与贴图" : "启用文件夹跳转");
         (capture ? _captureToggles : _folderToggles).Add(toggle);
         toggle.IsCheckedChanged += (_, _) =>
@@ -239,6 +276,22 @@ public sealed class MainWindow : Window
     }
 }
 
+internal sealed class QuickActionGrid : Grid
+{
+    public QuickActionGrid(params Control[] actions)
+    {
+        ColumnSpacing = RowSpacing = 12;
+        ColumnDefinitions = new ColumnDefinitions("*,*,*"); RowDefinitions = new RowDefinitions("Auto,Auto,Auto");
+        for (var i = 0; i < actions.Length; i++) { Children.Add(actions[i]); SetColumn(actions[i], i); }
+        SizeChanged += (_, e) =>
+        {
+            var stacked = e.NewSize.Width < 720;
+            ColumnDefinitions[1].Width = ColumnDefinitions[2].Width = stacked ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+            for (var i = 0; i < actions.Length; i++) { SetColumn(actions[i], stacked ? 0 : i); SetRow(actions[i], stacked ? i : 0); }
+        };
+    }
+}
+
 internal sealed class SettingsRow : Grid
 {
     internal bool IsStacked { get; private set; }
@@ -246,7 +299,7 @@ internal sealed class SettingsRow : Grid
     {
         MinHeight = 64; RowSpacing = 12; ColumnSpacing = 16;
         ColumnDefinitions = new ColumnDefinitions("*,Auto"); RowDefinitions = new RowDefinitions("Auto,Auto");
-        var text = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center, Children = { Ui.Text(title), Ui.Text(description, 12) } };
+        var text = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center, Children = { Ui.Text(title), Ui.Caption(description) } };
         Children.Add(text); Children.Add(input); Grid.SetColumn(input, 1);
         SizeChanged += (_, e) =>
         {

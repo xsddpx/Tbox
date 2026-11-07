@@ -16,7 +16,8 @@ public sealed class AnnotationToolbar : Border
 
     public AnnotationToolbar(AnnotationEditor editor, Action prepare)
     {
-        Background = Ui.ToolbarBackground; Padding = new Thickness(4); CornerRadius = new CornerRadius(8);
+        Background = Ui.ToolbarBackground; Padding = new Thickness(4); CornerRadius = new CornerRadius(DesignTokens.TaskRadius);
+        BorderBrush = Brush.Parse(DesignTokens.TaskBorder); BorderThickness = new Thickness(1);
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         var toolSpecs = new (AnnotationTool Tool, string Icon, string Name)[]
         {

@@ -35,7 +35,8 @@ internal static class SmokeTest
                 }
                 captureVerified = displayCount > 0;
             }
-            using var preview = new RenderTargetBitmap(new PixelSize(760, 660), new Vector(96, 96));
+            var client = controller.Main.ClientSize;
+            using var preview = new RenderTargetBitmap(new PixelSize((int)Math.Ceiling(client.Width), (int)Math.Ceiling(client.Height)), new Vector(96, 96));
             preview.Render(controller.Main);
             preview.Save(Path.Combine(directory, "main-window.png"));
             await File.WriteAllTextAsync(Path.Combine(directory, "result.json"), JsonSerializer.Serialize(new

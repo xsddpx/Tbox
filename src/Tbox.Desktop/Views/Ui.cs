@@ -10,14 +10,15 @@ namespace Tbox.Desktop.Views;
 internal static class Ui
 {
     public static readonly IBrush Blue = Brush.Parse("#0078D4");
-    public static readonly IBrush ToolbarBackground = Brush.Parse("#252525");
+    public static readonly IBrush ToolbarBackground = Brush.Parse(DesignTokens.TaskBackground);
     public static TextBlock Text(string text, double size = 14) => new()
     {
         Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap
     };
     public static Button Button(string text, Action action, string? tooltip = null)
     {
-        var button = new Button { Content = text, MinHeight = 32, Padding = new Thickness(12, 6), VerticalAlignment = VerticalAlignment.Center };
+        var button = new Button { Content = text, MinHeight = DesignTokens.ControlHeight, Padding = new Thickness(12, 8),
+            CornerRadius = new CornerRadius(DesignTokens.ControlRadius), VerticalAlignment = VerticalAlignment.Center };
         if (tooltip is not null) ToolTip.SetTip(button, tooltip);
         AutomationProperties.SetName(button, tooltip ?? text);
         button.Click += (_, _) => action();
@@ -33,14 +34,14 @@ internal static class Ui
     {
         var card = new Border
         {
-            Child = content, Padding = new Thickness(16), CornerRadius = new CornerRadius(8),
+            Child = content, Padding = new Thickness(24), CornerRadius = new CornerRadius(DesignTokens.CardRadius),
             BorderThickness = new Thickness(1)
         };
         void Update()
         {
-            var dark = card.ActualThemeVariant == ThemeVariant.Dark;
-            card.Background = Brush.Parse(dark ? "#292929" : "#FFFEFC");
-            card.BorderBrush = Brush.Parse(dark ? "#414141" : "#DED9D4");
+            var colors = DesignTokens.Colors(card.ActualThemeVariant == ThemeVariant.Dark);
+            card.Background = Brush.Parse(colors.Surface);
+            card.BorderBrush = Brush.Parse(colors.Border);
         }
         card.ActualThemeVariantChanged += (_, _) => Update(); Update();
         return card;
@@ -55,6 +56,16 @@ internal static class Ui
         window.ActualThemeVariantChanged += (_, _) => ApplyBackground(window);
         ApplyBackground(window);
     }
-    private static void ApplyBackground(Window window) => window.Background =
-        Brush.Parse(window.ActualThemeVariant == ThemeVariant.Dark ? "#202020" : "#F4F1EE");
+    private static void ApplyBackground(Window window)
+    {
+        var colors = DesignTokens.Colors(window.ActualThemeVariant == ThemeVariant.Dark);
+        window.Background = Brush.Parse(colors.Background); window.Foreground = Brush.Parse(colors.Text);
+    }
+
+    public static TextBlock Caption(string text)
+    {
+        var block = Text(text, DesignTokens.Caption);
+        void Update() => block.Foreground = Brush.Parse(DesignTokens.Colors(block.ActualThemeVariant == ThemeVariant.Dark).SecondaryText);
+        block.ActualThemeVariantChanged += (_, _) => Update(); Update(); return block;
+    }
 }

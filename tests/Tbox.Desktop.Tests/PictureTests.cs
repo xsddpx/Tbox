@@ -6,15 +6,17 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Tbox.Core;
 using Tbox.Desktop.Models;
+using Tbox.Desktop.Views;
 using Xunit;
 
 [assembly: AvaloniaTestApplication(typeof(Tbox.Desktop.Tests.TestApplication))]
 
 namespace Tbox.Desktop.Tests;
 
-public static class TestApplication
+public sealed class TestApplication : Application
 {
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<Application>()
+    public override void Initialize() => Styles.Add(DesignTokens.CreateTheme());
+    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<TestApplication>()
         .UseSkia().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
 }
 

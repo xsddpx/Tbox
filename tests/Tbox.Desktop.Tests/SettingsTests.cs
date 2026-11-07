@@ -5,6 +5,9 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Avalonia.Styling;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Tbox.Core;
 using Tbox.Desktop.Models;
 using Tbox.Desktop.Platform;
@@ -15,40 +18,65 @@ namespace Tbox.Desktop.Tests;
 
 public sealed class SettingsTests
 {
-    [Theory]
-    [InlineData("  OCR  ", 3)]
-    [InlineData("截图缓存", 3)]
-    [InlineData("finder 目录", 2)]
-    [InlineData("登录启动", 1)]
-    [InlineData("失败通知", 1)]
-    [InlineData("", 0)]
-    public void SearchFindsExistingPages(string query, int expected) => Assert.Equal((SettingsPage)expected, SettingsNavigation.Search(query));
-
     [AvaloniaFact]
     public void AllPagesFitWideMediumAndNarrowWindows()
     {
-        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(new FluentTheme());
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
         using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
         var window = controller.Main = new MainWindow(controller);
         window.Show();
+        foreach (var theme in new[] { ThemeVariant.Light, ThemeVariant.Dark })
         foreach (var width in new[] { 1280, 900, 520, 1280, 520 })
         {
+            window.RequestedThemeVariant = theme;
             window.Width = width; window.Height = 700; window.ApplyResponsiveLayout(width);
             foreach (var page in Enum.GetValues<SettingsPage>())
             {
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Equal(width >= 1080, window.HasFixedSidebar);
+                Assert.Empty(window.GetVisualDescendants().OfType<TextBox>().Where(t => t.IsEffectivelyVisible));
                 Assert.True(window.CurrentPageView.Bounds.Width > width - (width >= 1080 ? 250 : 10));
                 foreach (var control in window.CurrentPageView.GetVisualDescendants().OfType<Control>()
-                    .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or CheckBox or ComboBox))
+                    .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or ToggleSwitch or ComboBox))
                 {
                     var point = control.TranslatePoint(default, window)!.Value;
                     Assert.True(point.X >= -1 && point.X + control.Bounds.Width <= width + 1,
                         $"{page} width {width}: {control.GetType().Name} extends from {point.X} by {control.Bounds.Width}");
                 }
+                if (Environment.GetEnvironmentVariable("TBOX_UI_PREVIEWS") is { Length: > 0 } directory)
+                {
+                    Directory.CreateDirectory(directory);
+                    using var preview = new RenderTargetBitmap(new PixelSize(width, 700), new Vector(96, 96));
+                    preview.Render(window); preview.Save(Path.Combine(directory, $"{page}-{theme.Key}-{width}.png"));
+                }
             }
         }
         controller.Dispose(); window.Close();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SharedPaletteKeepsTextAndActionIconsReadable(bool dark)
+    {
+        var c = DesignTokens.Colors(dark);
+        foreach (var background in new[] { c.Background, c.Surface, c.SecondarySurface })
+        {
+            Assert.True(Contrast(c.Text, background) >= 4.5);
+            Assert.True(Contrast(c.SecondaryText, background) >= 4.5);
+        }
+        Assert.True(Contrast(c.Accent, c.AccentSurface) >= 3);
+        static double Contrast(string foreground, string background)
+        {
+            static double Luminance(string value)
+            {
+                var color = Color.Parse(value);
+                static double Channel(byte value) { var n = value / 255.0; return n <= .04045 ? n / 12.92 : Math.Pow((n + .055) / 1.055, 2.4); }
+                return .2126 * Channel(color.R) + .7152 * Channel(color.G) + .0722 * Channel(color.B);
+            }
+            var a = Luminance(foreground); var b = Luminance(background);
+            return (Math.Max(a, b) + .05) / (Math.Min(a, b) + .05);
+        }
     }
 
     [AvaloniaFact]
