@@ -45,6 +45,17 @@ jobs:
         run: dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
       - name: Test shared desktop
         run: dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
+      - name: Test Windows Explorer and standard file dialogs
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: dotnet run --project tests/Tbox.FolderSmoke/Tbox.FolderSmoke.csproj -c Release -- TEMP/folder-smoke
+      - name: Preserve Windows folder integration result
+        if: runner.os == 'Windows' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-folder-verification
+          path: TEMP/folder-smoke/result.json
+          if-no-files-found: ignore
       - name: Test Windows playback and exports
         if: runner.os == 'Windows'
         run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/windows/bin/ffmpeg.exe

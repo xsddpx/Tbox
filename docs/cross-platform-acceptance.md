@@ -1,5 +1,7 @@
 # 跨平台逐项验收表
 
+2026-11-08 文件夹集成验收：新增 `tests/Tbox.FolderSmoke`，仅允许一次性 GitHub Windows runner 执行，调用共用平台工厂和正式文件夹适配层，验证两处同名目录下四次真实打开/保存跳转、唯一内容标记、普通输入窗口保护及模块停止/恢复。已通过本机 Windows 目标编译，原生 CI 结果待记录。Mac 1.1.12 的辅助功能开关已开启，重启后应用不再显示缺少权限；当前不将授权成功等同于 Finder 跟踪或标准面板导航成功。
+
 1.1.12 软件图标更新：采用用户指定的白色透明倒品字 SVG，生成两平台共用 PNG、七种尺寸 ICO 和 Mac ICNS，Mac 菜单栏使用模板着色。Mac 唯一 ZIP 已签名、固定路径覆盖安装并独立启动；安装后 ICNS 的 1024×1024 像素与共用 PNG 完全一致。进程 17616 保留屏幕授权并实际取得 3024×1964 帧，证据在 `TEMP/install-verification/1.1.12/permission.json`；小图预览在 `TEMP/icon-delivery/1.1.12/icon-preview.png`。[两平台 CI 42399093145](https://github.com/xsddpx/Tbox/actions/runs/42399093145) 全部通过，Windows 1.1.12.0 持久签名 MSIX 已实际安装并通过 OCR、截图、原生录屏及三格式保存。下载包的四项 PNG 图块逐字节匹配；EXE 内嵌的 16/24/32/48/64/128/256 像素图标全部与新 ICO 相符，结果在 `TEMP/windows-installed/1.1.12/package/artifacts/icon-verification.json`。安装包哈希已核对并登记，正式公开发布仍待全部迁移验收完成。
 
 1.1.11 Windows 原生录屏检查已通过：[两平台 CI 42398378401](https://github.com/xsddpx/Tbox/actions/runs/42398378401) 全部成功，签名 MSIX 在 Windows 2025 runner 实际安装，OCR、截图、界面、录屏及三格式导出通过。独立用 AVFoundation 解码实际母版：320×240、H.264、10 FPS、3.9 秒、38 帧，其中红/蓝各 19 帧、绿色 0 帧；GIF 47 帧/3910 ms，WebP 2 帧/3916 ms，两者无限循环且颜色与录制阶段一致，MP4 原样保存。LibVLC 的 74 次回调包含重复呈现，不当作源视频编码帧数。证据在 `TEMP/windows-installed/1.1.11/verification/`，安装包哈希已登记。仍未验证 Windows 系统声音、全部帧率、完整 UI 与旧用户设备升级。
