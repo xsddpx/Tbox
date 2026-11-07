@@ -105,3 +105,48 @@ jobs:
           TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
           TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
         run: bash scripts/release/sign-and-package-macos.sh --verify-identity-only
+
+  windows-installed-package:
+    # Opt-in acceptance of the actual installer on a disposable Windows runner.
+    # Artifacts remain private; this job never creates a public Release.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/feat-macos-basic' && vars.TBOX_VERIFY_INSTALLER == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.313
+            8.0.x
+      - name: Build, sign, install and launch the actual Windows MSIX
+        shell: powershell
+        env:
+          TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
+          TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
+          TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+        run: ./scripts/release/sign-and-package-windows.ps1
+      - name: Preserve verified installer and package history
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installed-package
+          path: |
+            artifacts/Tbox_*_win-x64.msix
+            artifacts/Tbox-Development.cer
+            docs/release-history.md
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Preserve installed application verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installed-verification
+          path: |
+            TEMP/windows-package/**/installed-smoke/**
+            TEMP/windows-package/**/media/result.json
+          if-no-files-found: ignore
+          retention-days: 14
