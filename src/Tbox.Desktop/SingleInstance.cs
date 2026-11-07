@@ -6,9 +6,11 @@ internal sealed class SingleInstance : IDisposable
 {
     private readonly FileStream? _lock;
     private readonly CancellationTokenSource _stop = new();
+    private readonly string _pipeName;
     private static string PipeName => "tbox-desktop-" + Environment.UserName;
 
-    private SingleInstance(FileStream? file) => _lock = file;
+    internal SingleInstance(FileStream? file, string? pipeName = null)
+    { _lock = file; _pipeName = pipeName ?? PipeName; }
 
     public static SingleInstance? Acquire(bool isolated)
     {
@@ -43,21 +45,35 @@ internal sealed class SingleInstance : IDisposable
         }
     }
 
-    public async Task ListenAsync(Action<byte> command)
+    public static async Task<string> RequestPermissionProbeAsync(string? pipeName = null)
+    {
+        using var pipe = new NamedPipeClientStream(".", pipeName ?? PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        await pipe.ConnectAsync(2000, timeout.Token);
+        await pipe.WriteAsync(new byte[] { 3 }, timeout.Token);
+        using var reader = new StreamReader(pipe);
+        return await reader.ReadLineAsync(timeout.Token) ?? throw new IOException("Tbox 未返回权限验证结果。");
+    }
+
+    public async Task ListenAsync(Func<byte, Task<string?>> command)
     {
         if (_lock is null) return;
         while (!_stop.IsCancellationRequested)
         {
             try
             {
-                await using var pipe = new NamedPipeServerStream(PipeName, PipeDirection.In, 1,
+                await using var pipe = new NamedPipeServerStream(_pipeName, PipeDirection.InOut, 1,
                     PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 await pipe.WaitForConnectionAsync(_stop.Token);
                 var buffer = new byte[1];
-                if (await pipe.ReadAsync(buffer, _stop.Token) == 1) command(buffer[0]);
+                if (await pipe.ReadAsync(buffer, _stop.Token) == 1 && await command(buffer[0]) is { } response)
+                {
+                    await using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
+                    await writer.WriteLineAsync(response.AsMemory(), _stop.Token);
+                }
             }
             catch (OperationCanceledException) { break; }
-            catch (IOException) { await Task.Delay(200, _stop.Token); }
+            catch (IOException) { if (_stop.IsCancellationRequested) break; await Task.Delay(200); }
         }
     }
 

@@ -5,7 +5,7 @@ SOURCE="$ROOT/TEMP/build/osx-arm64/Tbox.app"
 DESTINATION="$HOME/Applications/Tbox.app"
 ALLOW_MIGRATION="${1:-}"
 [[ -d "$SOURCE" ]] || { echo "先执行 Mac 构建。" >&2; exit 1; }
-codesign --verify --deep --strict "$SOURCE"
+bash "$ROOT/scripts/check-macos-identity.sh" "$SOURCE" >/dev/null
 IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$SOURCE/Contents/Info.plist")"
 [[ "$IDENTIFIER" == "com.xsddpx.tbox" ]] || { echo "应用标识发生变化，停止安装。" >&2; exit 1; }
 if [[ -d "$DESTINATION" ]]; then

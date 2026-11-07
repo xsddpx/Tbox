@@ -45,9 +45,5 @@ for LIBRARY in "$APP/Contents/MacOS/"*.dylib; do
   codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$LIBRARY"
 done
 codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$APP"
-codesign --verify --deep --strict "$APP"
-codesign -d -r- "$APP" 2> "$BUILD/designated-requirement.txt"
-if rg -q 'designated => cdhash' "$BUILD/designated-requirement.txt"; then
-  echo "签名身份退化为临时代码哈希，拒绝交付。" >&2; exit 1
-fi
+bash scripts/check-macos-identity.sh "$APP" > "$BUILD/designated-requirement.txt"
 echo "$APP"

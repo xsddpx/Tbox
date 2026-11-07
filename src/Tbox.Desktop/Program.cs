@@ -17,6 +17,11 @@ internal static class Program
         }
         try
         {
+            if (args.Contains("--permission-probe"))
+            {
+                // Query the independently launched app; this CLI process must never perform the capture itself.
+                Console.WriteLine(SingleInstance.RequestPermissionProbeAsync().GetAwaiter().GetResult()); return 0;
+            }
             using var instance = SingleInstance.Acquire(args.Contains("--smoke-test"));
             if (instance is null) return 0;
             App.Instance = instance;

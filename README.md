@@ -20,6 +20,8 @@ bash scripts/install-macos.sh
 
 固定安装位置为 `~/Applications/Tbox.app`。安装脚本在覆盖前检查新包是否满足旧包的签名身份，不主动清空权限；普通构建禁止退回 ad hoc 签名。私钥保存在登录钥匙串，不进 Git、不随应用分发。首次从旧临时签名迁移需要重新登记一次 Tbox 权限；之后通过兼容签名保留系统识别的应用身份。
 
+升级验证需先正常打开已安装的 Tbox，再执行 `~/Applications/Tbox.app/Contents/MacOS/Tbox.Desktop --permission-probe`；它查询正在运行的应用进程，只报告权限及取帧尺寸，不保存屏幕图像。当前连续升级的实机验收仍未完成。
+
 Mac 全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴图、`Control+Shift+3` 全部贴图显隐。图片复制、保存和固定使用 `Command+C/S/T`，`Esc` 取消截图或关闭贴图。第一次截图需要在系统设置中允许 Tbox 屏幕录制。已有图片的识别和剪贴板贴图无需屏幕录制权限。
 
 共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。当前尚未完成新工程的 Windows 安装及完整功能回归，继续以原 Windows 完整版作为可用版本。

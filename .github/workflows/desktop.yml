@@ -35,3 +35,6 @@ jobs:
         run: |
           mkdir -p TEMP
           swiftc -swift-version 5 -O -emit-library -target "$(uname -m)-apple-macosx14.0" src/Tbox.Desktop/Platform/macos/TboxNative.swift -o TEMP/libTboxNative.dylib
+      - name: Test macOS signing safeguards
+        if: runner.os == 'macOS'
+        run: bash tests/macos/test-signing-policy.sh

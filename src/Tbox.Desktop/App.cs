@@ -48,10 +48,15 @@ public sealed class App : Application
             _tray.Clicked += (_, _) => _controller.ShowMain();
             TrayIcon.SetIcons(this, new TrayIcons { _tray });
             lifetime.Exit += (_, _) => { _tray.Dispose(); _controller.Dispose(); };
-            _ = Instance?.ListenAsync(command => Dispatcher.UIThread.Post(() =>
+            _ = Instance?.ListenAsync(async command =>
             {
-                if (command == 2) _controller.Quit(); else _controller.ShowMain();
-            }));
+                if (command == 3) return await PermissionDiagnostics.RunAsync(platform);
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (command == 2) _controller.Quit(); else if (command == 1) _controller.ShowMain();
+                });
+                return null;
+            });
             main.Opened += (_, _) => _controller.Run(() => _controller.InitializeAsync(lifetime.Args ?? []));
         }
         base.OnFrameworkInitializationCompleted();
