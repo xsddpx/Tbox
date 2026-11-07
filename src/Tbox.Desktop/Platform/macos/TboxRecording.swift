@@ -22,6 +22,7 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
     private var pauseStart: CMTime?
     private var pausedDuration = CMTime.zero
     private var frames: Int64 = 0
+    private var audioBuffers: Int64 = 0
     private var finished = false
     private var failure: String?
 
@@ -108,7 +109,10 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
                 CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: sample,
                     sampleTimingEntryCount: count, sampleTimingArray: values.baseAddress!, sampleBufferOut: &adjusted)
             }
-            if result == noErr, let adjusted = adjusted, !audio.append(adjusted) { failure = writer.error?.localizedDescription ?? "系统声音写入失败。" }
+            if result == noErr, let adjusted = adjusted {
+                if audio.append(adjusted) { audioBuffers += 1 }
+                else { failure = writer.error?.localizedDescription ?? "系统声音写入失败。" }
+            }
         }
     }
 
@@ -146,7 +150,7 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
                 self.video.markAsFinished(); self.audio?.markAsFinished()
                 self.writer.finishWriting {
                     if self.writer.status == .completed {
-                        continuation.resume(returning: ["filePath": self.path, "hasSystemAudio": self.audioEnabled,
+                        continuation.resume(returning: ["filePath": self.path, "hasSystemAudio": self.audioBuffers > 0,
                             "durationSeconds": Double(self.frames) / Double(self.fps)])
                     } else { continuation.resume(throwing: self.writer.error ?? mediaError("录屏文件未能完成。")) }
                 }

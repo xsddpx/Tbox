@@ -26,6 +26,16 @@ Mac 全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴
 
 共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。当前尚未完成新工程的 Windows 安装及完整功能回归，继续以原 Windows 完整版作为可用版本。
 
+Mac 媒体构建另需 Xcode Command Line Tools、`make` 与 `pkg-config`（`brew install pkgconf`）。`scripts/prepare-macos-media.sh` 校验固定下载哈希，从源码构建 FFmpeg 8.1.2 + libwebp 1.6.0，并准备 VLC 3.0.24 的本地 MP4 回放插件。首次构建需要联网，后续复用 `TEMP/` 中的依赖。
+
+共用媒体检查使用合成视频，不采集屏幕：
+
+```sh
+dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
+```
+
+检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试与原有 FFmpeg。完整功能及安装验收通过后，软件下载放在当前私有 GitHub 仓库的 Releases，仅授权用户可访问。
+
 ## Windows 完整版
 
 首个模块“文件夹跳转”会记住最近使用的文件资源管理器目录；多标签窗口以当前选中的标签为准。当标准文件打开/保存对话框位于前台时，按 `Ctrl+G` 可直接跳转到该目录。

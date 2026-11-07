@@ -26,6 +26,9 @@ import json,sys
 with open(sys.argv[1]) as f: result=json.load(f)
 assert result.get('success') is True, result
 PY
+"$DOTNET" run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- \
+  assets/media-test/fixture.mp4 "$SMOKE/media" \
+  "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin/ffmpeg" "$APP/Contents/MacOS/ThirdParty/VLC"
 mkdir -p artifacts
 TEMP_PACKAGE="$(mktemp "$ROOT/artifacts/.tbox-${VERSION}-XXXXXX.zip")"
 trap 'rm -f "$TEMP_PACKAGE"' EXIT

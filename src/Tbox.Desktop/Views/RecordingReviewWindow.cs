@@ -55,6 +55,9 @@ internal sealed class RecordingReviewWindow : Window
             if (await RequestCloseAsync()) await controller.StartRecordingAsync(area);
         }));
         _position.Maximum = Math.Max(1, duration.TotalMilliseconds);
+        foreach (var name in new[] { "SliderTrackValueFill", "SliderTrackValueFillPointerOver", "SliderTrackValueFillPressed",
+            "SliderThumbBackground", "SliderThumbBackgroundPointerOver", "SliderThumbBackgroundPressed" })
+            _position.Resources[name] = Brush.Parse("#F55353");
         var playback = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 12 };
         playback.Children.Add(_play); playback.Children.Add(_position); Grid.SetColumn(_position, 1);
         playback.Children.Add(_time); Grid.SetColumn(_time, 2); playback.Children.Add(_volume); Grid.SetColumn(_volume, 3);

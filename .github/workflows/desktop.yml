@@ -3,9 +3,9 @@ name: Shared desktop checks
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['src/**', 'tests/**', 'global.json', '.github/workflows/desktop.yml']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/desktop.yml']
   pull_request:
-    paths: ['src/**', 'tests/**', 'global.json', '.github/workflows/desktop.yml']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/desktop.yml']
   workflow_dispatch:
 
 permissions:
@@ -29,6 +29,18 @@ jobs:
         run: dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
       - name: Test shared desktop
         run: dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
+      - name: Test Windows playback and exports
+        if: runner.os == 'Windows'
+        run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke src/Tbox.App/ThirdParty/FFmpeg/bin/ffmpeg.exe
+      - name: Prepare macOS media dependencies
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          command -v pkg-config || brew install pkgconf
+          bash scripts/prepare-macos-media.sh
+      - name: Test macOS playback and exports
+        if: runner.os == 'macOS'
+        run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
       - name: Compile macOS system bridge
         if: runner.os == 'macOS'
         shell: bash

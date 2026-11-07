@@ -22,7 +22,9 @@
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />
     <ProjectReference Include="../Tbox.Core/Tbox.Core.csproj" />
     <AvaloniaResource Include="../Tbox.App/Assets/AppIcon.png" Link="Assets/AppIcon.png" />
+    <Content Include="ThirdParty/**" CopyToOutputDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="Tbox.Desktop.Tests" />
+    <InternalsVisibleTo Include="Tbox.MediaSmoke" />
   </ItemGroup>
   <ItemGroup Condition="'$(TboxWindows)' == 'true'">
     <PackageReference Include="ScreenRecorderLib" Version="6.6.0" />
