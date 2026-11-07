@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 
@@ -31,6 +32,22 @@ class WindowsMediaTests(unittest.TestCase):
 
     def test_accepts_matching_artifact(self):
         self.assertEqual(media.verify(self.runtime, self.recipe), self.record)
+
+    def test_windows_git_checkout_preserves_build_recipe_hash(self):
+        repository = Path(__file__).resolve().parents[2]
+        checkout = self.root / 'checkout'
+        subprocess.run(['git', 'init', '-q', str(checkout)], check=True, capture_output=True)
+        def git(*args):
+            subprocess.run(['git', '-C', str(checkout), *args], check=True, capture_output=True)
+        git('config', 'core.autocrlf', 'true')
+        (checkout / '.gitattributes').write_bytes((repository / '.gitattributes').read_bytes())
+        original = repository / 'scripts/prepare-windows-media.sh'
+        copied = checkout / original.name
+        copied.write_bytes(original.read_bytes())
+        git('add', '.')
+        copied.unlink()
+        git('checkout-index', '-f', '--', copied.name)
+        self.assertEqual(media.sha256(copied), media.sha256(original))
 
     def test_rejects_changed_binary_or_recipe(self):
         for path in [self.runtime / 'bin/ffmpeg.exe', self.recipe]:
