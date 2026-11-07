@@ -57,6 +57,7 @@ jobs:
           path: |
             TEMP/folder-smoke/result.json
             TEMP/folder-smoke/tbox.log
+            TEMP/folder-smoke/windows.json
           if-no-files-found: ignore
       - name: Test Windows playback and exports
         if: runner.os == 'Windows'
@@ -87,12 +88,10 @@ jobs:
       - name: Test macOS playback and exports
         if: runner.os == 'macOS'
         run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
-      - name: Compile macOS system bridge
+      - name: Test macOS folder panel ownership and compile system bridge
         if: runner.os == 'macOS'
         shell: bash
-        run: |
-          mkdir -p TEMP
-          swiftc -swift-version 5 -O -emit-library -target "$(uname -m)-apple-macosx14.0" src/Tbox.Desktop/Platform/macos/*.swift -o TEMP/libTboxNative.dylib
+        run: bash tests/macos/test-folder-panel-policy.sh
       - name: Test macOS signing safeguards
         if: runner.os == 'macOS'
         run: bash tests/macos/test-signing-policy.sh

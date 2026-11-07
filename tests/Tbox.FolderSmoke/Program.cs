@@ -61,12 +61,14 @@ internal static class Program
                     foreach (var save in new[] { false, true })
                     {
                         host.Activate();
+                        Focus(host.Handle);
+                        await Task.Delay(100);
                         var title = "Tbox Folder " + Guid.NewGuid().ToString("N");
                         using Forms.FileDialog dialog = save ? new Forms.SaveFileDialog() : new Forms.OpenFileDialog();
                         dialog.Title = title; dialog.InitialDirectory = initial;
                         var marker = $"TBOX_MARKER_{i}";
                         var target = targets[i];
-                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker));
+                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory));
                         dialog.ShowDialog(host);
                         var result = await worker;
                         outcomes.Add(new { kind = save ? "save" : "open", target, result.elapsedMs, markerVerified = true });
@@ -106,7 +108,7 @@ internal static class Program
     }
 
     private static async Task<(long elapsedMs, string marker)> ExerciseDialogAsync(
-        IFolderNavigation navigation, string title, string target, string marker)
+        IFolderNavigation navigation, string title, string target, string marker, string directory)
     {
         nint dialog = 0;
         try
@@ -126,7 +128,29 @@ internal static class Program
             await UntilAsync(() => HasMarker(dialog, marker), "The dialog did not display the target's unique marker.");
             return (clock.ElapsedMilliseconds, marker);
         }
+        catch
+        {
+            var windows = new List<object>();
+            EnumWindows((window, _) =>
+            {
+                GetWindowThreadProcessId(window, out var process);
+                if (process == Environment.ProcessId) windows.Add(WindowInfo(window));
+                return true;
+            }, 0);
+            await File.WriteAllTextAsync(Path.Combine(directory, "windows.json"),
+                JsonSerializer.Serialize(new { target = WindowInfo(dialog), foreground = WindowInfo(GetForegroundWindow()), windows },
+                    new JsonSerializerOptions { WriteIndented = true }));
+            throw;
+        }
         finally { if (dialog != 0) PostMessage(dialog, 0x0010, 0, 0); }
+    }
+
+    private static object WindowInfo(nint window)
+    {
+        var title = new System.Text.StringBuilder(256); GetWindowText(window, title, title.Capacity);
+        var type = new System.Text.StringBuilder(64); GetClassName(window, type, type.Capacity);
+        GetWindowThreadProcessId(window, out var process);
+        return new { handle = window.ToInt64(), process, title = title.ToString(), type = type.ToString(), visible = IsWindowVisible(window) };
     }
 
     private static bool HasMarker(nint dialog, string marker)
@@ -181,6 +205,10 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool PostMessage(nint window, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
+    private delegate bool EnumWindowCallback(nint window, nint parameter);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowCallback callback, nint parameter);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint window, System.Text.StringBuilder text, int maximum);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, System.Text.StringBuilder text, int maximum);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
     [DllImport("user32.dll")] private static extern bool BringWindowToTop(nint window);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();

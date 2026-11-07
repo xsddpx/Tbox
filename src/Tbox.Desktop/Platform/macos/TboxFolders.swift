@@ -34,7 +34,11 @@ public func finderDirectory(_ refresh: Int32) -> UnsafeMutablePointer<CChar>? {
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
         if front || refresh != 0 {
             let application = AXUIElementCreateApplication(finder.processIdentifier)
-            if let window = folderElement(folderAttribute(application, kAXFocusedWindowAttribute)) { lastFinderWindow = window }
+            // Finder may expose only its main window after another app takes
+            // focus. That is its last active window, not an arbitrary AXWindows
+            // entry (which could point at a different Finder tab or window).
+            if let window = folderElement(folderAttribute(application, kAXFocusedWindowAttribute)) ??
+                folderElement(folderAttribute(application, kAXMainWindowAttribute)) { lastFinderWindow = window }
         }
         guard front || refresh != 0, let window = lastFinderWindow else { return response(["observed": false]) }
         for _ in 0..<3 {
@@ -71,30 +75,73 @@ private func panelOwner(_ element: AXUIElement) -> pid_t? {
 private func panelChildren(_ root: AXUIElement, deadline: Date, maximum: Int = 160) -> [AXUIElement] {
     var queue = [root]; var result: [AXUIElement] = []
     while !queue.isEmpty && result.count < maximum && Date() < deadline {
-        let next = queue.removeFirst(); result.append(next)
+        let next = queue.removeFirst()
+        if result.contains(where: { CFEqual($0, next) }) { continue }
+        result.append(next)
         queue.append(contentsOf: (folderAttribute(next, kAXChildrenAttribute) as? [AXUIElement]) ?? [])
     }
     return result
+}
+
+// Keep ownership and ancestor selection independently testable without sending
+// accessibility input or requiring a user's desktop permissions.
+func standardFolderPanelRoot<Node>(_ element: Node, owner: (Node) -> pid_t?,
+    identifier: (Node) -> String?, parent: (Node) -> Node?, window: (Node) -> Node?) -> (Node, pid_t)? {
+    guard let pid = owner(element) else { return nil }
+    var current: Node? = element
+    for _ in 0..<12 {
+        guard let node = current, owner(node) == pid else { break }
+        if let value = identifier(node), value == "open-panel" || value == "save-panel" {
+            return (node, pid)
+        }
+        current = parent(node)
+    }
+    // The remote sheet's AXWindow can refer back to the host application's
+    // window. Do not treat that host window as a file panel.
+    if let candidate = window(element), owner(candidate) == pid {
+        return (candidate, pid)
+    }
+    return nil
+}
+
+private func remoteStandardPanel(_ element: AXUIElement) -> StandardPanel? {
+    guard let (root, pid) = standardFolderPanelRoot(element, owner: panelOwner,
+        identifier: { folderAttribute($0, kAXIdentifierAttribute) as? String },
+        parent: { folderElement(folderAttribute($0, kAXParentAttribute)) },
+        window: { folderElement(folderAttribute($0, kAXWindowAttribute)) }) else { return nil }
+    return StandardPanel(element: root, process: pid)
 }
 
 private func focusedStandardPanel() -> StandardPanel? {
     guard let front = NSWorkspace.shared.frontmostApplication,
           !["com.apple.SecurityAgent", "com.apple.LocalAuthentication.UIAgent", "com.apple.LocalAuthenticationRemoteService"].contains(front.bundleIdentifier ?? "") else { return nil }
     let system = AXUIElementCreateSystemWide()
-    guard let focused = folderElement(folderAttribute(system, kAXFocusedUIElementAttribute)) else { return nil }
-    if let pid = panelOwner(focused), let window = folderElement(folderAttribute(focused, kAXWindowAttribute)) {
-        return StandardPanel(element: window, process: pid)
+    if let focused = folderElement(folderAttribute(system, kAXFocusedUIElementAttribute)),
+       let panel = remoteStandardPanel(focused) {
+        return panel
     }
     // AppKit can expose the host window as a proxy around the remote sheet.
     guard let application = NSWorkspace.shared.frontmostApplication,
           application.bundleIdentifier != "com.apple.SecurityAgent",
           let window = folderElement(folderAttribute(AXUIElementCreateApplication(application.processIdentifier), kAXFocusedWindowAttribute)) else { return nil }
     for element in panelChildren(window, deadline: Date().addingTimeInterval(0.4)) {
-        if let pid = panelOwner(element), let panel = folderElement(folderAttribute(element, kAXWindowAttribute)) {
-            return StandardPanel(element: panel, process: pid)
-        }
+        if let panel = remoteStandardPanel(element) { return panel }
     }
     return nil
+}
+
+// Failure-only metadata helps distinguish an actual panel recognition problem
+// from focus moving before the hotkey finishes. Never log document text/paths.
+private func panelFailureDiagnostic() -> String {
+    let front = NSWorkspace.shared.frontmostApplication
+    var focusedValue: CFTypeRef?
+    let status = AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focusedValue)
+    guard let focused = folderElement(focusedValue) else {
+        return "front=\(front?.bundleIdentifier ?? "none"); focusedError=\(status.rawValue)"
+    }
+    var pid: pid_t = 0; AXUIElementGetPid(focused, &pid)
+    let role = folderAttribute(focused, kAXRoleAttribute) as? String ?? "none"
+    return "front=\(front?.bundleIdentifier ?? "none"); focusedOwner=\(NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "none"); focusedRole=\(role)"
 }
 
 private func stillFocused(_ target: StandardPanel) -> Bool {
@@ -120,7 +167,7 @@ public func folderJump(_ destination: UnsafePointer<CChar>?) -> UnsafeMutablePoi
         return response(["success": false, "message": "目标文件夹不可用。"] )
     }
     guard let target = focusedStandardPanel() else {
-        return response(["success": false, "message": "请先打开系统标准文件选择或保存面板。"] )
+        return response(["success": false, "message": "无法确认当前系统文件面板，未执行跳转。", "diagnostic": panelFailureDiagnostic()] )
     }
     let releaseDeadline = Date().addingTimeInterval(0.3)
     while Date() < releaseDeadline && (CGEventSource.keyState(.hidSystemState, key: CGKeyCode(kVK_Control)) || CGEventSource.keyState(.hidSystemState, key: CGKeyCode(kVK_ANSI_G))) {

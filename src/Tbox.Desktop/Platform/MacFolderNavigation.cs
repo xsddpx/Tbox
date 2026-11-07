@@ -46,13 +46,16 @@ internal sealed class MacFolderNavigation : IFolderNavigation
             return await Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested(); Refresh(true);
-                return MacPlatformServices.ReadJson<FolderNavigationResult>(NativeJump(FolderTargetPolicy.Resolve(CurrentDirectory, _home)));
+                var result = MacPlatformServices.ReadJson<NativeJumpResult>(NativeJump(FolderTargetPolicy.Resolve(CurrentDirectory, _home)));
+                if (!result.Success && result.Diagnostic is not null) Tbox.App.AppLog.Write("Folder navigation: " + result.Diagnostic);
+                return new FolderNavigationResult(result.Success, result.Message);
             }, cancellationToken);
         }
         finally { _gate.Release(); }
     }
     public void Dispose() => Stop();
     private sealed record Observation(bool Observed, string? Path);
+    private sealed record NativeJumpResult(bool Success, string? Message, string? Diagnostic);
     [DllImport("TboxNative", EntryPoint = "tbox_folder_permission")] private static extern int NativePermission();
     [DllImport("TboxNative", EntryPoint = "tbox_enable_elements")] private static extern int NativeRequestPermission();
     [DllImport("TboxNative", EntryPoint = "tbox_finder_directory")] private static extern nint NativeDirectory(int refresh);
