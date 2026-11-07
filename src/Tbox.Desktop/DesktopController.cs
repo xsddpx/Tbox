@@ -346,7 +346,13 @@ public sealed class DesktopController : IDisposable
 
     public async Task CopyAsync(Picture picture)
     {
-        await (Main.Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。")).SetBitmapAsync(picture.Bitmap);
+        var clipboard = Main.Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。");
+        var transfer = new ClipboardImageTransfer(picture.Png);
+        try { await clipboard.SetDataAsync(transfer); }
+        catch { transfer.Dispose(); throw; }
+        // Ownership belongs to the clipboard after SetDataAsync. In particular,
+        // neither this method nor Picture.Dispose may release its deferred image.
+        if (OperatingSystem.IsWindows()) await clipboard.FlushAsync();
         Main.SetStatus("图片已复制。");
     }
 
