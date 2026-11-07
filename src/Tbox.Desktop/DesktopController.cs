@@ -255,42 +255,52 @@ public sealed class DesktopController : IDisposable
     public async Task<Picture> ReadClipboardAsync(bool allowText)
     {
         var clipboard = Main.Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。");
-        Bitmap? candidate = null;
-        try { candidate = await clipboard.TryGetBitmapAsync(); }
-        catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException or InvalidOperationException) { }
-        using var bitmap = candidate;
-        if (bitmap is not null)
+        var sources = new List<Func<Task<Picture?>>>
         {
-            using var output = new MemoryStream(); bitmap.Save(output);
-            return new Picture(output.ToArray());
-        }
-        var files = await clipboard.TryGetFilesAsync();
-        foreach (var file in files?.OfType<IStorageFile>() ?? [])
-        {
-            try
+            async () =>
             {
-                await using var stream = await file.OpenReadAsync();
-                using var image = new Bitmap(stream);
-                using var output = new MemoryStream(); image.Save(output);
+                using var bitmap = await clipboard.TryGetBitmapAsync();
+                if (bitmap is null) return null;
+                using var output = new MemoryStream(); bitmap.Save(output);
                 return new Picture(output.ToArray());
+            },
+            async () =>
+            {
+                var files = await clipboard.TryGetFilesAsync();
+                foreach (var file in files?.OfType<IStorageFile>() ?? [])
+                {
+                    try
+                    {
+                        await using var stream = await file.OpenReadAsync();
+                        using var image = new Bitmap(stream);
+                        using var output = new MemoryStream(); image.Save(output);
+                        return new Picture(output.ToArray());
+                    }
+                    catch (Exception error) when (ClipboardReader.IsUnavailableFormat(error)) { }
+                }
+                return null;
             }
-            catch (Exception e) when (e is ArgumentException or IOException or NotSupportedException) { }
-        }
-        if (allowText && ClipboardPinContentPolicy.NormalizeText(await clipboard.TryGetTextAsync()) is { } text)
-            return RenderText(text);
+        };
+        if (allowText) sources.Add(async () => ClipboardPinContentPolicy.NormalizeText(await clipboard.TryGetTextAsync()) is { } text ? RenderText(text) : null);
+        if (await ClipboardReader.ReadAsync(sources, _stop.Token) is { } result) return result;
         throw new InvalidOperationException(allowText ? "剪贴板中没有可用图片、图片文件或文字。" : "剪贴板中没有可用图片。请先复制图片。");
     }
 
     public static Picture RenderText(string text)
     {
-        if (text.Length > 50_000) throw new InvalidOperationException("文字较长，请分段创建贴图（每段最多 50000 字）。");
+        text = ClipboardPinContentPolicy.NormalizeText(text) ?? throw new ArgumentException("不能创建空白文字贴图。", nameof(text));
+        if (text.Length > 50_000)
+        {
+            var end = char.IsHighSurrogate(text[49_999]) ? 49_999 : 50_000;
+            text = text[..end] + "…";
+        }
         var control = new Border
         {
             Background = Brushes.White, Padding = new Thickness(24), Width = 640,
-            Child = new TextBlock { Text = text, FontSize = 18, Foreground = Brushes.Black, TextWrapping = TextWrapping.Wrap }
+            Child = new TextBlock { Text = text, FontSize = 18, Foreground = Brushes.Black, TextWrapping = TextWrapping.Wrap,
+                MaxHeight = 4048, TextTrimming = TextTrimming.CharacterEllipsis }
         };
         control.Measure(new Size(640, double.PositiveInfinity));
-        if (control.DesiredSize.Height > 12000) throw new InvalidOperationException("文字贴图过高，请分段创建。");
         control.Arrange(new Rect(control.DesiredSize));
         using var image = new RenderTargetBitmap(new PixelSize(1280, (int)Math.Ceiling(control.DesiredSize.Height * 2)), new Vector(192, 192));
         image.Render(control);

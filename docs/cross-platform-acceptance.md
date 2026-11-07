@@ -58,7 +58,7 @@
 | REC-007 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
 | REC-008 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
 | PIN-001 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
-| PIN-002 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
+| PIN-002 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs / Models/ClipboardReader.cs / DesktopController.cs | 格式回退、占用三轮上限、恢复及超长文字画布测试通过；实际剪贴板交互待复验 |
 | PIN-003 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-004 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-005 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
