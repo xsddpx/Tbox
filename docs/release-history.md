@@ -68,3 +68,11 @@
 | 1.1.6 | macOS osx-arm64 | 2026-11-07 22:45:26 +0800 | `1f08576e2b0ce14d1d209ddd1e584f44fa90b0ea02c4469ca6ffa51ce70ac0a3` |
 | 1.1.7 | macOS osx-arm64 | 2026-11-07 23:19:30 +0800 | `afe156f10cdb3b4f24a2915562ac91f03ffbcb1bdc175cc580e7de02cab41dbd` |
 | 1.1.8 | macOS osx-arm64 | 2026-11-07 23:38:29 +0800 | `59da61a76d0efab587b08931a0dc5b282f9e75cc5e8aa74ce6904ea29f934ecc` |
+
+## Windows 共用桌面开发包
+
+持久证书签名，实际安装后已验证系统 OCR 与共用界面启动。完整功能验收另见跨平台验收表。
+
+| 版本 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- |
+| 1.1.8.0 | 2026-11-08 00:25:18 +08:00 | `8480E91620DC7C7DA8E3A0477FE8EA2AE37D56D50959FB3D87DB25E4AA40D857` |
