@@ -30,7 +30,7 @@
 
 2026-11-08：用户确认没有原 Windows PFX；本机及项目相关下载目录未找到可恢复副本，已一次性建立 Windows 持久开发签名身份并存入 Actions Secrets。Windows 指纹为 `10859D3FDA689CC8CCC92143C79DA6CCFCDA5D92`。发布者仍为 `CN=Tbox Development`，旧 Windows 用户需首次信任新的公钥证书；原电脑覆盖升级尚未验证，不能承诺无提示升级。以后不得逐轮生成新证书。
 
-Windows 加密 PFX、原 Mac 身份导出的加密 P12 均备份在本机 `~/Library/Application Support/Tbox/Signing/`，目录权限 0700、私钥包权限 0600；密码保存在登录钥匙串。仅导出匹配 Tbox 指纹的 Mac 身份，没有导出其他钥匙串身份。四个证书 Secrets 和两平台指纹变量已配置；公开发布令牌正在浏览器中等待最后的范围确认。
+Windows 加密 PFX、原 Mac 身份导出的加密 P12 均备份在本机 `~/Library/Application Support/Tbox/Signing/`，目录权限 0700、私钥包权限 0600；密码保存在登录钥匙串。仅导出匹配 Tbox 指纹的 Mac 身份，没有导出其他钥匙串身份。四个证书 Secrets 和两平台指纹变量已配置；公开发布令牌也已配置。用户先要求 10 年，GitHub 自定义期限上限为 1 年，经用户再次选择后改为不设到期时间，可随时撤销。令牌 `Tbox Release Publisher` 仅授权 `xsddpx/Tbox-releases` 的 Contents Read and write 与必要的 Metadata Read-only，没有账号权限；真实 API 验证可访问公开下载仓库、无法访问私有源码仓库。令牌仅保存到私有仓库的 `TBOX_RELEASE_TOKEN` Secret，临时明文文件已删除。管理入口为 https://github.com/settings/personal-access-tokens/22557510 。
 
 当前本机 Mac 指纹为 `FA0F60B5D7C8EE3DCFE356A0D564F8F0B1BE2EE6`。只传同一个身份，不重新生成证书。不能把本机 `gh` 的广泛账号令牌直接保存为发布 Secret。
 
@@ -64,8 +64,8 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 python3 -m unittest discover -s tests/release -v
 ```
 
-现有双平台 CI 也运行这些测试，提交 `46a8da0` 的 [双平台检查](https://github.com/xsddpx/Tbox/actions/runs/42389041205) 全部通过。临时变量 `TBOX_VERIFY_SIGNING=true` 可在当前迁移分支的推送中启用证书导入、实际签名、验签和指纹核对：Windows 使用独立包身份的 MSIX 夹具，Mac 签名隔离的系统可执行文件副本，不生成 Tbox 安装包，PR 不获得证书；验证完成后关闭该变量。签名私钥与指纹已配置，公开仓库发布令牌仍待生成；签名的云端独立夹具检查已接入，故**尚未执行真实签名自动发布**；离线测试或未签名 MSIX 验证不代表首次发布完成。当前跨平台迁移分支仍未合入 main，工作流会随该需求合并后启用。
+现有双平台 CI 也运行这些测试，提交 `46a8da0` 的 [双平台检查](https://github.com/xsddpx/Tbox/actions/runs/42389041205) 全部通过。临时变量 `TBOX_VERIFY_SIGNING=true` 可在当前迁移分支的推送中启用证书导入、实际签名、验签和指纹核对：Windows 使用独立包身份的 MSIX 夹具，Mac 签名隔离的系统可执行文件副本，不生成 Tbox 安装包，PR 不获得证书；验证完成后关闭该变量。签名私钥与指纹已配置，公开仓库发布令牌也已配置；签名的云端独立夹具检查通过。不过**尚未执行真实签名自动发布**；离线测试或未签名 MSIX 验证不代表首次发布完成。当前跨平台迁移分支仍未合入 main，工作流会随该需求合并后启用。
 
 事件与 runner 的选择依据 [GitHub Release 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)、[托管 runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)；上传校验使用 [Release assets API](https://docs.github.com/en/rest/releases/assets) 的 `size`、`state`、`digest`。
 
-首次云端签名检查发现并修正两处集成差异：Mac `codesign` 的证书导出前缀需使用等号参数；Windows MSIX 需使用本地计算机的 TrustedPeople 信任，并以独立 MSIX 夹具验证包签名策略，不用普通 PE 文件代替。Windows 信任位置依据 [Microsoft 包签名证书说明](https://learn.microsoft.com/windows/msix/package/create-certificate-package-signing)，从未将开发证书加入根证书颁发机构。修复后重新运行云端签名检查。
+首次云端签名检查发现并修正两处集成差异：Mac `codesign` 的证书导出前缀需使用等号参数；Windows MSIX 需使用本地计算机的 TrustedPeople 信任，并以独立 MSIX 夹具验证包签名策略，不用普通 PE 文件代替。Windows 信任位置依据 [Microsoft 包签名证书说明](https://learn.microsoft.com/windows/msix/package/create-certificate-package-signing)，从未将开发证书加入根证书颁发机构。修复后的 [完整 CI](https://github.com/xsddpx/Tbox/actions/runs/42390103544) 已通过：两平台 95 项核心、96 项桌面和 20 项发布事务测试、媒体验证、Windows MSIX 结构检查，以及两平台实际证书导入、签名、验签和指纹核对。Windows 签名夹具使用独立的 `Tbox.SigningFixture` 包身份，未安装为 Tbox、未作为下载产物发布。验证后已将 `TBOX_VERIFY_SIGNING` 关闭。
