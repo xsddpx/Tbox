@@ -8,6 +8,8 @@ Mac 1.1.8 真实动态有声录屏：通过截图选区进入录屏，选 25 FPS
 
 Mac 重新打开修复（1.1.9）：关闭主窗口使其隐藏后，通过 Finder 的“打开”恢复同一进程的主窗口；最小化后重新打开亦恢复。6 项回归覆盖隐藏、最小化、普通激活和退出中的排队事件。覆盖安装后进程 88185 的屏幕授权、3024×1964 取帧均通过，未重新申请权限。唯一安装包哈希已登记；界面及独立进程证据在本地 `TEMP/reopen-real-test/1.1.9/`。Windows 原生取帧检查已接入安装验收，将单独记录实际结果。
 
+Mac 重录与动画导出（1.1.9，2026-11-08）：真实录屏回放点击“重新录制”，确认放弃后回到同一选区的待录制控制条；再次录制默认为 MP4，改选 WebP，通过系统保存面板导出成功。结果 400×250、8791 ms、18 个不同画面、无限循环，未放大；母版关闭后从 Finder 重新打开恢复主窗口，进程仍为 88185，屏幕授权和取帧正常。证据在本地 `TEMP/recording-real-test/1.1.9/analysis.json`、`dynamic-rerecorded.webp`、`after-save-reopened.png`。导出取消、错误重试及 Windows 真实录制仍待验收。
+
 历史阶段共用桌面测试为 56 项（UI 2.0 移除 6 项旧搜索用例，增加 2 项浅深配色对比度用例，Windows 升级增加 7 项设置迁移测试）；保留剪贴板回退、受限重试、超长文字画布及模块热键回滚验证。提交 `b74fa61` 的 [两平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42377475447) 已通过 95 核心 + 36 桌面测试及实际媒体解码/导出。文件夹适配与热键模块开关在提交 `15572d0` 的双平台 CI 通过（95 核心 + 39 桌面）；仍待实机文件面板验收。
 
 媒体集成证据（2026-11-07，本机 Apple Silicon）：`Tbox.MediaSmoke` 对库内合成视频实际解码 36 次输出回调；GIF 导出 24 帧、2000 ms；WebP 导出 20 个合并帧、1999 ms，循环且不放大 320×240；MP4 复制哈希相同。此检查已接入 CI；不验证实际系统采集、音频、原生视频窗口或安装授权。
@@ -75,23 +77,23 @@ Mac 1.1.6 已生成唯一 ZIP、覆盖安装并独立启动（进程 53695）。
 | OCR-005 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
 | OCR-006 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
 | OCR-007 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
-| REC-001 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
-| REC-002 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
-| REC-003 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
-| REC-004 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
-| REC-005 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
-| REC-006 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
-| REC-007 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
-| REC-008 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-001 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 1.1.8/1.1.9 从截图选区进入独立控制、停止回放通过；Windows 系统采集待验收 |
+| REC-002 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 默认 10 FPS、切换 25 FPS、暂停冻结/继续/停止通过；边框排除、所有帧率及 Windows 待复验 |
+| REC-003 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 25 FPS、400×250 动态 H.264 与系统 AAC 测试音通过；音频降级、指针及 Windows 待验收 |
+| REC-004 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 动态回放、元数据、暂停与有效时长通过；全部快捷键及 Windows 原生回放待验收 |
+| REC-005 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 重录后默认 MP4、切换 GIF/WebP 通过；Windows 实际格式交互待验收 |
+| REC-006 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 实际 GIF、WebP、MP4 保存已验证；MP4 有声，WebP 循环且不放大；大尺寸及 Windows 实采导出待验收 |
+| REC-007 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 自动化文件保护/取消测试通过；实际转换保存通过；实际取消、失败恢复待验收 |
+| REC-008 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 放弃确认、重录、保存后进程存活且重新打开主窗通过；实际异常路径及 Windows 待验收 |
 | PIN-001 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-002 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs / Models/ClipboardReader.cs / DesktopController.cs | 格式回退、占用三轮上限、恢复及超长文字画布测试通过；实际剪贴板交互待复验 |
 | PIN-003 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-004 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
-| PIN-005 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
+| PIN-005 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | Mac 图片复制后关闭来源，跨应用粘贴尺寸及像素一致、未崩溃；标注提交与其他菜单交互待复验 |
 | PIN-006 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-007 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-008 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
-| APP-001 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
+| APP-001 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | Mac 1.1.9 隐藏与最小化后从 Finder 重新打开恢复既有主窗口、进程不变；Windows 实际重复启动待验收 |
 | APP-002 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
 | APP-003 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；1.1.5 已移除搜索，Mac 页面导航与图片 OCR 通过；启动注册及其他交互待实机验收 |
 | APP-004 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
