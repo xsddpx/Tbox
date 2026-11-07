@@ -153,8 +153,10 @@ internal sealed class CaptureSession
             : AnnotationRenderer.Render(window.Picture, region, window.Editor.Document.Commands);
         var annotations = action == CaptureAction.Pin ? window.Editor.Document.Commands
             .Select(command => AnnotationTransform.Translate(command, -region.Left, -region.Top)).ToArray() : [];
+        var ocrSource = action == CaptureAction.Ocr ? OcrWindowSource.FromWindow(window,
+            window.Surface.PointToScreen(new Point(selection.Left + selection.Width / 2, selection.Top + selection.Height / 2))) : null;
         Close(false);
-        _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations));
+        _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations, ocrSource));
     }
 
     public void Cancel() { State.Cancel(); Close(true); }

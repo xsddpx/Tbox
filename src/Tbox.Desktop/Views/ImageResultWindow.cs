@@ -12,7 +12,7 @@ internal sealed class ImageResultWindow : Window
     public ImageResultWindow(DesktopController controller, Picture picture, bool fullScreen)
     {
         Ui.Configure(this, "Tbox 图片预览", 900, 700);
-        var actions = Ui.Row(Ui.Button("识别文字", () => controller.ShowOcr(picture, false)),
+        var actions = Ui.Row(Ui.Button("识别文字", () => controller.ShowOcr(picture, false, OcrWindowSource.FromWindow(this))),
             Ui.Button("贴图", () => controller.Run(() => controller.PinPictureAsync(picture))),
             Ui.Button("保存", () => controller.Run(() => controller.SaveAsync(picture, this))),
             Ui.Button("复制", () => controller.Run(() => controller.CopyAsync(picture))), Ui.Button("关闭", Close));

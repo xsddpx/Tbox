@@ -64,6 +64,34 @@ public sealed class OcrWindow : Window
         Closed += (_, _) => { _requests.Dispose(); _original.Source = null; _picture?.Dispose(); };
     }
 
+    internal void Present(bool topmost, OcrWindowSource? source)
+    {
+        Topmost = topmost;
+        var maximized = WindowState == WindowState.Maximized;
+        if (WindowState == WindowState.Minimized || (maximized && source is not null)) WindowState = WindowState.Normal;
+        if (source is not null)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            PlaceAtSource(source);
+        }
+        Show();
+        // Decorations and desktop scaling are authoritative once the native
+        // window is shown on the source display. Include the title bar in bounds.
+        if (source is not null) PlaceAtSource(source);
+        if (maximized) WindowState = WindowState.Maximized;
+        Activate();
+    }
+
+    private void PlaceAtSource(OcrWindowSource source)
+    {
+        var frame = FrameSize ?? ClientSize;
+        var decoration = new Size(Math.Max(0, frame.Width - ClientSize.Width), Math.Max(0, frame.Height - ClientSize.Height));
+        var placement = source.Fit(new Size(Width, Height), decoration);
+        MinWidth = Math.Min(460, placement.ClientSize.Width); MinHeight = Math.Min(360, placement.ClientSize.Height);
+        Width = placement.ClientSize.Width; Height = placement.ClientSize.Height;
+        Position = placement.Position;
+    }
+
     public async void Recognize(Picture picture)
     {
         var operation = _requests.Begin();

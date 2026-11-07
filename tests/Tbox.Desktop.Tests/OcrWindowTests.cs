@@ -8,12 +8,106 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tbox.Desktop.Platform;
 using Tbox.Desktop.Views;
+using Tbox.Core;
+using Tbox.Desktop.Models;
 using Xunit;
 
 namespace Tbox.Desktop.Tests;
 
 public sealed class OcrWindowTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1.25)]
+    [InlineData(1.5)]
+    [InlineData(2)]
+    public void PlacementKeepsLogicalDefaultSizeOnScaledNegativeCoordinateDisplay(double scale)
+    {
+        var source = new OcrWindowSource(new PixelRect(-3840, -2160, 3840, 2160), new PixelPoint(-3000, -1500), scale);
+        var result = source.Fit(new Size(800, 600), new Size(16, 38));
+        Assert.Equal(new Size(800, 600), result.ClientSize);
+        var outer = new PixelRect(result.Position, new PixelSize((int)Math.Ceiling(816 * scale), (int)Math.Ceiling(638 * scale)));
+        Assert.True(source.WorkArea.Contains(outer));
+        Assert.True(result.Position.X < 0); Assert.True(result.Position.Y < 0);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(1.25)]
+    [InlineData(1.5)]
+    [InlineData(2)]
+    public void SmallWorkAreaIncludesTitleBarWhenShrinkingAndClamping(double scale)
+    {
+        var source = new OcrWindowSource(new PixelRect(-700, 50, 600, 400), new PixelPoint(1000, 1000), scale);
+        var result = source.Fit(new Size(800, 600), new Size(16, 38));
+        Assert.Equal(600 / scale - 16, result.ClientSize.Width, 6);
+        Assert.Equal(400 / scale - 38, result.ClientSize.Height, 6);
+        Assert.Equal(source.WorkArea.Position, result.Position);
+    }
+
+    [AvaloniaFact]
+    public void ReusedResultMovesToNewSourceAndRetainsUserSizeAndTopmostChoice()
+    {
+        using var fixture = new Fixture();
+        var left = new OcrWindowSource(new PixelRect(-1920, 0, 1920, 1040), new PixelPoint(-1800, 80), 1);
+        var window = fixture.Open(source: left);
+        Assert.True(left.WorkArea.Contains(new PixelRect(window.Position, new PixelSize(800, 600))));
+        Assert.False(window.Topmost);
+        window.Width = 700; window.Height = 500;
+        var above = new OcrWindowSource(new PixelRect(0, -1200, 1920, 1160), new PixelPoint(1850, -100), 1);
+        Assert.Same(window, fixture.Open(topmost: true, source: above));
+        Assert.Equal(700, window.Width); Assert.Equal(500, window.Height);
+        Assert.True(above.WorkArea.Contains(new PixelRect(window.Position, new PixelSize(700, 500))));
+        Assert.True(window.Topmost);
+        window.WindowState = WindowState.Maximized;
+        fixture.Open(source: left);
+        Assert.Equal(WindowState.Maximized, window.WindowState);
+        Assert.False(window.Topmost);
+    }
+
+    [AvaloniaFact]
+    public void SourceCoordinatesRemainAvailableAfterTheCaptureWindowCloses()
+    {
+        var sourceWindow = new Window { Width = 600, Height = 400, WindowStartupLocation = WindowStartupLocation.Manual };
+        sourceWindow.Show(); sourceWindow.Position = new PixelPoint(240, 120);
+        var selectedCenter = sourceWindow.PointToScreen(new Point(100, 150));
+        var source = OcrWindowSource.FromWindow(sourceWindow, selectedCenter);
+        sourceWindow.Close();
+        Assert.NotNull(source);
+        Assert.Equal(selectedCenter, source.Center);
+        var placement = source.Fit(new Size(800, 600), default);
+        Assert.True(source.WorkArea.Contains(new PixelRect(placement.Position,
+            new PixelSize((int)Math.Ceiling(placement.ClientSize.Width * source.DesktopScaling),
+                (int)Math.Ceiling(placement.ClientSize.Height * source.DesktopScaling)))));
+    }
+
+    [AvaloniaFact]
+    public void PinRecognitionUsesOriginalPixelsAndKeepsPinPositionAndAnnotations()
+    {
+        using var fixture = new Fixture();
+        byte[]? recognized = null;
+        fixture.Platform.Recognizer = (png, _) => { recognized = png.ToArray(); return Task.FromResult(new RecognitionResult("原图识别", [])); };
+        using var picture = DesktopController.RenderText("原图内容");
+        var pin = new PinnedWindow(fixture.Controller, new Picture(picture.Png));
+        pin.Show(); pin.Position = new PixelPoint(300, 100);
+        var position = pin.Position; var size = pin.ClientSize;
+        pin.Editor.Select(AnnotationTool.Arrow);
+        pin.Editor.Begin(new AnnotationPoint(1, 1), false); pin.Editor.End(new AnnotationPoint(60, 30), false);
+        var command = Assert.Single(pin.Editor.Document.Commands);
+        try
+        {
+            pin.Recognize();
+            Assert.NotNull(recognized);
+            using var received = new Picture(recognized);
+            Assert.Equal(picture.GetPixels(), received.GetPixels());
+            Assert.Equal(position, pin.Position); Assert.Equal(size, pin.ClientSize); Assert.True(pin.IsVisible);
+            Assert.Same(command, Assert.Single(pin.Editor.Document.Commands));
+            Assert.Equal(AnnotationTool.Arrow, pin.Editor.Tool);
+            Assert.True(Assert.Single(fixture.Lifetime.Windows.OfType<OcrWindow>()).Topmost);
+        }
+        finally { pin.Close(); }
+    }
+
     [AvaloniaTheory]
     [InlineData(460, 360)]
     [InlineData(800, 600)]
@@ -130,10 +224,10 @@ public sealed class OcrWindowTests
             Controller = new DesktopController(Platform, Lifetime);
             Controller.Main = new MainWindow(Controller);
         }
-        public OcrWindow Open(bool topmost = false)
+        public OcrWindow Open(bool topmost = false, OcrWindowSource? source = null)
         {
             using var picture = DesktopController.RenderText("测试原图");
-            Controller.ShowOcr(picture, topmost);
+            Controller.ShowOcr(picture, topmost, source);
             var result = Assert.Single(Lifetime.Windows.OfType<OcrWindow>());
             Layout(result); return result;
         }

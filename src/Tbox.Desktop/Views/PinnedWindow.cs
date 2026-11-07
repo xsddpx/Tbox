@@ -115,7 +115,7 @@ public sealed class PinnedWindow : Window
 
     public void Recognize()
     {
-        using var original = Picture.Crop(Region); _controller.ShowOcr(original, true);
+        using var original = Picture.Crop(Region); _controller.ShowOcr(original, true, OcrWindowSource.FromWindow(this));
     }
 
     public void Crop(Point start, Point end)

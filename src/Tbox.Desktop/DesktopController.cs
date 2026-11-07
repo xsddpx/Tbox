@@ -223,7 +223,7 @@ public sealed class DesktopController : IDisposable
     }
 
     public async Task CompleteCaptureAsync(Picture picture, DesktopPlacement placement, CaptureAction action,
-        IReadOnlyList<AnnotationCommand>? annotations = null)
+        IReadOnlyList<AnnotationCommand>? annotations = null, OcrWindowSource? ocrSource = null)
     {
         using (picture)
         {
@@ -231,7 +231,7 @@ public sealed class DesktopController : IDisposable
             if (action == CaptureAction.Pin) Pin(new Picture(picture.Png) { CachePath = picture.CachePath }, placement, annotations);
             if (action == CaptureAction.Copy) await CopyAsync(picture);
             if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
-            if (action == CaptureAction.Ocr) ShowOcr(picture, false);
+            if (action == CaptureAction.Ocr) ShowOcr(picture, false, ocrSource);
             CaptureHistory.Remember(placement);
         }
     }
@@ -337,7 +337,7 @@ public sealed class DesktopController : IDisposable
         ShowOcr(picture, false);
     }
 
-    public void ShowOcr(Picture picture, bool topmost)
+    public void ShowOcr(Picture picture, bool topmost, OcrWindowSource? source = null)
     {
         if (!_settings.ScreenPasteEnabled || IsQuitting) return;
         if (_ocr is null)
@@ -345,9 +345,7 @@ public sealed class DesktopController : IDisposable
             _ocr = new OcrWindow(this);
             _ocr.Closed += (_, _) => _ocr = null;
         }
-        _ocr.Topmost = topmost;
-        if (_ocr.WindowState == WindowState.Minimized) _ocr.WindowState = WindowState.Normal;
-        _ocr.Show(); _ocr.Activate();
+        _ocr.Present(topmost, source ?? (Main.IsVisible ? OcrWindowSource.FromWindow(Main) : null));
         _ocr.Recognize(new Picture(picture.Png));
     }
 
