@@ -24,15 +24,30 @@ try {
     $public = Join-Path $env:RUNNER_TEMP 'tbox-public.cer'
     Export-Certificate -Cert $signer[0] -FilePath $public | Out-Null
     # Trust only this leaf certificate on the disposable runner; never install a root CA.
-    $trusted = @(Import-Certificate -FilePath $public -CertStoreLocation Cert:\CurrentUser\TrustedPeople)
+    $trusted = @(Import-Certificate -FilePath $public -CertStoreLocation Cert:\LocalMachine\TrustedPeople)
     if ($VerifyIdentityOnly) {
         $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
             Sort-Object { try { [Version]$_.Name } catch { [Version]'0.0' } } -Descending |
             ForEach-Object { Join-Path $_.FullName 'x64\signtool.exe' } |
             Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
         if (-not $signTool) { throw 'Windows SDK SignTool is required.' }
-        $fixture = Join-Path $env:RUNNER_TEMP 'tbox-signing-fixture.exe'
-        Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\where.exe') -Destination $fixture
+        # MSIX uses package trust policy; a PE file would require different root
+        # trust and would not validate the TrustedPeople installation contract.
+        $makeAppx = Join-Path (Split-Path $signTool -Parent) 'makeappx.exe'
+        $layout = Join-Path $env:RUNNER_TEMP 'tbox-signing-fixture'
+        New-Item -ItemType Directory -Path (Join-Path $layout 'Assets') -Force | Out-Null
+        $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+        Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\where.exe') -Destination (Join-Path $layout 'Tbox.Desktop.exe')
+        foreach ($asset in 'StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png') {
+            Copy-Item -LiteralPath (Join-Path $root "src\Tbox.App\Assets\$asset") -Destination (Join-Path $layout 'Assets')
+        }
+        [xml]$manifest = Get-Content -LiteralPath (Join-Path $root 'src\Tbox.Desktop\Platform\windows\Package.appxmanifest') -Raw
+        $manifest.Package.Identity.Name = 'Tbox.SigningFixture'
+        $manifest.Package.Identity.Version = '1.0.0.0'
+        $manifest.Save((Join-Path $layout 'AppxManifest.xml'))
+        $fixture = Join-Path $env:RUNNER_TEMP 'tbox-signing-fixture.msix'
+        & $makeAppx pack /d $layout /p $fixture /h SHA256
+        if ($LASTEXITCODE -ne 0) { throw 'Fixture packaging failed.' }
         & $signTool sign /sha1 $signer[0].Thumbprint /fd SHA256 $fixture
         if ($LASTEXITCODE -ne 0) { throw 'Fixture signing failed.' }
         & $signTool verify /pa /v $fixture
@@ -53,6 +68,6 @@ try {
     & "$PSScriptRoot/../package-desktop-windows.ps1" -CertificateThumbprint $signer[0].Thumbprint -TimestampUrl 'http://timestamp.digicert.com'
 } finally {
     Remove-Item -LiteralPath $pfx -Force -ErrorAction SilentlyContinue
-    foreach ($certificate in $trusted) { Remove-Item -LiteralPath "Cert:\CurrentUser\TrustedPeople\$($certificate.Thumbprint)" -Force -ErrorAction SilentlyContinue }
+    foreach ($certificate in $trusted) { Remove-Item -LiteralPath "Cert:\LocalMachine\TrustedPeople\$($certificate.Thumbprint)" -Force -ErrorAction SilentlyContinue }
     foreach ($certificate in $certificates) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -Force -ErrorAction SilentlyContinue }
 }

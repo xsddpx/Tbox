@@ -42,6 +42,6 @@ else
 fi
 # Check the actual signer as well as the imported identity.
 CERT_DIR="$(mktemp -d "$RUNNER_TEMP/tbox-signer.XXXXXX")"
-codesign -d --extract-certificates "$CERT_DIR/cert" "$TARGET"
+codesign -d "--extract-certificates=$CERT_DIR/cert" "$TARGET"
 ACTUAL="$(openssl x509 -inform DER -in "$CERT_DIR/cert0" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')"
 [[ "$(printf '%s' "$ACTUAL" | tr 'a-f' 'A-F')" == "$(printf '%s' "$TBOX_MAC_CERT_SHA1" | tr 'a-f' 'A-F')" ]] || { echo 'Bundle signer mismatch.' >&2; exit 1; }

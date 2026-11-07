@@ -34,7 +34,7 @@ Windows 加密 PFX、原 Mac 身份导出的加密 P12 均备份在本机 `~/Lib
 
 当前本机 Mac 指纹为 `FA0F60B5D7C8EE3DCFE356A0D564F8F0B1BE2EE6`。只传同一个身份，不重新生成证书。不能把本机 `gh` 的广泛账号令牌直接保存为发布 Secret。
 
-Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书，并把对应叶证书放入当前用户“受信任人”，结束后删除。Mac 使用一次性钥匙串，结束后删除；不清空用户设备授权、不修改系统根证书信任。
+Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书，并把对应叶证书放入本地计算机“受信任人”（LocalMachine\TrustedPeople），结束后删除。Mac 使用一次性钥匙串，结束后删除；不清空用户设备授权、不修改系统根证书信任。
 
 `GITHUB_TOKEN` 只用于源码仓库的读取与发布记录分支。跨仓库上传使用单独的受限令牌；这是因为内置令牌的仓库范围有限，见 [GitHub 官方认证说明](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)。
 
@@ -64,6 +64,8 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 python3 -m unittest discover -s tests/release -v
 ```
 
-现有双平台 CI 也运行这些测试，提交 `46a8da0` 的 [双平台检查](https://github.com/xsddpx/Tbox/actions/runs/42389041205) 全部通过。临时变量 `TBOX_VERIFY_SIGNING=true` 可在当前迁移分支的推送中启用证书导入、实际签名、验签和指纹核对：仅签名隔离的系统可执行文件副本，不生成 Tbox 安装包，PR 不获得证书；验证完成后关闭该变量。签名私钥与指纹已配置，公开仓库发布令牌仍待生成；签名的云端独立夹具检查已接入，故**尚未执行真实签名自动发布**；离线测试或未签名 MSIX 验证不代表首次发布完成。当前跨平台迁移分支仍未合入 main，工作流会随该需求合并后启用。
+现有双平台 CI 也运行这些测试，提交 `46a8da0` 的 [双平台检查](https://github.com/xsddpx/Tbox/actions/runs/42389041205) 全部通过。临时变量 `TBOX_VERIFY_SIGNING=true` 可在当前迁移分支的推送中启用证书导入、实际签名、验签和指纹核对：Windows 使用独立包身份的 MSIX 夹具，Mac 签名隔离的系统可执行文件副本，不生成 Tbox 安装包，PR 不获得证书；验证完成后关闭该变量。签名私钥与指纹已配置，公开仓库发布令牌仍待生成；签名的云端独立夹具检查已接入，故**尚未执行真实签名自动发布**；离线测试或未签名 MSIX 验证不代表首次发布完成。当前跨平台迁移分支仍未合入 main，工作流会随该需求合并后启用。
 
 事件与 runner 的选择依据 [GitHub Release 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)、[托管 runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)；上传校验使用 [Release assets API](https://docs.github.com/en/rest/releases/assets) 的 `size`、`state`、`digest`。
+
+首次云端签名检查发现并修正两处集成差异：Mac `codesign` 的证书导出前缀需使用等号参数；Windows MSIX 需使用本地计算机的 TrustedPeople 信任，并以独立 MSIX 夹具验证包签名策略，不用普通 PE 文件代替。Windows 信任位置依据 [Microsoft 包签名证书说明](https://learn.microsoft.com/windows/msix/package/create-certificate-package-signing)，从未将开发证书加入根证书颁发机构。修复后重新运行云端签名检查。
