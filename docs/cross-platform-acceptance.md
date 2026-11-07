@@ -1,5 +1,9 @@
 # 跨平台逐项验收表
 
+1.1.13 两平台 CI 与 Windows 安装验收全部通过：[运行 42402478448](https://github.com/xsddpx/Tbox/actions/runs/42402478448)，应用提交 `aec6414`。Windows 持久签名 MSIX 已实际安装，系统 OCR、像素裁剪、界面渲染、单显示器实际取帧通过；320×240/10 FPS 录屏的解码时长为 3.9 秒，74 次播放回调中红蓝各 37、暂停绿色 0，GIF/WebP 导出和 MP4 原样保存通过，未测试系统声音。下载的 108744413 字节 MSIX 与云端 SHA-256 一致，已登记发布历史；结果在 `TEMP/windows-installed/1.1.13/verification/`。Mac 实际文件夹跳转仍待用户完成更新后的前台热键复验，当前没有公开 Release。
+
+Windows 共用文件夹导航已通过 [CI 42402478448](https://github.com/xsddpx/Tbox/actions/runs/42402478448)：前台 Explorer 跟踪两处含中文、空格且末级名称相同的路径，四次真实打开/保存面板均显示各自唯一目录标记，耗时 1473/165/842/155 ms；普通文本窗口保持原内容，模块停止及恢复通过。结果在 `TEMP/folder-smoke-ci/42402478448/result.json`。此前三次失败来自夹具窗口未完成加载/前台切换，修正夹具后通过，没有改动 Windows 生产导航逻辑。该验证已加入正式 Release 的签名打包前置检查；不覆盖全局热键、Explorer 多标签切换或旧用户设备升级。
+
 1.1.13 Mac 文件面板识别调整已打包并固定路径覆盖安装：新增 7 项纯原生归属回归，验证远程面板与宿主窗口分离、不同提供者拒绝及父级循环边界；95 核心、111 桌面和 34 发布检查通过，包内 OCR、像素裁剪、媒体播放与三格式导出通过。进程 37490 的屏幕权限和 3024×1964 实际取帧通过，证据在 `TEMP/install-verification/1.1.13/permission.json`。辅助功能授权在 1.1.12 → 1.1.13 后仍被应用识别，没有重新申请；实际目录导航继续复验，不能以这些回归代替真实面板通过。Windows 第三轮 42401986309 仍未通过夹具的文件面板前台等待，尚未调用导航；继续补充宿主窗口焦点和失败窗口元数据。
 
 2026-11-08 文件夹集成验收：新增 `tests/Tbox.FolderSmoke`，仅允许一次性 GitHub Windows runner 执行，调用共用平台工厂和正式文件夹适配层，验证两处同名目录下四次真实打开/保存跳转、唯一内容标记、普通输入窗口保护及模块停止/恢复。已通过本机 Windows 目标编译；首轮 CI 42401130718 在目录跟踪处超时。夹具补充目录加载完成后的实际离开/返回窗口动作后，第二轮 42401625717 的 Explorer 跟踪成功，但在文件面板创建尚未完成时尝试聚焦失败；继续改为等待系统模态面板可见并取得前台，再调用导航，原生复验待记录。
@@ -54,11 +58,11 @@ Mac 1.1.6 已生成唯一 ZIP、覆盖安装并独立启动（进程 53695）。
 
 | ID | 原状态 | 原平台源码证据（src/Tbox.App，另注除外） | 共用/目标平台入口（src/Tbox.Desktop，另注除外） | 迁移验收 |
 | --- | --- | --- | --- | --- |
-| FJ-001 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 复用原逻辑；Mac 观察选中 Finder 窗口；待实机复验 |
-| FJ-002 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Ctrl+G 已接入，Mac 只允许标准文件面板；待实机复验 |
+| FJ-001 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 云端真实两目录跟踪通过，多标签仍待复验；Mac 待实机复验 |
+| FJ-002 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 四次实际打开/保存导航通过，全局热键未覆盖；Mac 标准面板复验中 |
 | FJ-003 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 复用原重试；Mac 不稳定标题保留旧路径；待实机复验 |
 | FJ-004 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Core/FolderTargetPolicy.cs | 两端共用目录校验和主目录回退；待实机复验 |
-| FJ-005 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | 导航结果校验已接入，Mac 面板属性仍需实际验证 |
+| FJ-005 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 中文同名目录与唯一内容标记验证通过；Mac 面板属性仍需实际验证 |
 | FJ-006 | 待实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 原基线待实现；不因迁移新增 |
 | FJ-007 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/macos/TboxFolders.swift | 已限定系统文件面板提供者；实际识别待验收 |
 | CAP-001 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/CaptureSession.cs / Views/CaptureWindow.cs | 待逐项复验 |

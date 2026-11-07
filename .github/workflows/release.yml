@@ -86,6 +86,19 @@ jobs:
         with:
           name: windows-media-runtime
           path: TEMP/media-runtime/windows
+      - name: Verify Explorer and native file dialogs
+        timeout-minutes: 5
+        run: dotnet run --project tests/Tbox.FolderSmoke/Tbox.FolderSmoke.csproj -c Release -- TEMP/folder-smoke
+      - name: Preserve native folder verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-folder-verification
+          path: |
+            TEMP/folder-smoke/result.json
+            TEMP/folder-smoke/tbox.log
+            TEMP/folder-smoke/windows.json
+          if-no-files-found: ignore
       - name: Sign, package, install and verify Windows
         shell: powershell
         env:
