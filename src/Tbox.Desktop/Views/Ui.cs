@@ -29,11 +29,22 @@ internal static class Ui
         foreach (var item in items) row.Children.Add(item);
         return row;
     }
-    public static Border Card(Control content) => new()
+    public static Border Card(Control content)
     {
-        Child = content, Padding = new Thickness(20), CornerRadius = new CornerRadius(8),
-        BorderThickness = new Thickness(1), BorderBrush = Brush.Parse("#40625E5A"), Margin = new Thickness(0, 0, 0, 12)
-    };
+        var card = new Border
+        {
+            Child = content, Padding = new Thickness(16), CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(1)
+        };
+        void Update()
+        {
+            var dark = card.ActualThemeVariant == ThemeVariant.Dark;
+            card.Background = Brush.Parse(dark ? "#292929" : "#FFFEFC");
+            card.BorderBrush = Brush.Parse(dark ? "#414141" : "#DED9D4");
+        }
+        card.ActualThemeVariantChanged += (_, _) => Update(); Update();
+        return card;
+    }
     public static void Configure(Window window, string title, int width, int height)
     {
         window.Title = title;

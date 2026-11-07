@@ -63,6 +63,7 @@ public sealed class MacPlatformServices : IPlatformServices
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) => NativeCaptureOverlay(handle, clickThrough ? 1 : 0);
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new MacRegionRecorder(area, systemAudio, framesPerSecond);
     public IFolderNavigation CreateFolderNavigation() => new MacFolderNavigation();
+    public IStartupRegistration CreateStartupRegistration() => new MacStartupRegistration();
 
     public void Dispose()
     {

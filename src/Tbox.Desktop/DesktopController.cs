@@ -21,6 +21,7 @@ public sealed class DesktopController : IDisposable
     private readonly JsonSettingsStore _settingsStore;
     private readonly CancellationTokenSource _stop = new();
     private readonly IFolderNavigation _folders;
+    private readonly IStartupRegistration _startup;
     private readonly HotkeyConfiguration _hotkeys;
     private readonly SemaphoreSlim _moduleChanges = new(1);
     private readonly List<PinnedWindow> _pins = [];
@@ -44,15 +45,18 @@ public sealed class DesktopController : IDisposable
     public string FolderDirectory => _folders.CurrentDirectory;
     public bool HasFolderPermission => _folders.HasPermission;
     public bool ScreenPermissionRequested => _screenPermissionRequested;
+    public StartupState Startup { get; private set; } = new(false);
+    public bool HasHotkeyConflict => _hotkeys.ActiveMask != ((_settings.ScreenPasteEnabled ? 7 : 0) | (_settings.FolderJumpEnabled ? 8 : 0));
     public event Action<int>? ThemeLoaded;
 
-    public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime)
+    public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime, string? settingsPath = null)
     {
         Platform = platform; _lifetime = lifetime;
         _folders = platform.CreateFolderNavigation();
+        _startup = platform.CreateStartupRegistration();
         _hotkeys = new HotkeyConfiguration(mask => platform.RegisterHotkeys(OnHotkey, mask));
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _settingsStore = new JsonSettingsStore(Path.Combine(local, "Tbox", "desktop-settings.json"));
+        _settingsStore = new JsonSettingsStore(settingsPath ?? Path.Combine(local, "Tbox", "desktop-settings.json"));
         _cache = CreateCache(null);
     }
 
@@ -68,6 +72,12 @@ public sealed class DesktopController : IDisposable
             if (_settings.FolderJumpEnabled) _folders.Start();
             Main.SetStatus(hotkeys ? "已就绪" : "快捷键被占用；可从窗口或菜单栏使用所有功能。");
             Main.Refresh();
+            await RefreshStartupAsync();
+            var location = await Task.Run(() => CacheLocation.Prepare(_cache.DirectoryPath,
+                CaptureCachePathPolicy.GetFallbackPath(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData))));
+            _cache = new CaptureCache(location.Path);
+            if (location.IsFallback) Main.SetStatus("首选缓存目录不可写，本次运行使用本地应用数据目录；原设置和已有文件保持不变。");
+            Main.Refresh();
             PruneCache();
             RecordingWorkspace.CleanupExpired();
         }
@@ -81,7 +91,11 @@ public sealed class DesktopController : IDisposable
     {
         try { await action(); }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { Tbox.App.AppLog.Write(exception.ToString()); Main.SetStatus(exception.Message); ShowMain(); }
+        catch (Exception exception)
+        {
+            Tbox.App.AppLog.Write(exception.ToString()); Main.SetStatus(exception.Message);
+            if (_settings.ShowFailureNotifications && !IsQuitting) FailureNotificationWindow.ShowFailure(this, exception.Message);
+        }
     }
 
     private void OnHotkey(int id) => Dispatcher.UIThread.Post(() =>
@@ -101,11 +115,13 @@ public sealed class DesktopController : IDisposable
         Main.Refresh();
     }
 
-    public async Task SetModulesAsync(bool capture, bool folders)
+    public async Task SetModulesAsync(bool? requestedCapture, bool? requestedFolders)
     {
         await _moduleChanges.WaitAsync(_stop.Token);
         try
         {
+            var capture = requestedCapture ?? _settings.ScreenPasteEnabled;
+            var folders = requestedFolders ?? _settings.FolderJumpEnabled;
             if (!capture && _settings.ScreenPasteEnabled)
             {
                 foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
@@ -203,6 +219,7 @@ public sealed class DesktopController : IDisposable
 
     public async Task PinPictureAsync(Picture picture)
     {
+        if (!_settings.ScreenPasteEnabled) return;
         await CacheAsync(picture);
         Pin(new Picture(picture.Png) { CachePath = picture.CachePath });
     }
@@ -249,6 +266,7 @@ public sealed class DesktopController : IDisposable
 
     private void Pin(Picture picture, DesktopPlacement? placement = null, IReadOnlyList<AnnotationCommand>? annotations = null)
     {
+        if (!_settings.ScreenPasteEnabled || IsQuitting) { picture.Dispose(); return; }
         var pin = new PinnedWindow(this, picture);
         foreach (var command in annotations ?? []) pin.Editor.Document.Commit(command);
         _pins.Add(pin);
@@ -273,12 +291,14 @@ public sealed class DesktopController : IDisposable
 
     public async Task OcrClipboardAsync()
     {
+        if (!_settings.ScreenPasteEnabled) return;
         using var picture = await ReadClipboardAsync(allowText: false);
         ShowOcr(picture, false);
     }
 
     public async Task OpenImageForOcrAsync()
     {
+        if (!_settings.ScreenPasteEnabled) return;
         var paths = await Main.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "选择要识别的图片", AllowMultiple = false, FileTypeFilter = [FilePickerFileTypes.ImageAll]
@@ -293,6 +313,7 @@ public sealed class DesktopController : IDisposable
 
     public void ShowOcr(Picture picture, bool topmost)
     {
+        if (!_settings.ScreenPasteEnabled || IsQuitting) return;
         if (_ocr is null)
         {
             _ocr = new OcrWindow(this);
@@ -406,9 +427,51 @@ public sealed class DesktopController : IDisposable
 
     public async Task ChangeThemeAsync(int index)
     {
+        await UpdateSettingsAsync(settings => settings with { AppTheme = index switch { 1 => "light", 2 => "dark", _ => "system" } });
         ApplyTheme(index);
-        _settings = _settings with { AppTheme = index switch { 1 => "light", 2 => "dark", _ => "system" } };
-        await _settingsStore.SaveAsync(_settings, _stop.Token);
+    }
+
+    private async Task UpdateSettingsAsync(Func<AppSettings, AppSettings> update)
+    {
+        await _moduleChanges.WaitAsync(_stop.Token);
+        try
+        {
+            var updated = update(_settings);
+            await _settingsStore.SaveAsync(updated, _stop.Token);
+            _settings = updated;
+        }
+        finally { _moduleChanges.Release(); Main.Refresh(); }
+    }
+
+    public async Task SetFailureNotificationsAsync(bool enabled)
+    {
+        await UpdateSettingsAsync(settings => settings with { ShowFailureNotifications = enabled });
+        if (!enabled) FailureNotificationWindow.Dismiss();
+    }
+
+    public async Task RefreshStartupAsync()
+    {
+        await _moduleChanges.WaitAsync(_stop.Token);
+        try { Startup = await _startup.ReadAsync(); }
+        finally { _moduleChanges.Release(); Main.Refresh(); }
+    }
+
+    public async Task SetStartupAsync(bool enabled)
+    {
+        await _moduleChanges.WaitAsync(_stop.Token);
+        try
+        {
+            Startup = await _startup.SetEnabledAsync(enabled);
+            var updated = _settings with { StartWithWindows = Startup.Enabled };
+            await _settingsStore.SaveAsync(updated, _stop.Token); _settings = updated;
+            Main.SetStatus(Startup.Message ?? (Startup.Enabled ? "已开启登录时启动。" : "已关闭登录时启动。"));
+        }
+        catch
+        {
+            try { Startup = await _startup.ReadAsync(); } catch { }
+            throw;
+        }
+        finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
     private static void ApplyTheme(int index) => Application.Current!.RequestedThemeVariant =
@@ -424,9 +487,10 @@ public sealed class DesktopController : IDisposable
     {
         var folders = await Main.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择截图缓存目录", AllowMultiple = false });
         if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } path) return;
-        _cache = CreateCache(path);
-        _settings = _settings with { ScreenCaptureCacheDirectory = path };
-        await _settingsStore.SaveAsync(_settings, _stop.Token);
+        var cache = CreateCache(path);
+        await Task.Run(() => CacheLocation.VerifyWritable(cache.DirectoryPath));
+        await UpdateSettingsAsync(settings => settings with { ScreenCaptureCacheDirectory = path });
+        _cache = cache;
         Main.Refresh();
     }
 

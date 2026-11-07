@@ -1,6 +1,6 @@
 # 跨平台逐项验收表
 
-当前共用桌面测试已增至 42 项，新增剪贴板回退、受限重试、超长文字画布及模块热键回滚。提交 `b74fa61` 的 [两平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42377475447) 已通过 95 核心 + 36 桌面测试及实际媒体解码/导出。文件夹适配与热键模块开关在提交 `15572d0` 的双平台 CI 通过（95 核心 + 39 桌面）；仍待实机文件面板验收。
+当前共用桌面测试已增至 53 项，新增剪贴板回退、受限重试、超长文字画布及模块热键回滚。提交 `b74fa61` 的 [两平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42377475447) 已通过 95 核心 + 36 桌面测试及实际媒体解码/导出。文件夹适配与热键模块开关在提交 `15572d0` 的双平台 CI 通过（95 核心 + 39 桌面）；仍待实机文件面板验收。
 
 媒体集成证据（2026-11-07，本机 Apple Silicon）：`Tbox.MediaSmoke` 对库内合成视频实际解码 36 次输出回调；GIF 导出 24 帧、2000 ms；WebP 导出 20 个合并帧、1999 ms，循环且不放大 320×240；MP4 复制哈希相同。此检查已接入 CI；不验证实际系统采集、音频、原生视频窗口或安装授权。
 
@@ -9,6 +9,8 @@
 连续升级验证详见 [屏幕权限升级记录](macos-permission-upgrade-verification.md)：1.1.1 → 1.1.2 → 1.1.3 两次覆盖安装均保留授权、实际取帧成功，1.1.3 截图界面也已实际打开并取消。
 
 连续升级第一轮：1.1.1 → 1.1.2 在固定安装位置覆盖安装，二进制 SHA-256 不同、指定签名要求相同。由系统正常打开后，两版均通过权限检查与 3024×1964 实际取帧；升级过程未再次申请/登记屏幕权限。1.1.2 开发 ZIP 已通过 95 核心 + 42 桌面测试、离线 OCR、裁剪和实际媒体导出验证。
+
+设置迁移（1.1.4）：四页共用导航、标题区搜索、宽屏固定/窄屏浮层导航、设置行折叠、串行保存、失败通知与缓存不可写回退已实现。53 项桌面测试覆盖所有页面在 1280/900/520 宽度及来回切换下的控件边界、并发设置写入、启动状态待批准/失败恢复与关闭通知。Mac 实际中文搜索“启动”进入常规页、点击截图页与已有屏幕权限显示通过。开机启动的注册、重新登录、系统拒绝及跨升级行为尚未实机验收；当前本地包返回系统尚无启动项登记。Windows 目标构建通过，实机界面仍待验收。
 
 冻结基线：`0f88802717d6a2a6ad86e117c20ec35ead91f96c`（Windows 1.0.45）。原产品要求可通过 `git show 0f88802:docs/product-requirements.md` 复核。表中的原平台证据是源码定位，不代替迁移后的实机复验。
 
@@ -75,16 +77,16 @@
 | PIN-008 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | APP-001 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
 | APP-002 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-003 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
+| APP-003 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
 | APP-004 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-005 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
+| APP-005 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
 | APP-006 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
 | APP-007 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-008 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
+| APP-008 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
 | APP-009 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-010 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-011 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
-| APP-012 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs | 待逐项复验 |
+| APP-010 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
+| APP-011 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
+| APP-012 | 已实现 | MainWindow.xaml.cs / App.xaml.cs / StartupManager.cs | App.cs / DesktopController.cs / Views/MainWindow.cs / Platform/*StartupRegistration.cs | 设置已迁移，布局/串行写入/异常状态自动测试通过；Mac 搜索导航通过，启动注册及其他交互待实机验收 |
 | UI-001 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-002 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-003 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |

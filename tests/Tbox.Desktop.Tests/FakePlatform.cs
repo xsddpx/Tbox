@@ -27,7 +27,14 @@ internal sealed class FakePlatform : IPlatformServices
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => throw new NotSupportedException();
     public IFolderNavigation CreateFolderNavigation() => new EmptyFolders();
+    public IStartupRegistration StartupRegistration { get; set; } = new EmptyStartup();
+    public IStartupRegistration CreateStartupRegistration() => StartupRegistration;
     public void Dispose() { }
+    private sealed class EmptyStartup : IStartupRegistration
+    {
+        public Task<StartupState> ReadAsync() => Task.FromResult(new StartupState(false));
+        public Task<StartupState> SetEnabledAsync(bool enabled) => Task.FromResult(new StartupState(enabled));
+    }
     private sealed class EmptyTargets : ICaptureTargetSource
     {
         public bool EnableElementDetection() => false;

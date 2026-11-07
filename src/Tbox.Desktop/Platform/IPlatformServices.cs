@@ -27,6 +27,7 @@ public interface IPlatformServices : IDisposable
     void PrepareCaptureOverlay(nint handle, bool clickThrough);
     IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond);
     IFolderNavigation CreateFolderNavigation();
+    IStartupRegistration CreateStartupRegistration();
 }
 
 public interface ICaptureTargetSource
