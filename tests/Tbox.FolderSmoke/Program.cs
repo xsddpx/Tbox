@@ -58,7 +58,9 @@ internal static class Program
                     Focus(handle);
                     await UntilAsync(() => SamePath(navigation.CurrentDirectory, targets[i]),
                         $"Foreground folder tracking failed: {navigation.CurrentDirectory}");
-                    foreach (var save in new[] { false, true })
+                    // Repeat the open/save transition: the file-name Edit can
+                    // retain focus briefly while Ctrl+L is still in the queue.
+                    foreach (var save in new[] { false, true, false, true })
                     {
                         host.Activate();
                         Focus(host.Handle);
@@ -66,6 +68,7 @@ internal static class Program
                         var title = "Tbox Folder " + Guid.NewGuid().ToString("N");
                         using Forms.FileDialog dialog = save ? new Forms.SaveFileDialog() : new Forms.OpenFileDialog();
                         dialog.Title = title; dialog.InitialDirectory = initial;
+                        dialog.FileName = "TBOX_FILENAME_UNCHANGED";
                         var marker = $"TBOX_MARKER_{i}";
                         var target = targets[i];
                         var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory));
@@ -118,6 +121,7 @@ internal static class Program
             // or activated it. Wait for the native modal transition to finish.
             await UntilAsync(() => IsWindowVisible(dialog) && GetForegroundWindow() == dialog,
                 "The standard dialog did not become visible and foreground.");
+            await UntilAsync(() => HasFileName(dialog), "The dialog file-name editor was not ready.");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var clock = Stopwatch.StartNew();
             var result = await navigation.JumpAsync(timeout.Token);
@@ -126,6 +130,7 @@ internal static class Program
             // Same basename in two different parents makes a loose address-bar
             // match insufficient. Require the unique directory marker in the UI.
             await UntilAsync(() => HasMarker(dialog, marker), "The dialog did not display the target's unique marker.");
+            if (!HasFileName(dialog)) throw new InvalidOperationException("Folder navigation changed the file name.");
             return (clock.ElapsedMilliseconds, marker);
         }
         catch
@@ -137,8 +142,10 @@ internal static class Program
                 if (process == Environment.ProcessId) windows.Add(WindowInfo(window));
                 return true;
             }, 0);
+            var controls = new List<object>();
+            if (dialog != 0) EnumChildWindows(dialog, (window, _) => { controls.Add(WindowInfo(window)); return true; }, 0);
             await File.WriteAllTextAsync(Path.Combine(directory, "windows.json"),
-                JsonSerializer.Serialize(new { target = WindowInfo(dialog), foreground = WindowInfo(GetForegroundWindow()), windows },
+                JsonSerializer.Serialize(new { target = WindowInfo(dialog), foreground = WindowInfo(GetForegroundWindow()), windows, controls },
                     new JsonSerializerOptions { WriteIndented = true }));
             throw;
         }
@@ -150,7 +157,19 @@ internal static class Program
         var title = new System.Text.StringBuilder(256); GetWindowText(window, title, title.Capacity);
         var type = new System.Text.StringBuilder(64); GetClassName(window, type, type.Capacity);
         GetWindowThreadProcessId(window, out var process);
-        return new { handle = window.ToInt64(), process, title = title.ToString(), type = type.ToString(), visible = IsWindowVisible(window) };
+        return new { handle = window.ToInt64(), parent = GetParent(window).ToInt64(), id = GetDlgCtrlID(window), process,
+            title = title.ToString(), type = type.ToString(), visible = IsWindowVisible(window) };
+    }
+
+    private static bool HasFileName(nint dialog)
+    {
+        try
+        {
+            return AutomationElement.FromHandle(dialog).FindFirst(TreeScope.Descendants,
+                new AndCondition(new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                    new PropertyCondition(ValuePattern.ValueProperty, "TBOX_FILENAME_UNCHANGED"))) is not null;
+        }
+        catch (Exception error) when (error is ElementNotAvailableException or InvalidOperationException or COMException) { return false; }
     }
 
     private static bool HasMarker(nint dialog, string marker)
@@ -207,6 +226,9 @@ internal static class Program
     [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
     private delegate bool EnumWindowCallback(nint window, nint parameter);
     [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowCallback callback, nint parameter);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(nint parent, EnumWindowCallback callback, nint parameter);
+    [DllImport("user32.dll")] private static extern nint GetParent(nint window);
+    [DllImport("user32.dll")] private static extern int GetDlgCtrlID(nint window);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(nint window, System.Text.StringBuilder text, int maximum);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(nint window, System.Text.StringBuilder text, int maximum);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
