@@ -117,7 +117,12 @@ internal static class FileDialogNavigator
     {
         var toolbar = FindDescendantById(dialog, AddressToolbarId);
         var addressHost = NativeMethods.GetParent(toolbar);
-        if (toolbar == IntPtr.Zero || addressHost == IntPtr.Zero || addressHost == dialog) return IntPtr.Zero;
+        // Native open/save dialogs put the breadcrumb and editor in sibling
+        // containers below Address Band Root (the breadcrumb hides on Ctrl+L).
+        for (var depth = 0; depth < 4 && addressHost != IntPtr.Zero && addressHost != dialog &&
+             !HasClass(addressHost, "Address Band Root"); depth++)
+            addressHost = NativeMethods.GetParent(addressHost);
+        if (toolbar == IntPtr.Zero || !HasClass(addressHost, "Address Band Root")) return IntPtr.Zero;
         var threadId = NativeMethods.GetWindowThreadProcessId(dialog, out _);
         var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         do
@@ -130,7 +135,7 @@ internal static class FileDialogNavigator
                 info.focusWindow != IntPtr.Zero &&
                 // SendInput queues Ctrl+L; the file-name Edit may still own
                 // focus until the dialog processes it. Only accept the editor
-                // within the breadcrumb's own container, never any dialog Edit.
+                // within the address band, never any dialog Edit.
                 NativeMethods.IsChild(addressHost, info.focusWindow) &&
                 NativeMethods.IsWindowVisible(info.focusWindow) &&
                 HasClass(info.focusWindow, "Edit"))
