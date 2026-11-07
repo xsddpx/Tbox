@@ -50,6 +50,11 @@ internal static class Program
                 {
                     if (i > 0) explorer.Navigate(targets[i]);
                     await UntilAsync(() => SamePath(ReadPath(explorer), targets[i]), "Explorer did not reach the fixture directory.");
+                    // A newly launched Explorer may take foreground before its
+                    // shell view is ready. Exercise an actual focus transition
+                    // once the directory exists, as when returning to a window.
+                    Focus(host.Handle);
+                    await Task.Delay(100);
                     Focus(handle);
                     await UntilAsync(() => SamePath(navigation.CurrentDirectory, targets[i]),
                         $"Foreground folder tracking failed: {navigation.CurrentDirectory}");
@@ -84,7 +89,12 @@ internal static class Program
                     dialogs = outcomes, unsupportedWindowUnchanged = true, stopAndRestartVerified = true });
                 _exitCode = 0;
             }
-            catch (Exception error) { await WriteAsync(directory, new { success = false, dialogs = outcomes, error = error.ToString() }); }
+            catch (Exception error)
+            {
+                await WriteAsync(directory, new { success = false, dialogs = outcomes, error = error.ToString() });
+                var log = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Tbox", "tbox.log");
+                if (File.Exists(log)) File.Copy(log, Path.Combine(directory, "tbox.log"));
+            }
             finally
             {
                 try { explorer?.Quit(); } catch (Exception) { }

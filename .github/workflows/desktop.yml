@@ -54,7 +54,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-folder-verification
-          path: TEMP/folder-smoke/result.json
+          path: |
+            TEMP/folder-smoke/result.json
+            TEMP/folder-smoke/tbox.log
           if-no-files-found: ignore
       - name: Test Windows playback and exports
         if: runner.os == 'Windows'
