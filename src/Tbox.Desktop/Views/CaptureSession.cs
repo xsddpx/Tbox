@@ -6,7 +6,7 @@ using Tbox.Core;
 
 namespace Tbox.Desktop.Views;
 
-public enum CaptureAction { Copy, Save, Pin, Ocr, Long }
+public enum CaptureAction { Copy, Save, Pin, Ocr, Long, Record }
 
 internal sealed class CaptureSession
 {
@@ -121,7 +121,7 @@ internal sealed class CaptureSession
     public void Finish(CaptureWindow window, CaptureAction action)
     {
         window.CommitEditing();
-        if (State.ActiveDisplay != window.Display.Id || State.Selection is not { } selection || !State.TryComplete()) return;
+        if (State.ActiveDisplay != window.Display.Id || State.Selection is not { } selection) return;
         var region = CaptureRegionPolicy.MapToPixels(window.Surface.Bounds.Width, window.Surface.Bounds.Height,
             selection.Left, selection.Top, selection.Width, selection.Height,
             window.Picture.Bitmap.PixelSize.Width, window.Picture.Bitmap.PixelSize.Height);
@@ -130,6 +130,19 @@ internal sealed class CaptureSession
         var scaleY = display.Height / window.Surface.Bounds.Height;
         var placement = new DesktopPlacement(display.Left + selection.Left * scaleX, display.Top + selection.Top * scaleY,
             selection.Width * scaleX, selection.Height * scaleY);
+        if (action == CaptureAction.Record)
+        {
+            if (region.Width < 16 || region.Height < 16) { window.SetHint("录屏区域至少为 16 × 16 像素，请重新调整选区。"); return; }
+            region = RecordingRegionPolicy.NormalizeForVideo(region);
+            var pixelWidth = window.Picture.Bitmap.PixelSize.Width; var pixelHeight = window.Picture.Bitmap.PixelSize.Height;
+            placement = new DesktopPlacement(display.Left + region.Left * display.Width / pixelWidth, display.Top + region.Top * display.Height / pixelHeight,
+                region.Width * display.Width / pixelWidth, region.Height * display.Height / pixelHeight);
+            if (!State.TryComplete()) return;
+            Close(false);
+            _controller.Run(() => _controller.StartRecordingAsync(new RecordingArea(placement, region.Width, region.Height)));
+            return;
+        }
+        if (!State.TryComplete()) return;
         if (action == CaptureAction.Long)
         {
             Close(false);

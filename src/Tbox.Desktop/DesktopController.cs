@@ -23,6 +23,9 @@ public sealed class DesktopController : IDisposable
     private readonly List<PinnedWindow> _pins = [];
     private CaptureSession? _capture;
     private LongCaptureSession? _longCapture;
+    private RecordingControlWindow? _recording;
+    private readonly List<RecordingReviewWindow> _reviews = [];
+    private bool _quitRequested;
     private OcrWindow? _ocr;
     private AppSettings _settings = new();
     private CaptureCache _cache;
@@ -60,6 +63,7 @@ public sealed class DesktopController : IDisposable
             Main.SetStatus(hotkeys ? "已就绪" : "快捷键被占用；可从窗口或菜单栏使用所有功能。");
             Main.Refresh();
             PruneCache();
+            RecordingWorkspace.CleanupExpired();
         }
         else
         {
@@ -79,7 +83,7 @@ public sealed class DesktopController : IDisposable
 
     public async Task CaptureAsync()
     {
-        if (_capturing || _capture is not null || _longCapture is not null) return;
+        if (_capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;
         if (!Platform.HasScreenPermission)
         {
             RequestPermission();
@@ -148,6 +152,28 @@ public sealed class DesktopController : IDisposable
     }
 
     public void ShowImageResult(Picture picture, bool fullScreen) => new ImageResultWindow(this, picture, fullScreen).Show();
+
+    internal async Task StartRecordingAsync(RecordingArea area)
+    {
+        if (_recording is not null || _quitRequested) return;
+        _capturing = true; Main.Hide();
+        try
+        {
+            await Task.Delay(150, _stop.Token);
+            if (IsQuitting) return;
+            var session = new RecordingControlWindow(this, area);
+            _recording = session;
+            session.Released += () => { if (ReferenceEquals(_recording, session)) _recording = null; };
+            session.Show(); CaptureHistory.Remember(area.Bounds);
+        }
+        finally { _capturing = false; }
+    }
+
+    internal void ShowRecordingReview(RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
+    {
+        var review = new RecordingReviewWindow(this, workspace, area, output, duration);
+        _reviews.Add(review); review.Released += () => _reviews.Remove(review); review.Show();
+    }
 
     private void Pin(Picture picture, DesktopPlacement? placement = null, IReadOnlyList<AnnotationCommand>? annotations = null)
     {
@@ -322,7 +348,19 @@ public sealed class DesktopController : IDisposable
         Main.Refresh();
     }
 
-    public void Quit() { IsQuitting = true; _lifetime.Shutdown(); }
+    public void Quit() => Run(QuitAsync);
+    public async Task QuitAsync()
+    {
+        if (_quitRequested) return;
+        _quitRequested = true;
+        try
+        {
+            foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
+            if (_recording is { } recording) await recording.CancelAsync();
+            IsQuitting = true; _lifetime.Shutdown();
+        }
+        finally { _quitRequested = false; }
+    }
     public void Dispose()
     {
         IsQuitting = true; _stop.Cancel();

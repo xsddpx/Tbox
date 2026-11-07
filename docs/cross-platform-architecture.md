@@ -43,6 +43,8 @@
 
 长截图共用 `ScrollCaptureStitcher` 与稳定帧缓冲；macOS 区域采集通过 ScreenCaptureKit 排除当前应用，Windows 控制窗设置捕获排除并让区域边框穿透鼠标。预览与输出采用同一套 Avalonia 界面。真实连续滚动、音视频录制仍未验收。
 
+录屏新增 `IRegionRecorder` 小型平台边界：Windows 直接链接原录制器源码，Mac 以 ScreenCaptureKit 取屏幕/系统输出、AVAssetWriter 编码 H.264。`RecordingOperation` 统一准备、音频降级、暂停计时、取消与文件所有权转移；取消等待原生写入退出，不提前删除母版。回放使用 LibVLCSharp.Avalonia；首次媒体初始化放到后台，关闭按停止、卸载视图、关闭窗口、释放媒体、删除会话的顺序执行。GIF/WebP 在应用临时目录转换，成功后使用目标目录的临时文件原子替换，取消不会破坏用户已有文件。
+
 本轮已完成 Windows 目标交叉编译和 Swift 桥接编译。CI 配置覆盖 Windows/macOS 的核心与共用 UI 测试；CI 测试不代替屏幕授权、真实文件对话框、混合 DPI 和安装升级验收。
 
 ## 主要官方依据

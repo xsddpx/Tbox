@@ -48,6 +48,10 @@ public sealed class App : Application
             _tray.Clicked += (_, _) => _controller.ShowMain();
             TrayIcon.SetIcons(this, new TrayIcons { _tray });
             lifetime.Exit += (_, _) => { _tray.Dispose(); _controller.Dispose(); };
+            lifetime.ShutdownRequested += (_, e) =>
+            {
+                if (!_controller.IsQuitting) { e.Cancel = true; _controller.Quit(); }
+            };
             _ = Instance?.ListenAsync(async command =>
             {
                 if (command == 3) return await PermissionDiagnostics.RunAsync(platform);

@@ -23,6 +23,7 @@ internal sealed class FakePlatform : IPlatformServices
     public DesktopPoint GetPointerPosition() => new(100, 100);
     public ICaptureTargetSource CreateCaptureTargets() => new EmptyTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
+    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => throw new NotSupportedException();
     public void Dispose() { }
     private sealed class EmptyTargets : ICaptureTargetSource
     {

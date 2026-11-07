@@ -2,7 +2,7 @@
 
 冻结基线：`0f88802717d6a2a6ad86e117c20ec35ead91f96c`（Windows 1.0.45）。原产品要求可通过 `git show 0f88802:docs/product-requirements.md` 复核。表中的原平台证据是源码定位，不代替迁移后的实机复验。
 
-2026-11-07：共用桌面工程 25 项测试、原核心 95 项测试通过；已运行本机离线中英文 OCR、原始像素裁剪及单显示器取帧（命令行验证；不代表独立启动后的应用授权）。Windows 目标交叉编译通过；提交 `7e6c1a3` 的 [Windows/macOS CI](https://github.com/xsddpx/Tbox/actions/runs/42372131729) 均通过（95 核心 + 20 桌面测试）；新增长截图及独立进程权限探测后本机桌面测试增至 25 项；[长截图提交的双平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42372899931) 通过。Mac 另有拒绝临时签名和错误标识的两项脚本测试。持久签名正在等待首次钥匙串确认，连续升级权限保留未验收。混合 DPI 多显示器、Intel Mac、Windows 共用界面均尚未实机验证。截图全流程仍在授权与交互复验中。
+2026-11-07：共用桌面工程 32 项测试、原核心 95 项测试通过；已运行本机离线中英文 OCR、原始像素裁剪及单显示器取帧（命令行验证；不代表独立启动后的应用授权）。Windows 目标交叉编译通过；提交 `7e6c1a3` 的 [Windows/macOS CI](https://github.com/xsddpx/Tbox/actions/runs/42372131729) 均通过（95 核心 + 20 桌面测试）；新增长截图及独立进程权限探测后本机桌面测试增至 25 项；[长截图提交的双平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42372899931) 通过。Mac 另有拒绝临时签名和错误标识的两项脚本测试。持久签名正在等待首次钥匙串确认，连续升级权限保留未验收。混合 DPI 多显示器、Intel Mac、Windows 共用界面均尚未实机验证。截图全流程仍在授权与交互复验中。
 
 | ID | 原状态 | 原平台源码证据（src/Tbox.App，另注除外） | 共用/目标平台入口（src/Tbox.Desktop，另注除外） | 迁移验收 |
 | --- | --- | --- | --- | --- |
@@ -25,9 +25,9 @@
 | CAP-010 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/CaptureSession.cs / Views/CaptureWindow.cs | 待逐项复验 |
 | CAP-011 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/CaptureSession.cs / Views/CaptureWindow.cs | 待逐项复验 |
 | CAP-012 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/CaptureSession.cs / Views/CaptureWindow.cs | 待逐项复验 |
-| CAP-013 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/LongCaptureSession.cs / Models/LongCaptureBuffer.cs / Views/SelectionOutline.cs | 长截图已接入共用拼接；实机滚动与录屏仍待验收/实现 |
-| CAP-014 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/LongCaptureSession.cs / Models/LongCaptureBuffer.cs / Views/SelectionOutline.cs | 长截图已接入共用拼接；实机滚动与录屏仍待验收/实现 |
-| CAP-015 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/LongCaptureSession.cs / Models/LongCaptureBuffer.cs / Views/SelectionOutline.cs | 长截图已接入共用拼接；实机滚动与录屏仍待验收/实现 |
+| CAP-013 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/LongCaptureSession.cs / Models/LongCaptureBuffer.cs / Views/SelectionOutline.cs | 长截图及录屏已接入共用流程；实机滚动与录制仍待验收 |
+| CAP-014 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/LongCaptureSession.cs / Models/LongCaptureBuffer.cs / Views/SelectionOutline.cs | 长截图及录屏已接入共用流程；实机滚动与录制仍待验收 |
+| CAP-015 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/LongCaptureSession.cs / Models/LongCaptureBuffer.cs / Views/SelectionOutline.cs | 长截图及录屏已接入共用流程；实机滚动与录制仍待验收 |
 | ANN-001 | 已实现 | CaptureAnnotationController.cs / CaptureAnnotationRenderer.cs / AnnotationToolbar.cs | Models/AnnotationEditor.cs / Models/AnnotationRenderer.cs / Views/AnnotationToolbar.cs | 模型与渲染测试通过；逐项交互复验待完成 |
 | ANN-002 | 已实现 | CaptureAnnotationController.cs / CaptureAnnotationRenderer.cs / AnnotationToolbar.cs | Models/AnnotationEditor.cs / Models/AnnotationRenderer.cs / Views/AnnotationToolbar.cs | 模型与渲染测试通过；逐项交互复验待完成 |
 | ANN-003 | 已实现 | CaptureAnnotationController.cs / CaptureAnnotationRenderer.cs / AnnotationToolbar.cs | Models/AnnotationEditor.cs / Models/AnnotationRenderer.cs / Views/AnnotationToolbar.cs | 模型与渲染测试通过；逐项交互复验待完成 |
@@ -47,14 +47,14 @@
 | OCR-005 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
 | OCR-006 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
 | OCR-007 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
-| REC-001 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
-| REC-002 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
-| REC-003 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
-| REC-004 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
-| REC-005 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
-| REC-006 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
-| REC-007 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
-| REC-008 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | 待迁移 | 待实现 |
+| REC-001 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-002 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-003 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-004 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-005 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-006 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-007 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
+| REC-008 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 共用流程与双平台后端已接入；7 项计时、取消和文件保护测试通过；实际录制/音频/回放/导出待验收 |
 | PIN-001 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-002 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
 | PIN-003 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
@@ -89,3 +89,5 @@
 | REL-004 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
 | REL-005 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
 | REL-006 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
+
+录屏实现进展（2026-11-07）：Windows 链接原 `ScreenRegionRecorder`，Mac 使用 ScreenCaptureKit + AVAssetWriter；共用操作负责声音失败降级、暂停时钟、等待原生释放再清理。回放使用 LibVLCSharp 的 Avalonia 组件，GIF/WebP 使用外部 FFmpeg 进程。32 项桌面测试、95 项核心测试和两目标编译已通过；Mac 媒体组件打包与真实回放仍在验证，不能视为完成发布。

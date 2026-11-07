@@ -29,7 +29,7 @@ assert v['Version']==info['CFBundleShortVersionString'], '应用版本不一致'
 PY
 "$DOTNET" publish src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -r "$RID" --self-contained true -o "$APP/Contents/MacOS"
 swiftc -swift-version 5 -O -emit-library -target "$ARCH-apple-macosx14.0" \
-  src/Tbox.Desktop/Platform/macos/TboxNative.swift -o "$APP/Contents/MacOS/libTboxNative.dylib"
+  src/Tbox.Desktop/Platform/macos/*.swift -o "$APP/Contents/MacOS/libTboxNative.dylib"
 cp src/Tbox.Desktop/Platform/macos/Info.plist "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources/Licenses"
 cp src/Tbox.Desktop/ThirdParty/*.txt "$APP/Contents/Resources/Licenses/"

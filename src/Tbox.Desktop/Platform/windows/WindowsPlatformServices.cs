@@ -164,6 +164,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
         return new DesktopPoint(point.X, point.Y);
     }
     public ICaptureTargetSource CreateCaptureTargets() => WindowsCaptureTargets.CreateSnapshot();
+    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new WindowsRegionRecorder(area, systemAudio, framesPerSecond);
     public void Dispose() { _hotkeys?.Dispose(); _hotkeys = null; }
     private static Win32Exception Error(string message) => new(Marshal.GetLastWin32Error(), message);
     private static MonitorInfo ReadMonitor(nint monitor)

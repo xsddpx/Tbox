@@ -5,7 +5,7 @@ import Vision
 import ApplicationServices
 
 // Only capabilities that Avalonia cannot provide live here. All UI and product rules are C#.
-private func response(_ value: [String: Any]) -> UnsafeMutablePointer<CChar>? {
+func response(_ value: [String: Any]) -> UnsafeMutablePointer<CChar>? {
     guard let data = try? JSONSerialization.data(withJSONObject: value),
           let text = String(data: data, encoding: .utf8) else { return nil }
     return strdup(text)

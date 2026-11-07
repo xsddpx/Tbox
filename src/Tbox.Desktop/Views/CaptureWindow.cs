@@ -19,6 +19,8 @@ internal sealed class CaptureWindow : Window
     private bool _toolbarHidden;
     private readonly TextBlock _hint = new() { Foreground = Brushes.White, Margin = new Thickness(20, 10), IsHitTestVisible = false };
     private readonly Border _modeConfirmation;
+    private readonly TextBlock _modePrompt = new() { Foreground = Brushes.White };
+    private CaptureAction _pendingMode;
     public CapturedDisplay Display { get; }
     public Picture Picture { get; }
     public CaptureSurface Surface { get; }
@@ -37,7 +39,8 @@ internal sealed class CaptureWindow : Window
         _text = new AnnotationTextEditor(overlay, Editor,
             point => new Point(point.X * Scale.X, point.Y * Scale.Y), () => Scale);
         _toolbar = new AnnotationToolbar(Editor, _text.Commit) { IsVisible = false };
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↕", "长截图", RequestLongCapture));
+        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↕", "长截图", () => RequestMode(CaptureAction.Long)));
+        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("●", "区域录屏", () => RequestMode(CaptureAction.Record)));
         _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⌖", $"固定为贴图 · {ShortcutLabels.Command}T / 鼠标中键", () => session.Finish(this, CaptureAction.Pin)));
         _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("Aa", "识别文字", () => session.Finish(this, CaptureAction.Ocr)));
         _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↓", $"保存图片 · {ShortcutLabels.Command}S", () => session.Finish(this, CaptureAction.Save)));
@@ -50,8 +53,8 @@ internal sealed class CaptureWindow : Window
             IsVisible = false, Background = Ui.ToolbarBackground, Padding = new Thickness(20), CornerRadius = new CornerRadius(10),
             Child = new StackPanel { Spacing = 12, Children =
             {
-                new TextBlock { Text = "长截图使用原始画面，是否丢弃本次标注？", Foreground = Brushes.White },
-                Ui.Row(Ui.Button("丢弃标注并继续", () => { DismissConfirmation(); Editor.Reset(); session.Finish(this, CaptureAction.Long); }),
+                _modePrompt,
+                Ui.Row(Ui.Button("丢弃标注并继续", () => { DismissConfirmation(); Editor.Reset(); session.Finish(this, _pendingMode); }),
                     Ui.Button("保留标注", DismissConfirmation))
             } }
         };
@@ -84,10 +87,12 @@ internal sealed class CaptureWindow : Window
 
     public void SetHint(string message) => _hint.Text = message;
 
-    private void RequestLongCapture()
+    private void RequestMode(CaptureAction action)
     {
         CommitEditing();
-        if (Editor.Document.Commands.Count == 0) { _session.Finish(this, CaptureAction.Long); return; }
+        if (Editor.Document.Commands.Count == 0) { _session.Finish(this, action); return; }
+        _pendingMode = action;
+        _modePrompt.Text = (action == CaptureAction.Record ? "录屏" : "长截图") + "使用原始画面，是否丢弃本次标注？";
         _modeConfirmation.Measure(Size.Infinity);
         Canvas.SetLeft(_modeConfirmation, Math.Max(0, (Surface.Bounds.Width - _modeConfirmation.DesiredSize.Width) / 2));
         Canvas.SetTop(_modeConfirmation, Math.Max(0, (Surface.Bounds.Height - _modeConfirmation.DesiredSize.Height) / 2));
