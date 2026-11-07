@@ -47,11 +47,13 @@ try {
     New-Item -ItemType Directory -Path $work -Force | Out-Null
     Push-Location $root
     try {
+        Invoke-Checked python @('scripts/verify-windows-media.py')
         Invoke-Checked dotnet @('test', 'tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj', '-c', 'Release')
         Invoke-Checked dotnet @('test', 'tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj', '-c', 'Release')
         Invoke-Checked dotnet @('publish', $project, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
             '-p:TboxWindows=true', '-p:PublishSingleFile=false', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $layout)
         Assert-DesktopPayload $layout $version
+        Invoke-Checked python @('scripts/verify-windows-media.py', (Join-Path $layout 'ThirdParty\FFmpeg'))
         New-Item -ItemType Directory -Path (Join-Path $layout 'Assets') -Force | Out-Null
         foreach ($asset in 'StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png') {
             Copy-Item -LiteralPath (Join-Path $root "src\Tbox.App\Assets\$asset") -Destination (Join-Path $layout 'Assets')

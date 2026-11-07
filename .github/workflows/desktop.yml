@@ -12,7 +12,11 @@ permissions:
   contents: read
 
 jobs:
+  windows-media:
+    uses: ./.github/workflows/windows-media.yml
+
   test:
+    needs: windows-media
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +34,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: windows-media-runtime
+          path: TEMP/media-runtime/windows
       - name: Test release transaction safeguards
         run: python -m unittest discover -s tests/release -v
       - name: Test shared core
@@ -38,7 +47,7 @@ jobs:
         run: dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
       - name: Test Windows playback and exports
         if: runner.os == 'Windows'
-        run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke src/Tbox.App/ThirdParty/FFmpeg/bin/ffmpeg.exe
+        run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/windows/bin/ffmpeg.exe
       - name: Test Windows package safeguards
         if: runner.os == 'Windows'
         shell: powershell
@@ -107,6 +116,7 @@ jobs:
         run: bash scripts/release/sign-and-package-macos.sh --verify-identity-only
 
   windows-installed-package:
+    needs: windows-media
     # Opt-in acceptance of the actual installer on a disposable Windows runner.
     # Artifacts remain private; this job never creates a public Release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/codex/feat-macos-basic' && vars.TBOX_VERIFY_INSTALLER == 'true'
@@ -122,6 +132,13 @@ jobs:
           dotnet-version: |
             9.0.313
             8.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-media-runtime
+          path: TEMP/media-runtime/windows
       - name: Build, sign, install and launch the actual Windows MSIX
         shell: powershell
         env:

@@ -8,9 +8,10 @@
     <SupportedOSPlatformVersion Condition="'$(TboxWindows)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
     <Platform Condition="'$(TboxWindows)' == 'true' and ('$(Platform)' == '' or '$(Platform)' == 'AnyCPU')">x64</Platform>
     <PlatformTarget Condition="'$(TboxWindows)' == 'true'">$(Platform)</PlatformTarget>
-    <Version>1.1.9</Version>
-    <AssemblyVersion>1.1.9.0</AssemblyVersion>
-    <FileVersion>1.1.9.0</FileVersion>
+    <Version>1.1.10</Version>
+    <AssemblyVersion>1.1.10.0</AssemblyVersion>
+    <FileVersion>1.1.10.0</FileVersion>
+    <TboxWindowsFfmpegRoot>$(MSBuildThisFileDirectory)../../TEMP/media-runtime/windows</TboxWindowsFfmpegRoot>
     <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">../Tbox.App/Assets/Tbox.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -37,6 +38,9 @@
     <Compile Include="../Tbox.App/ExplorerFolderTracker.cs" Link="Platform/windows/ExplorerFolderTracker.cs" />
     <Compile Include="../Tbox.App/ExplorerShellViewResolver.cs" Link="Platform/windows/ExplorerShellViewResolver.cs" />
     <Compile Include="../Tbox.App/FileDialogNavigator.cs" Link="Platform/windows/FileDialogNavigator.cs" />
-    <Content Include="../Tbox.App/ThirdParty/FFmpeg/**" Link="ThirdParty/FFmpeg/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(TboxWindowsFfmpegRoot)/**" Link="ThirdParty/FFmpeg/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <Target Name="RequireWindowsExporter" BeforeTargets="PrepareForBuild" Condition="'$(TboxWindows)' == 'true' and '$(DesignTimeBuild)' != 'true'">
+    <Error Condition="!Exists('$(TboxWindowsFfmpegRoot)/bin/ffmpeg.exe')" Text="Prepare the verified Windows media runtime in TEMP/media-runtime/windows. See docs/automatic-releases.md." />
+  </Target>
 </Project>

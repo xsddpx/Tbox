@@ -42,7 +42,8 @@ function Assert-DesktopPayload {
         'libvlc\win-x64\libvlc.dll', 'libvlc\win-x64\libvlccore.dll',
         'ThirdParty\THIRD-PARTY-NOTICES.md', 'ThirdParty\LibVLC-LGPL-2.1.txt',
         'ThirdParty\VLC-GPL-2.txt', 'ThirdParty\LibVLCSharp-LICENSE.txt', 'ThirdParty\FFmpeg\LICENSE.txt',
-        'ThirdParty\Avalonia-LICENSE.txt', 'ThirdParty\ScreenRecorderLib-LICENSE.txt')
+        'ThirdParty\Avalonia-LICENSE.txt', 'ThirdParty\ScreenRecorderLib-LICENSE.txt',
+        'ThirdParty\FFmpeg\BUILD-INFO.json', 'ThirdParty\FFmpeg\libwebp-LICENSE.txt', 'ThirdParty\FFmpeg\libwebp-PATENTS.txt')
     foreach ($relative in $required) {
         if (-not (Test-Path -LiteralPath (Join-Path $Directory $relative) -PathType Leaf)) { throw "Missing packaged runtime: $relative" }
     }

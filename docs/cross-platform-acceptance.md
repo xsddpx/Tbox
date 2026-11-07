@@ -1,5 +1,7 @@
 # 跨平台逐项验收表
 
+1.1.10 依赖替换验证（2026-11-08）：Windows 动画导出改为与 Mac 相同的固定 FFmpeg 8.1.2 / libwebp 1.6.0 源码构建；[独立 Windows 运行验证](https://github.com/xsddpx/Tbox/actions/runs/42394403213) 已通过实际启动、GIF/WebP 导出及播放。新增输入源码、构建脚本、二进制哈希和载荷校验，25 项发布/依赖检查、95 项核心及 102 项桌面测试通过。Mac 1.1.10 唯一 ZIP 已记录哈希，固定路径覆盖安装并正常独立启动；进程 562 的权限探测显示 `screenPermission=true`、`captureVerified=true`，3024×1964，未重新申请权限。证据在 `TEMP/install-verification/1.1.10/permission.json`。Windows 1.1.10 签名安装包验收与完整第三方源码发布材料仍待完成。
+
 当前验证汇总（2026-11-08）：1.1.9 的 [Windows/macOS CI](https://github.com/xsddpx/Tbox/actions/runs/42393228787) 全部通过，含两端 95 核心、102 共用桌面、20 发布事务检查、实际媒体解码/导出和 Windows MSIX 载荷检查。Windows 1.1.9.0 在 Windows 2025 runner 以持久证书签名、实际安装并按包身份启动，系统 OCR、像素裁剪、界面渲染及实际屏幕取帧通过，`captureVerified=true`、`displayCount=1`。签名安装包已下载并核对 SHA-256，登记在发布历史；原始报告在本地 `TEMP/windows-installed/1.1.9/verification/`。Windows 1.1.8 检查没有执行取帧，并非已证实无显示器。旧 Windows 用户电脑覆盖升级与其余完整交互仍待验收。
 
 Mac 1.1.8 真实跨应用剪贴板验收：从贴图复制，关闭来源贴图，再在 Chrome 使用系统粘贴；得到 160×100 PNG，四个采样点 RGBA 与原图完全一致，常驻进程保持运行，未产生新崩溃日志。证据为本地 `TEMP/clipboard-real-test/1.1.8/result.json` 与 `result.png`。这补齐了此前被前台操作变化中止的验收。

@@ -56,8 +56,12 @@ jobs:
           python -m unittest discover -s tests/release -v
           python scripts/release/release.py preflight --tag "$RELEASE_TAG"
 
-  windows:
+  windows-media:
     needs: preflight
+    uses: ./.github/workflows/windows-media.yml
+
+  windows:
+    needs: [preflight, windows-media]
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -71,6 +75,13 @@ jobs:
           dotnet-version: |
             9.0.313
             8.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-media-runtime
+          path: TEMP/media-runtime/windows
       - name: Sign, package, install and verify Windows
         shell: powershell
         env:
