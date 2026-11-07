@@ -28,6 +28,16 @@ private final class CaptureResult: @unchecked Sendable {
 // Called from a .NET worker, never the Cocoa main thread. Full displays remain in memory only.
 @_cdecl("tbox_capture")
 public func capture() -> UnsafeMutablePointer<CChar>? {
+    return captureScreen(nil)
+}
+
+@_cdecl("tbox_capture_region")
+public func captureRegion(_ left: Double, _ top: Double, _ width: Double, _ height: Double) -> UnsafeMutablePointer<CChar>? {
+    guard width > 0, height > 0 else { return response(["error": "捕获区域无效。"]) }
+    return captureScreen(CGRect(x: left, y: top, width: width, height: height))
+}
+
+private func captureScreen(_ region: CGRect?) -> UnsafeMutablePointer<CChar>? {
     guard CGPreflightScreenCaptureAccess() else {
         return response(["error": "请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制中允许 Tbox，然后重新打开应用。"])
     }
@@ -39,20 +49,24 @@ public func capture() -> UnsafeMutablePointer<CChar>? {
             var displays: [[String: Any]] = []
             for display in content.displays {
                 let bounds = CGDisplayBounds(display.displayID)
+                if let region = region, !bounds.contains(region) { continue }
                 let mode = CGDisplayCopyDisplayMode(display.displayID)
+                let target = region ?? bounds
                 let config = SCStreamConfiguration()
-                config.width = mode?.pixelWidth ?? display.width
-                config.height = mode?.pixelHeight ?? display.height
+                config.width = max(1, Int((target.width / bounds.width * Double(mode?.pixelWidth ?? display.width)).rounded()))
+                config.height = max(1, Int((target.height / bounds.height * Double(mode?.pixelHeight ?? display.height)).rounded()))
+                if region != nil { config.sourceRect = CGRect(x: target.minX - bounds.minX, y: target.minY - bounds.minY, width: target.width, height: target.height) }
                 config.showsCursor = false
                 config.pixelFormat = kCVPixelFormatType_32BGRA
                 config.colorSpaceName = CGColorSpace.sRGB
-                let filter = SCContentFilter(display: display, excludingWindows: [])
+                let excluded = region == nil ? [] : content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
+                let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
                 let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
                 guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
                     throw NSError(domain: "Tbox", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法编码屏幕图像。"])
                 }
-                displays.append(["id": display.displayID, "left": bounds.minX, "top": bounds.minY,
-                                 "width": bounds.width, "height": bounds.height, "png": png.base64EncodedString()])
+                displays.append(["id": display.displayID, "left": target.minX, "top": target.minY,
+                                 "width": target.width, "height": target.height, "png": png.base64EncodedString()])
             }
             result.value = displays.isEmpty ? ["error": "没有找到可截图的显示器。"] : ["displays": displays]
         } catch {
@@ -195,13 +209,24 @@ public func placeWindow(_ pointer: UnsafeRawPointer?, _ left: Double, _ top: Dou
     if overlay != 0 { target.orderFrontRegardless() }
 }
 
+@_cdecl("tbox_capture_overlay")
+public func captureOverlay(_ pointer: UnsafeRawPointer?, _ clickThrough: Int32) {
+    guard let target = window(pointer) else { return }
+    target.ignoresMouseEvents = clickThrough != 0
+    target.hasShadow = false
+    target.isOpaque = false
+    target.backgroundColor = .clear
+    // Region captures exclude this process via SCContentFilter, including controls and preview.
+}
+
 @_cdecl("tbox_move_to_pointer")
 public func moveToPointer(_ pointer: UnsafeRawPointer?) {
     guard let target = window(pointer) else { return }
     let point = NSEvent.mouseLocation
     guard let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) else { return }
     let area = screen.visibleFrame
-    let size = NSSize(width: min(target.frame.width, area.width), height: min(target.frame.height, area.height))
+    let ratio = min(1, min(area.width / target.frame.width, area.height / target.frame.height))
+    let size = NSSize(width: target.frame.width * ratio, height: target.frame.height * ratio)
     target.setFrame(NSRect(x: max(area.minX, min(point.x - size.width / 2, area.maxX - size.width)),
                            y: max(area.minY, min(point.y - size.height / 2, area.maxY - size.height)),
                            width: size.width, height: size.height), display: true)

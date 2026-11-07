@@ -22,6 +22,7 @@ public sealed class DesktopController : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly List<PinnedWindow> _pins = [];
     private CaptureSession? _capture;
+    private LongCaptureSession? _longCapture;
     private OcrWindow? _ocr;
     private AppSettings _settings = new();
     private CaptureCache _cache;
@@ -78,7 +79,7 @@ public sealed class DesktopController : IDisposable
 
     public async Task CaptureAsync()
     {
-        if (_capturing || _capture is not null) return;
+        if (_capturing || _capture is not null || _longCapture is not null) return;
         if (!Platform.HasScreenPermission)
         {
             RequestPermission();
@@ -93,10 +94,10 @@ public sealed class DesktopController : IDisposable
             await Task.Delay(150, _stop.Token);
             var displays = await Platform.CaptureAsync(_stop.Token);
             if (IsQuitting) return;
-            _capture = new CaptureSession(this, displays, () =>
+            _capture = new CaptureSession(this, displays, cancelled =>
             {
                 _capture = null;
-                if (restore && !IsQuitting) ShowMain();
+                if (restore && cancelled && !IsQuitting) ShowMain();
             });
             _capture.Show();
         }
@@ -121,9 +122,32 @@ public sealed class DesktopController : IDisposable
     public async Task PinClipboardAsync()
     {
         using var picture = await ReadClipboardAsync(allowText: true);
+        await PinPictureAsync(picture);
+    }
+
+    public async Task PinPictureAsync(Picture picture)
+    {
         await CacheAsync(picture);
         Pin(new Picture(picture.Png) { CachePath = picture.CachePath });
     }
+
+    internal async Task StartLongCaptureAsync(DesktopPlacement region)
+    {
+        _capturing = true;
+        try
+        {
+            await Task.Delay(150, _stop.Token);
+            if (IsQuitting) return;
+            _longCapture?.Stop();
+            var session = new LongCaptureSession(this, region, () => _longCapture = null);
+            _longCapture = session;
+            try { session.Start(); }
+            catch { session.Stop(); throw; }
+        }
+        finally { _capturing = false; }
+    }
+
+    public void ShowImageResult(Picture picture, bool fullScreen) => new ImageResultWindow(this, picture, fullScreen).Show();
 
     private void Pin(Picture picture, DesktopPlacement? placement = null, IReadOnlyList<AnnotationCommand>? annotations = null)
     {
@@ -302,7 +326,7 @@ public sealed class DesktopController : IDisposable
     public void Dispose()
     {
         IsQuitting = true; _stop.Cancel();
-        _capture?.Cancel(); _ocr?.Close();
+        _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();
         Platform.Dispose();
     }

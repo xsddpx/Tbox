@@ -13,6 +13,7 @@ public interface IPlatformServices : IDisposable
     bool HasScreenPermission { get; }
     bool RequestScreenPermission();
     Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken);
+    Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
     Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken);
     bool RegisterHotkeys(Action<int> onHotkey);
     void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay);
@@ -22,6 +23,7 @@ public interface IPlatformServices : IDisposable
     double DesktopUnitsPerDip(nint handle);
     DesktopPoint GetPointerPosition();
     ICaptureTargetSource CreateCaptureTargets();
+    void PrepareCaptureOverlay(nint handle, bool clickThrough);
 }
 
 public interface ICaptureTargetSource

@@ -37,6 +37,14 @@ public sealed class MacPlatformServices : IPlatformServices
         finally { _recognitionLock.Release(); }
     }
 
+    public async Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var response = await Task.Run(() => ReadJson<CaptureResponse>(NativeCaptureRegion(region.Left, region.Top, region.Width, region.Height)), cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Convert.FromBase64String(response.Displays.Single().Png);
+    }
+
     public bool RegisterHotkeys(Action<int> onHotkey)
     {
         _callback = id => onHotkey(id);
@@ -51,6 +59,7 @@ public sealed class MacPlatformServices : IPlatformServices
     public double DesktopUnitsPerDip(nint handle) => 1;
     public DesktopPoint GetPointerPosition() => ReadJson<DesktopPoint>(NativePointerPosition());
     public ICaptureTargetSource CreateCaptureTargets() => new MacCaptureTargets();
+    public void PrepareCaptureOverlay(nint handle, bool clickThrough) => NativeCaptureOverlay(handle, clickThrough ? 1 : 0);
 
     public void Dispose()
     {
@@ -80,6 +89,8 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_permission")] private static extern int NativePermission();
     [DllImport(Library, EntryPoint = "tbox_request_permission")] private static extern int NativeRequestPermission();
     [DllImport(Library, EntryPoint = "tbox_capture")] private static extern nint NativeCapture();
+    [DllImport(Library, EntryPoint = "tbox_capture_region")] private static extern nint NativeCaptureRegion(double left, double top, double width, double height);
+    [DllImport(Library, EntryPoint = "tbox_capture_overlay")] private static extern void NativeCaptureOverlay(nint handle, int clickThrough);
     [DllImport(Library, EntryPoint = "tbox_recognize")] private static extern nint NativeRecognize(byte[] data, int length);
     [DllImport(Library, EntryPoint = "tbox_register_hotkeys")] private static extern int NativeRegisterHotkeys(HotkeyCallback callback);
     [DllImport(Library, EntryPoint = "tbox_unregister_hotkeys")] private static extern void NativeUnregisterHotkeys();

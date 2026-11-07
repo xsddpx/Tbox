@@ -18,6 +18,7 @@ internal sealed class CaptureWindow : Window
     private readonly AnnotationTextEditor _text;
     private bool _toolbarHidden;
     private readonly TextBlock _hint = new() { Foreground = Brushes.White, Margin = new Thickness(20, 10), IsHitTestVisible = false };
+    private readonly Border _modeConfirmation;
     public CapturedDisplay Display { get; }
     public Picture Picture { get; }
     public CaptureSurface Surface { get; }
@@ -36,6 +37,7 @@ internal sealed class CaptureWindow : Window
         _text = new AnnotationTextEditor(overlay, Editor,
             point => new Point(point.X * Scale.X, point.Y * Scale.Y), () => Scale);
         _toolbar = new AnnotationToolbar(Editor, _text.Commit) { IsVisible = false };
+        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↕", "长截图", RequestLongCapture));
         _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⌖", $"固定为贴图 · {ShortcutLabels.Command}T / 鼠标中键", () => session.Finish(this, CaptureAction.Pin)));
         _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("Aa", "识别文字", () => session.Finish(this, CaptureAction.Ocr)));
         _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↓", $"保存图片 · {ShortcutLabels.Command}S", () => session.Finish(this, CaptureAction.Save)));
@@ -43,6 +45,17 @@ internal sealed class CaptureWindow : Window
         _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("×", "取消截图 · Esc", session.Cancel));
         overlay.Children.Add(_toolbar);
         overlay.Children.Add(_hint);
+        _modeConfirmation = new Border
+        {
+            IsVisible = false, Background = Ui.ToolbarBackground, Padding = new Thickness(20), CornerRadius = new CornerRadius(10),
+            Child = new StackPanel { Spacing = 12, Children =
+            {
+                new TextBlock { Text = "长截图使用原始画面，是否丢弃本次标注？", Foreground = Brushes.White },
+                Ui.Row(Ui.Button("丢弃标注并继续", () => { DismissConfirmation(); Editor.Reset(); session.Finish(this, CaptureAction.Long); }),
+                    Ui.Button("保留标注", DismissConfirmation))
+            } }
+        };
+        overlay.Children.Add(_modeConfirmation);
         Content = new Grid { Children = { Surface, overlay } };
         Editor.Changed += () => Surface.InvalidateVisual();
         KeyDown += OnKeyDown;
@@ -63,17 +76,36 @@ internal sealed class CaptureWindow : Window
         if (bounds is not { } selection) return;
         _toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _toolbar.DesiredSize;
-        Canvas.SetLeft(_toolbar, Math.Clamp(selection.Right - size.Width, 0, Math.Max(0, Width - size.Width)));
+        Canvas.SetLeft(_toolbar, Math.Clamp(selection.Right - size.Width, 0, Math.Max(0, Surface.Bounds.Width - size.Width)));
         var y = selection.Bottom + 8;
-        if (y + size.Height > Height) y = selection.Top - size.Height - 8;
-        Canvas.SetTop(_toolbar, Math.Clamp(y, 0, Math.Max(0, Height - size.Height)));
+        if (y + size.Height > Surface.Bounds.Height) y = selection.Top - size.Height - 8;
+        Canvas.SetTop(_toolbar, Math.Clamp(y, 0, Math.Max(0, Surface.Bounds.Height - size.Height)));
     }
 
     public void SetHint(string message) => _hint.Text = message;
 
+    private void RequestLongCapture()
+    {
+        CommitEditing();
+        if (Editor.Document.Commands.Count == 0) { _session.Finish(this, CaptureAction.Long); return; }
+        _modeConfirmation.Measure(Size.Infinity);
+        Canvas.SetLeft(_modeConfirmation, Math.Max(0, (Surface.Bounds.Width - _modeConfirmation.DesiredSize.Width) / 2));
+        Canvas.SetTop(_modeConfirmation, Math.Max(0, (Surface.Bounds.Height - _modeConfirmation.DesiredSize.Height) / 2));
+        _modeConfirmation.IsVisible = true;
+        _toolbar.IsEnabled = false; Surface.IsEnabled = false;
+    }
+
+    private void DismissConfirmation()
+    { _modeConfirmation.IsVisible = false; _toolbar.IsEnabled = true; Surface.IsEnabled = true; Surface.Focus(); }
+
     private void OnKeyDown(object? sender, KeyEventArgs args)
     {
         if (_text.IsEditing) return;
+        if (_modeConfirmation.IsVisible)
+        {
+            if (args.Key == Key.Escape) DismissConfirmation();
+            args.Handled = true; return;
+        }
         if (args.Key == Key.Escape)
         {
             if (Editor.IsDrawing) Editor.CancelGesture();
@@ -153,11 +185,7 @@ internal sealed class CaptureSurface : Control
         context.FillRectangle(shade, new Rect(0, r.Bottom, Bounds.Width, Math.Max(0, Bounds.Height - r.Bottom)));
         context.FillRectangle(shade, new Rect(0, r.Top, r.Left, r.Height));
         context.FillRectangle(shade, new Rect(r.Right, r.Top, Math.Max(0, Bounds.Width - r.Right), r.Height));
-        var pen = new Pen(Ui.Blue, 1);
-        context.DrawRectangle(null, pen, r);
-        if (Selection is not null) foreach (var p in new[] { r.TopLeft, new Point(r.Center.X, r.Top), r.TopRight, new Point(r.Right, r.Center.Y),
-                     r.BottomRight, new Point(r.Center.X, r.Bottom), r.BottomLeft, new Point(r.Left, r.Center.Y) })
-            context.DrawRectangle(Brushes.White, pen, new Rect(p.X - 3, p.Y - 3, 6, 6));
+        SelectionOutline.Draw(context, r, Ui.Blue, Selection is not null);
         var region = CaptureRegionPolicy.MapToPixels(Bounds.Width, Bounds.Height, r.X, r.Y, r.Width, r.Height,
             _window.Picture.Bitmap.PixelSize.Width, _window.Picture.Bitmap.PixelSize.Height);
         var label = new FormattedText($"{region.Width} × {region.Height}", CultureInfo.InvariantCulture,

@@ -47,6 +47,16 @@ public sealed class Picture : IDisposable
 
     public void Dispose() => Bitmap.Dispose();
 
+    public static Picture FromPixels(byte[] pixels, int width, int height)
+    {
+        if (width < 1 || height < 1 || pixels.LongLength != (long)width * height * 4)
+            throw new ArgumentException("图像尺寸与像素数据不匹配。");
+        using var bitmap = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Unpremul);
+        using (var target = bitmap.Lock())
+            for (var y = 0; y < height; y++) Marshal.Copy(pixels, y * width * 4, target.Address + y * target.RowBytes, width * 4);
+        using var output = new MemoryStream(); bitmap.Save(output); return new Picture(output.ToArray());
+    }
+
     public byte[] GetPixels()
     {
         if (_pixels is not null) return _pixels;

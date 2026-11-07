@@ -6,12 +6,12 @@ using Tbox.Core;
 
 namespace Tbox.Desktop.Views;
 
-public enum CaptureAction { Copy, Save, Pin, Ocr }
+public enum CaptureAction { Copy, Save, Pin, Ocr, Long }
 
 internal sealed class CaptureSession
 {
     private readonly DesktopController _controller;
-    private readonly Action _closed;
+    private readonly Action<bool> _closed;
     private readonly List<CaptureWindow> _windows = [];
     private readonly ICaptureTargetSource _targets;
     private (CaptureWindow Window, Point Point, bool Replace)? _pendingDetection;
@@ -19,7 +19,7 @@ internal sealed class CaptureSession
     public CaptureDetectionMode DetectionMode { get; private set; }
     public CaptureSessionState State { get; } = new();
 
-    public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action closed)
+    public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action<bool> closed)
     {
         _controller = controller; _closed = closed;
         _targets = controller.Platform.CreateCaptureTargets();
@@ -125,24 +125,30 @@ internal sealed class CaptureSession
         var region = CaptureRegionPolicy.MapToPixels(window.Surface.Bounds.Width, window.Surface.Bounds.Height,
             selection.Left, selection.Top, selection.Width, selection.Height,
             window.Picture.Bitmap.PixelSize.Width, window.Picture.Bitmap.PixelSize.Height);
-        var picture = action is CaptureAction.Ocr or CaptureAction.Pin ? window.Picture.Crop(region)
-            : AnnotationRenderer.Render(window.Picture, region, window.Editor.Document.Commands);
-        var annotations = action == CaptureAction.Pin ? window.Editor.Document.Commands
-            .Select(command => AnnotationTransform.Translate(command, -region.Left, -region.Top)).ToArray() : [];
         var display = window.Display;
         var scaleX = display.Width / window.Surface.Bounds.Width;
         var scaleY = display.Height / window.Surface.Bounds.Height;
         var placement = new DesktopPlacement(display.Left + selection.Left * scaleX, display.Top + selection.Top * scaleY,
             selection.Width * scaleX, selection.Height * scaleY);
-        Close();
+        if (action == CaptureAction.Long)
+        {
+            Close(false);
+            _controller.Run(() => _controller.StartLongCaptureAsync(placement));
+            return;
+        }
+        var picture = action is CaptureAction.Ocr or CaptureAction.Pin ? window.Picture.Crop(region)
+            : AnnotationRenderer.Render(window.Picture, region, window.Editor.Document.Commands);
+        var annotations = action == CaptureAction.Pin ? window.Editor.Document.Commands
+            .Select(command => AnnotationTransform.Translate(command, -region.Left, -region.Top)).ToArray() : [];
+        Close(false);
         _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations));
     }
 
-    public void Cancel() { State.Cancel(); Close(); }
-    private void Close()
+    public void Cancel() { State.Cancel(); Close(true); }
+    private void Close(bool cancelled)
     {
         foreach (var window in _windows) window.Close();
         _windows.Clear();
-        _closed();
+        _closed(cancelled);
     }
 }

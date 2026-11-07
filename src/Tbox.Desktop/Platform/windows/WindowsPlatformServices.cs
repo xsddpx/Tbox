@@ -82,6 +82,20 @@ public sealed class WindowsPlatformServices : IPlatformServices
         }
     }
 
+    public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => Task.Run(() =>
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (region.Width < 1 || region.Height < 1) throw new ArgumentOutOfRangeException(nameof(region));
+        return Capture(new NativeRect { Left = (int)Math.Round(region.Left), Top = (int)Math.Round(region.Top),
+            Right = (int)Math.Round(region.Left + region.Width), Bottom = (int)Math.Round(region.Top + region.Height) });
+    }, cancellationToken);
+
+    public void PrepareCaptureOverlay(nint handle, bool clickThrough)
+    {
+        if (!SetWindowDisplayAffinity(handle, 0x11)) throw Error("无法从截图中排除控制窗口");
+        if (clickThrough) SetWindowLongPtr(handle, -20, GetWindowLongPtr(handle, -20) | 0x20 | 0x80000);
+    }
+
     public async Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken)
     {
         try { _ = Package.Current.Id.Name; }
@@ -130,9 +144,11 @@ public sealed class WindowsPlatformServices : IPlatformServices
     {
         if (!GetCursorPos(out var point)) return;
         var bounds = GetWindowPlacement(handle); var work = ReadMonitor(MonitorFromPoint(point, 2)).Work;
-        var left = Math.Clamp(point.X - bounds.Width / 2, work.Left, Math.Max(work.Left, work.Right - bounds.Width));
-        var top = Math.Clamp(point.Y - bounds.Height / 2, work.Top, Math.Max(work.Top, work.Bottom - bounds.Height));
-        if (!SetWindowPos(handle, 0, (int)left, (int)top, 0, 0, 0x01 | 0x04 | 0x10)) throw Error("无法移动窗口");
+        var ratio = Math.Min(1, Math.Min((work.Right - work.Left) / bounds.Width, (work.Bottom - work.Top) / bounds.Height));
+        var width = bounds.Width * ratio; var height = bounds.Height * ratio;
+        var left = Math.Clamp(point.X - width / 2, work.Left, Math.Max(work.Left, work.Right - width));
+        var top = Math.Clamp(point.Y - height / 2, work.Top, Math.Max(work.Top, work.Bottom - height));
+        if (!SetWindowPos(handle, 0, (int)left, (int)top, (int)width, (int)height, 0x04 | 0x10)) throw Error("无法移动窗口");
     }
 
     public DesktopPlacement GetWindowPlacement(nint handle)
@@ -180,6 +196,9 @@ public sealed class WindowsPlatformServices : IPlatformServices
     [DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint window);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll", SetLastError = true)] private static extern nint GetDC(nint window);
+    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowDisplayAffinity(nint window, uint affinity);
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint window, int index);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtr(nint window, int index, nint value);
     [DllImport("user32.dll")] private static extern int ReleaseDC(nint window, nint dc);
     [DllImport("gdi32.dll", SetLastError = true)] private static extern nint CreateCompatibleDC(nint dc);
     [DllImport("gdi32.dll", SetLastError = true)] private static extern nint CreateDIBSection(nint dc, ref BitmapInfo info, uint usage, out nint bits, nint section, uint offset);
