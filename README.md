@@ -1,10 +1,12 @@
 # Tbox
 
-Tbox 是一个面向 Windows 和 macOS 的模块化效率工具。现有 Windows 完整版使用 C#、.NET 8 和 WinUI 3；共用 Avalonia 界面的跨平台版本正在迁移，先交付 Mac 的截图、贴图和 OCR 基础工作流，最终对齐现有全部功能。
+Tbox 是面向 Windows 和 macOS 的桌面工具。当前公开交付为共用 Avalonia 界面的 1.1.15，提供截图、标注、贴图、离线 OCR 和区域录屏。原 WinUI 工程保留为迁移基线，完整功能和交互验收仍在继续。
+
+**[下载最新正式版](https://github.com/xsddpx/Tbox-releases/releases/latest)** · Windows 11 x64 / macOS 14+ Apple Silicon · 无需登录。首次安装见 [安装与权限说明](docs/releases/INSTALL.md)。
 
 ## 跨平台迁移
 
-`src/Tbox.Desktop` 共用设置、截图交互、贴图、剪贴板与 OCR 结果界面，并直接复用 `Tbox.Core`。截图取帧、系统 OCR 等能力通过平台适配层接入。当前先在 Apple Silicon Mac 验证，尚未替代 Windows 完整版；逐项进度以 [活需求文档](docs/product-requirements.md) 和 [技术与验收记录](docs/cross-platform-architecture.md) 为准。
+`src/Tbox.Desktop` 共用设置、截图交互、贴图、剪贴板与 OCR 结果界面，并直接复用 `Tbox.Core`。截图取帧、系统 OCR 等能力通过平台适配层接入。共用版已完成双平台签名构建和运行验证，并提供公开安装包；未验收范围以 [活需求文档](docs/product-requirements.md) 和 [技术与验收记录](docs/cross-platform-architecture.md) 为准。
 
 Mac 开发需要 `global.json` 指定的 .NET SDK（9.0.313）、.NET 8 运行时，以及 Apple Command Line Tools。应用包自带运行时，使用者无需安装 .NET。
 
@@ -20,11 +22,11 @@ bash scripts/install-macos.sh
 
 固定安装位置为 `~/Applications/Tbox.app`。安装脚本在覆盖前检查新包是否满足旧包的签名身份，不主动清空权限；普通构建禁止退回 ad hoc 签名。私钥保存在登录钥匙串，不进 Git、不随应用分发。首次从旧临时签名迁移需要重新登记一次 Tbox 权限；之后通过兼容签名保留系统识别的应用身份。
 
-升级验证需先正常打开已安装的 Tbox，再执行 `~/Applications/Tbox.app/Contents/MacOS/Tbox.Desktop --permission-probe`；它查询正在运行的应用进程，只报告权限及取帧尺寸，不保存屏幕图像。本机已通过 1.1.1 → 1.1.2 → 1.1.3 两次覆盖升级验证，屏幕授权及实际取帧均保留，见 [验证记录](docs/macos-permission-upgrade-verification.md)。辅助功能权限尚未完成实机验收。
+升级验证需先正常打开已安装的 Tbox，再执行 `~/Applications/Tbox.app/Contents/MacOS/Tbox.Desktop --permission-probe`；它查询正在运行的应用进程，只报告权限及取帧尺寸，不保存屏幕图像。本机已通过 1.1.1 → 1.1.2 → 1.1.3 两次覆盖升级验证，屏幕授权及实际取帧均保留，见 [验证记录](docs/macos-permission-upgrade-verification.md)。1.1.13 已识别本机辅助功能授权，Mac 实际文件面板导航仍待复验。1.1.15 公开包已验证签名与当前安装身份一致；本机锁屏，应用内升级及升级后权限验证待解锁完成。
 
 Mac 全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴图、`Control+Shift+3` 全部贴图显隐。图片复制、保存和固定使用 `Command+C/S/T`，`Esc` 取消截图或关闭贴图。第一次截图需要在系统设置中允许 Tbox 屏幕录制。缺少权限时截图只显示应用内提示；只有点击授权按钮才请求一次，再次点击打开系统设置。已有图片的识别和剪贴板贴图无需屏幕录制权限。
 
-共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。当前尚未完成新工程的 Windows 安装及完整功能回归，继续以原 Windows 完整版作为可用版本。
+共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。1.1.15 的 Windows MSIX 已在托管 Windows 环境完成签名、安装、OCR、取帧、录屏及三格式导出检查；旧用户设备升级、系统声音和全部桌面交互仍待验收。
 
 Windows 共用版使用 `scripts/package-desktop-windows.ps1`，与旧 WinUI 打包脚本分开。它保留原 MSIX 的 `Tbox` 包身份、发布者和 `App`/启动项标识，入口改为 `Tbox.Desktop.exe`；应用自带 .NET 运行时，首次启动会在新版设置不存在时导入旧偏好，旧设置与缓存文件保留。Windows 开发机需 Windows 11 x64、Windows SDK、.NET SDK，及原有持久签名证书；脚本不生成证书或自动修改系统信任。
 
@@ -50,7 +52,7 @@ Mac 媒体构建另需 Xcode Command Line Tools、`make` 与 `pkg-config`（`bre
 dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
 ```
 
-检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试与原有 FFmpeg。完整功能及安装验收通过后，软件下载放在独立的公开仓库 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)，无需登录；源码仓库保持私有。应用内“常规 → 检查更新”使用同一公开渠道。当前公开仓库尚无正式安装包，实际在线升级待发布后验收，详见 [更新机制](docs/online-updates.md)。
+检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试及固定源码构建的 FFmpeg。1.1.15 已发布在独立公开仓库 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases/latest)，两个安装包均经匿名实际下载和 SHA-256 校验；源码仓库保持私有。应用内“常规 → 检查更新”使用同一公开渠道，真实在线升级仍待本机解锁及旧 Windows 设备验收，详见 [更新机制](docs/online-updates.md)。
 
 ## Windows 完整版
 

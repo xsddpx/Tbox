@@ -1,6 +1,14 @@
 # 跨平台逐项验收表
 
-1.1.13 两平台 CI 与 Windows 安装验收全部通过：[运行 42402478448](https://github.com/xsddpx/Tbox/actions/runs/42402478448)，应用提交 `aec6414`。Windows 持久签名 MSIX 已实际安装，系统 OCR、像素裁剪、界面渲染、单显示器实际取帧通过；320×240/10 FPS 录屏的解码时长为 3.9 秒，74 次播放回调中红蓝各 37、暂停绿色 0，GIF/WebP 导出和 MP4 原样保存通过，未测试系统声音。下载的 108744413 字节 MSIX 与云端 SHA-256 一致，已登记发布历史；结果在 `TEMP/windows-installed/1.1.13/verification/`。Mac 实际文件夹跳转仍待用户完成更新后的前台热键复验，当前没有公开 Release。
+## 当前公开交付：1.1.15
+
+2026-11-08 03:48:46 +0800 已公开 Windows 11 x64 与 macOS 14+ Apple Silicon 安装包。[正式流程 42407512233](https://github.com/xsddpx/Tbox/actions/runs/42407512233) 全部通过；源码保持私有。公开包已匿名完整下载，大小、SHA-256 与发布清单一致，Mac 深度签名和当前安装版指定签名要求一致，44 个原生二进制满足最低 macOS 14。Windows 实际安装、OCR、取帧、录屏及三格式导出通过；文件夹导航的八次原生检查在串行干净构建后通过。详见 [首发验收记录](releases/v1.1.15-verification.md)。
+
+本机 Mac 仍为 1.1.13，电脑锁屏，应用内升级与升级后权限保留待用户解锁；Windows 旧设备升级、Mac 文件夹跳转/长截图等未验收范围继续保留。新界面候选尚未开始，按 UI-010 在上线及更新验收后提供。
+
+## 历史验证记录
+
+1.1.13 两平台 CI 与 Windows 安装验收全部通过：[运行 42402478448](https://github.com/xsddpx/Tbox/actions/runs/42402478448)，应用提交 `aec6414`。Windows 持久签名 MSIX 已实际安装，系统 OCR、像素裁剪、界面渲染、单显示器实际取帧通过；320×240/10 FPS 录屏的解码时长为 3.9 秒，74 次播放回调中红蓝各 37、暂停绿色 0，GIF/WebP 导出和 MP4 原样保存通过，未测试系统声音。下载的 108744413 字节 MSIX 与云端 SHA-256 一致，已登记发布历史；结果在 `TEMP/windows-installed/1.1.13/verification/`。Mac 实际文件夹跳转仍待用户完成更新后的前台热键复验，该轮尚未公开 Release。
 
 Windows 共用文件夹导航已通过 [CI 42402478448](https://github.com/xsddpx/Tbox/actions/runs/42402478448)：前台 Explorer 跟踪两处含中文、空格且末级名称相同的路径，四次真实打开/保存面板均显示各自唯一目录标记，耗时 1473/165/842/155 ms；普通文本窗口保持原内容，模块停止及恢复通过。结果在 `TEMP/folder-smoke-ci/42402478448/result.json`。此前三次失败来自夹具窗口未完成加载/前台切换，修正夹具后通过，没有改动 Windows 生产导航逻辑。该验证已加入正式 Release 的签名打包前置检查；不覆盖全局热键、Explorer 多标签切换或旧用户设备升级。
 
