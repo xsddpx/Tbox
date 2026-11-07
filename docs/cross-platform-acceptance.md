@@ -1,6 +1,10 @@
 # 跨平台逐项验收表
 
-1.1.11 增加 Windows 安装版实际录屏验收：320×240、10 FPS 静音录制，红/蓝画面在暂停前后各录制约 2 秒，暂停期间的绿色必须排除，解码时长不得包含暂停；随后导出实际母版的 GIF、WebP 和 MP4。9 项判定回归覆盖黑屏、静帧、缺失片段、暂停画面泄漏和错误时长。当前本机 95 核心、111 桌面、34 发布/材料检查及 Mac 打包检查通过；Mac 已固定路径覆盖安装，权限与独立运行待复查，Windows 云端实际录制待运行。此诊断不覆盖系统声音、完整 UI 或旧电脑升级。
+1.1.12 软件图标更新：采用用户指定的白色透明倒品字 SVG，生成两平台共用 PNG、七种尺寸 ICO 和 Mac ICNS，Mac 菜单栏使用模板着色。Mac 唯一 ZIP 已签名、固定路径覆盖安装并独立启动；安装后 ICNS 的 1024×1024 像素与共用 PNG 完全一致。进程 17616 保留屏幕授权并实际取得 3024×1964 帧，证据在 `TEMP/install-verification/1.1.12/permission.json`；小图预览在 `TEMP/icon-delivery/1.1.12/icon-preview.png`。Windows 对应新包待云端安装验收。
+
+1.1.11 Windows 原生录屏检查已通过：[两平台 CI 42398378401](https://github.com/xsddpx/Tbox/actions/runs/42398378401) 全部成功，签名 MSIX 在 Windows 2025 runner 实际安装，OCR、截图、界面、录屏及三格式导出通过。独立用 AVFoundation 解码实际母版：320×240、H.264、10 FPS、3.9 秒、38 帧，其中红/蓝各 19 帧、绿色 0 帧；GIF 47 帧/3910 ms，WebP 2 帧/3916 ms，两者无限循环且颜色与录制阶段一致，MP4 原样保存。LibVLC 的 74 次回调包含重复呈现，不当作源视频编码帧数。证据在 `TEMP/windows-installed/1.1.11/verification/`，安装包哈希已登记。仍未验证 Windows 系统声音、全部帧率、完整 UI 与旧用户设备升级。
+
+1.1.11 增加 Windows 安装版实际录屏验收：320×240、10 FPS 静音录制，红/蓝画面在暂停前后各录制约 2 秒，暂停期间的绿色必须排除，解码时长不得包含暂停；随后导出实际母版的 GIF、WebP 和 MP4。9 项判定回归覆盖黑屏、静帧、缺失片段、暂停画面泄漏和错误时长。当前本机 95 核心、111 桌面、34 发布/材料检查及 Mac 打包检查通过；Mac 已固定路径覆盖安装并独立启动；进程 14018 的权限探测显示 `screenPermission=true`、`captureVerified=true`，3024×1964，未重新申请授权，证据在 `TEMP/install-verification/1.1.11/permission.json`。Windows 云端实际录制已通过，结果见上。此诊断不覆盖系统声音、完整 UI 或旧电脑升级。
 
 1.1.10 两平台 CI 已全部通过：[运行 42396331339](https://github.com/xsddpx/Tbox/actions/runs/42396331339)。Windows 使用固定源码运行库的签名 MSIX 已在 Windows 2025 runner 实际安装、启动并取得屏幕帧；报告 `success=true`、`nativeOcr=true`、`pixelCrop=true`、`uiRendered=true`、`captureVerified=true`、`displayCount=1`。包内媒体验证实际解码 36 帧，GIF 24 帧/2000 ms、WebP 20 帧/1999 ms、MP4 复制一致。下载到本机的 110706316 字节安装包与云端登记哈希一致，已写入发布历史；证据在 `TEMP/windows-installed/1.1.10/`。仍未完成旧 Windows 用户设备升级、全部交互及公开在线更新验收。
 
@@ -85,12 +89,12 @@ Mac 1.1.6 已生成唯一 ZIP、覆盖安装并独立启动（进程 53695）。
 | OCR-005 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
 | OCR-006 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
 | OCR-007 | 已实现 | TextRecognition.cs / OcrResultWindow.cs | Views/OcrWindow.cs / Platform/MacPlatformServices.cs / Platform/windows/WindowsPlatformServices.cs | 待逐项复验 |
-| REC-001 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 1.1.8/1.1.9 从截图选区进入独立控制、停止回放通过；Windows 系统采集待验收 |
-| REC-002 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 默认 10 FPS、切换 25 FPS、暂停冻结/继续/停止通过；边框排除、所有帧率及 Windows 待复验 |
+| REC-001 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 1.1.8/1.1.9 从截图选区进入独立控制、停止回放通过；Windows 1.1.11 安装版实际静音采集、停止解码通过，完整界面待验收 |
+| REC-002 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 默认 10 FPS、切换 25 FPS、暂停冻结/继续/停止通过；Windows 1.1.11 的 10 FPS 暂停画面排除及有效时长通过；边框排除、其他帧率和完整界面待复验 |
 | REC-003 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 25 FPS、400×250 动态 H.264 与系统 AAC 测试音通过；音频降级、指针及 Windows 待验收 |
-| REC-004 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 动态回放、元数据、暂停与有效时长通过；全部快捷键及 Windows 原生回放待验收 |
+| REC-004 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 动态回放、元数据、暂停与有效时长通过；Windows 1.1.11 实采母版的包内原生解码通过；完整回放界面及快捷键待验收 |
 | REC-005 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 重录后默认 MP4、切换 GIF/WebP 通过；Windows 实际格式交互待验收 |
-| REC-006 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 实际 GIF、WebP、MP4 保存已验证；MP4 有声，WebP 循环且不放大；大尺寸及 Windows 实采导出待验收 |
+| REC-006 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 实际 GIF、WebP、MP4 保存已验证；MP4 有声，WebP 循环且不放大；Windows 1.1.11 的 320×240 实采三格式导出通过；大尺寸及完整格式交互待验收 |
 | REC-007 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | 自动化文件保护/取消测试通过；实际转换保存通过；实际取消、失败恢复待验收 |
 | REC-008 | 已实现 | ScreenRegionRecorder.cs / RecordingControlWindow.cs / RecordingReviewWindow.cs | Views/RecordingControlWindow.cs / Views/RecordingReviewWindow.cs / Models/RecordingOperation.cs / Platform/*RegionRecorder.cs | Mac 放弃确认、重录、保存后进程存活且重新打开主窗通过；实际异常路径及 Windows 待验收 |
 | PIN-001 | 已实现 | PinnedImageWindow.cs / ScreenPasteModule.cs | Views/PinnedWindow.cs | 待逐项复验 |
@@ -121,6 +125,7 @@ Mac 1.1.6 已生成唯一 ZIP、覆盖安装并独立启动（进程 53695）。
 | UI-006 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-007 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-008 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
+| UI-009 | 新增 | 用户指定 v5 倒品字 SVG | assets/branding/tbox.svg / scripts/generate-app-icons.py / App.cs | 1.1.12 共用图标已更新；Mac 安装图标像素一致、正常启动及权限保留通过，Windows 新包待验收 |
 | REL-001 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
 | REL-002 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
 | REL-003 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |

@@ -6,6 +6,8 @@
 
 Windows 与 macOS 使用同一个 `Tbox.Desktop` 界面工程、布局、图标与状态规则。设计令牌集中在 `src/Tbox.Desktop/Views/DesignTokens.cs`，平台适配层不能另写页面或替换产品配色。允许不同的只有系统字体度量、系统窗口按钮、文件选择器及系统快捷键修饰符。
 
+软件品牌图标使用 `assets/branding/tbox.svg`：三个白色直角方块的倒品字构图，透明背景，不添加渐变、阴影或底板。应用图标、Windows 安装图块及托盘统一来自这一原稿；Mac 菜单栏使用模板模式，由系统依据菜单栏背景着色。此品牌图标与界面内表示动作的线性图标职责不同。
+
 `src/Tbox.App` 和 `docs/ui-prototypes/` 是上一版 Windows 的行为对照，不代表 UI 2.0 交付；新的 Windows 安装包必须使用共用界面。旧版原型中的搜索、PowerToys 外观和暖灰配色已被本规范取代。
 
 ## 2. 信息结构

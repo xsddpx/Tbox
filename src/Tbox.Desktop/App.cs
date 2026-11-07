@@ -48,6 +48,8 @@ public sealed class App : Application
                 Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/AppIcon.png"))),
                 ToolTipText = "Tbox", Menu = menu, IsVisible = true
             };
+            // Use the approved monochrome silhouette with the system menu bar tint.
+            MacOSProperties.SetIsTemplateIcon(_tray, true);
             _tray.Clicked += (_, _) => _controller.ShowMain();
             TrayIcon.SetIcons(this, new TrayIcons { _tray });
             lifetime.Exit += (_, _) =>
