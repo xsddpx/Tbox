@@ -54,6 +54,11 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
     }
 
     func start(region: CGRect, width: Int, height: Int) async throws {
+        // Access may have been revoked after the selection was made. Avoid asking again
+        // through ScreenCaptureKit, including the retry without system audio.
+        guard CGPreflightScreenCaptureAccess() else {
+            throw mediaError("屏幕录制权限不可用，请在 Tbox 中打开屏幕录制设置。")
+        }
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { CGDisplayBounds($0.displayID).contains(region) }) else {
             throw mediaError("录屏区域已不在当前显示器中。")

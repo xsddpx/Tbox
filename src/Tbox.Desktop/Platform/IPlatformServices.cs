@@ -12,6 +12,7 @@ public interface IPlatformServices : IDisposable
 {
     bool HasScreenPermission { get; }
     bool RequestScreenPermission();
+    void OpenScreenPermissionSettings();
     Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken);
     Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
     Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken);

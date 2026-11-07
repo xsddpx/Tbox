@@ -34,6 +34,7 @@ public sealed class DesktopController : IDisposable
     private CaptureCache _cache;
     private bool _capturing;
     private bool _pinsHidden;
+    private bool _screenPermissionRequested;
     public IPlatformServices Platform { get; }
     public CaptureHistory CaptureHistory { get; } = new();
     public MainWindow Main { get; set; } = null!;
@@ -42,6 +43,7 @@ public sealed class DesktopController : IDisposable
     public AppSettings Settings => _settings;
     public string FolderDirectory => _folders.CurrentDirectory;
     public bool HasFolderPermission => _folders.HasPermission;
+    public bool ScreenPermissionRequested => _screenPermissionRequested;
     public event Action<int>? ThemeLoaded;
 
     public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime)
@@ -135,16 +137,29 @@ public sealed class DesktopController : IDisposable
     }
 
     public void ShowMain() { Main.Show(); Main.Activate(); Main.Refresh(); }
-    public void RequestPermission() { Platform.RequestScreenPermission(); Main.Refresh(); }
+    public void RequestPermission()
+    {
+        if (Platform.HasScreenPermission) { Main.Refresh(); return; }
+        // This is the only permission-requesting UI action. Repeated clicks open settings;
+        // capture hotkeys, activation, diagnostics and retries must never request access.
+        if (_screenPermissionRequested) Platform.OpenScreenPermissionSettings();
+        else
+        {
+            _screenPermissionRequested = true;
+            Platform.RequestScreenPermission();
+        }
+        Main.SetStatus("在系统设置中允许 Tbox；若已开启但仍不可截图，请退出并重新打开应用。");
+        Main.Refresh();
+    }
 
     public async Task CaptureAsync()
     {
         if (!_settings.ScreenPasteEnabled || _capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;
         if (!Platform.HasScreenPermission)
         {
-            RequestPermission();
-            if (!Platform.HasScreenPermission)
-                throw new InvalidOperationException("请在系统设置中允许 Tbox 屏幕录制，再退出并重新打开 Tbox。");
+            ShowMain();
+            Main.SetStatus("截图尚未获授权。请点击“允许屏幕录制”或“打开屏幕录制设置”；贴图和已有图片识别仍可使用。");
+            return;
         }
         _capturing = true;
         var restore = Main.IsVisible;

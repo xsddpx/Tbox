@@ -20,6 +20,12 @@ public func permission() -> Int32 { CGPreflightScreenCaptureAccess() ? 1 : 0 }
 @_cdecl("tbox_request_permission")
 public func requestPermission() -> Int32 { CGRequestScreenCaptureAccess() ? 1 : 0 }
 
+@_cdecl("tbox_open_permission_settings")
+public func openPermissionSettings() {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else { return }
+    NSWorkspace.shared.open(url)
+}
+
 private final class CaptureResult: @unchecked Sendable {
     var value: [String: Any] = [:]
     let complete = DispatchSemaphore(value: 0)

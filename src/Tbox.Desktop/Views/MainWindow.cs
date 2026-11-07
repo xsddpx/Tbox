@@ -15,6 +15,7 @@ public sealed class MainWindow : Window
     private readonly CheckBox _captureEnabled = new() { Content = "启用截图与贴图" };
     private readonly CheckBox _folderEnabled = new() { Content = "启用文件夹跳转" };
     private readonly Button _folderPermission;
+    private readonly Button _screenPermission;
     private bool _updatingSettings;
 
     public MainWindow(DesktopController controller)
@@ -36,8 +37,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(new Border { Height = 12 });
         var capture = Ui.Button("开始截图", () => controller.Run(controller.CaptureAsync), $"区域截图 · {ShortcutLabels.Capture}");
         capture.Classes.Add("accent"); capture.MinHeight = 40;
-        var permissionButton = Ui.Button("允许屏幕录制", controller.RequestPermission);
-        permissionButton.IsVisible = OperatingSystem.IsMacOS();
+        _screenPermission = Ui.Button("允许屏幕录制", controller.RequestPermission);
         panel.Children.Add(Ui.Card(new StackPanel { Spacing = 12, Children =
         {
             Ui.Text("截图与贴图", 16),
@@ -66,7 +66,7 @@ public sealed class MainWindow : Window
             Ui.Text("常规", 16),
             Ui.Row(Ui.Text("外观"), theme),
             _permission,
-            Ui.Row(permissionButton,
+            Ui.Row(_screenPermission,
                 Ui.Button("打开缓存", controller.OpenCache),
                 Ui.Button("更换缓存…", () => controller.Run(controller.ChooseCacheAsync))),
             _cache
@@ -93,7 +93,10 @@ public sealed class MainWindow : Window
         _updatingSettings = false;
         _folder.Text = _controller.HasFolderPermission ? "最近目录：" + _controller.FolderDirectory : "需要辅助功能权限，才能读取 Finder 目录并跳转系统文件面板。";
         _folderPermission.IsVisible = OperatingSystem.IsMacOS() && !_controller.HasFolderPermission;
-        _permission.Text = !OperatingSystem.IsMacOS() ? "截图服务已就绪" : _controller.Platform.HasScreenPermission ? "屏幕录制权限已允许" : "截图需要屏幕录制权限；贴图和已有图片识别可直接使用。";
+        var hasScreenPermission = _controller.Platform.HasScreenPermission;
+        _permission.Text = !OperatingSystem.IsMacOS() ? "截图服务已就绪" : hasScreenPermission ? "屏幕录制权限已允许" : "截图需要屏幕录制权限；贴图和已有图片识别可直接使用。";
+        _screenPermission.IsVisible = OperatingSystem.IsMacOS() && !hasScreenPermission;
+        _screenPermission.Content = _controller.ScreenPermissionRequested ? "打开屏幕录制设置" : "允许屏幕录制";
         _cache.Text = _controller.CacheDirectory;
     }
 }

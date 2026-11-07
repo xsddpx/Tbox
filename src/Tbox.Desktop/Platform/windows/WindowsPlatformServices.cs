@@ -20,6 +20,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     private WindowsHotkeys? _hotkeys;
     public bool HasScreenPermission => true;
     public bool RequestScreenPermission() => true;
+    public void OpenScreenPermissionSettings() { }
 
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken) => Task.Run<IReadOnlyList<CapturedDisplay>>(() =>
     {

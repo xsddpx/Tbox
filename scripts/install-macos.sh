@@ -12,7 +12,9 @@ if [[ -d "$DESTINATION" ]]; then
   EXISTING_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$DESTINATION/Contents/Info.plist")"
   [[ "$EXISTING_ID" == "$IDENTIFIER" ]] || { echo "目标路径属于其他应用，停止安装。" >&2; exit 1; }
   REQUIREMENT="$(codesign -d -r- "$DESTINATION" 2>&1 | sed -n 's/^#\{0,1\} *designated => //p')"
-  if [[ -z "$REQUIREMENT" ]] || ! codesign --verify --strict -R "$REQUIREMENT" "$SOURCE"; then
+  # A leading '=' marks literal requirement source; without it codesign treats
+  # the expression as a filename and rejects even an identical signing identity.
+  if [[ -z "$REQUIREMENT" ]] || ! codesign --verify --strict -R "=$REQUIREMENT" "$SOURCE"; then
     [[ "$ALLOW_MIGRATION" == "--migrate-signature" ]] || {
       echo "新包不满足已安装应用的签名身份，会影响权限。停止覆盖安装；首次迁移需显式指定 --migrate-signature。" >&2; exit 1;
     }

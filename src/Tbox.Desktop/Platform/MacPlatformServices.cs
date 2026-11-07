@@ -12,6 +12,7 @@ public sealed class MacPlatformServices : IPlatformServices
 
     public bool HasScreenPermission => NativePermission() != 0;
     public bool RequestScreenPermission() => NativeRequestPermission() != 0;
+    public void OpenScreenPermissionSettings() => NativeOpenPermissionSettings();
 
     public async Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
     {
@@ -90,6 +91,7 @@ public sealed class MacPlatformServices : IPlatformServices
     private delegate void HotkeyCallback(int id);
     [DllImport(Library, EntryPoint = "tbox_permission")] private static extern int NativePermission();
     [DllImport(Library, EntryPoint = "tbox_request_permission")] private static extern int NativeRequestPermission();
+    [DllImport(Library, EntryPoint = "tbox_open_permission_settings")] private static extern void NativeOpenPermissionSettings();
     [DllImport(Library, EntryPoint = "tbox_capture")] private static extern nint NativeCapture();
     [DllImport(Library, EntryPoint = "tbox_capture_region")] private static extern nint NativeCaptureRegion(double left, double top, double width, double height);
     [DllImport(Library, EntryPoint = "tbox_capture_overlay")] private static extern void NativeCaptureOverlay(nint handle, int clickThrough);

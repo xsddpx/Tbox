@@ -8,8 +8,10 @@ internal sealed class FakePlatform : IPlatformServices
     public bool HasScreenPermission { get; set; }
     public int PermissionRequests { get; private set; }
     public int CaptureRequests { get; private set; }
+    public int PermissionSettingsOpens { get; private set; }
     public IReadOnlyList<CapturedDisplay> Displays { get; set; } = [];
     public bool RequestScreenPermission() { PermissionRequests++; return HasScreenPermission; }
+    public void OpenScreenPermissionSettings() { PermissionSettingsOpens++; }
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
     { CaptureRequests++; return Task.FromResult(Displays); }
     public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => throw new NotSupportedException();

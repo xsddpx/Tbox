@@ -22,7 +22,7 @@ if [[ -z "$DOTNET" && -x "$ROOT/TEMP/dotnet/dotnet" ]]; then DOTNET="$ROOT/TEMP/
 if [[ ! -x "$DOTNET" ]]; then echo "请安装 global.json 指定的 .NET SDK，或设置 TBOX_DOTNET。" >&2; exit 1; fi
 BUILD="$ROOT/TEMP/build/$RID"
 APP="$BUILD/Tbox.app"
-mkdir -p "$BUILD" "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$BUILD"
 python3 - <<'PY'
 import plistlib, xml.etree.ElementTree as ET
 p=ET.parse('src/Tbox.Desktop/Tbox.Desktop.csproj').getroot()
@@ -31,7 +31,13 @@ with open('src/Tbox.Desktop/Platform/macos/Info.plist','rb') as f: info=plistlib
 assert v['AssemblyVersion']==v['FileVersion']==v['Version']+'.0'==info['CFBundleVersion'], '程序集/文件/Bundle 版本不一致'
 assert v['Version']==info['CFBundleShortVersionString'], '应用版本不一致'
 PY
-"$DOTNET" publish src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -r "$RID" --self-contained true -o "$APP/Contents/MacOS"
+rm -rf "$APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+# Keep the macOS executable directory free of portable PDB/managed PE files;
+# macOS treats files in this directory as code when sealing the bundle.
+"$DOTNET" publish src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -r "$RID" --self-contained true \
+  -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o "$APP/Contents/MacOS"
+rm -rf "$APP/Contents/MacOS/ThirdParty"
 swiftc -swift-version 5 -O -emit-library -target "$ARCH-apple-macosx14.0" \
   src/Tbox.Desktop/Platform/macos/*.swift -o "$APP/Contents/MacOS/libTboxNative.dylib"
 cp src/Tbox.Desktop/Platform/macos/Info.plist "$APP/Contents/Info.plist"
