@@ -93,7 +93,7 @@ jobs:
           TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
           TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
         run: |
-          ./scripts/release/sign-and-package-windows.ps1
+          ./scripts/release/sign-and-package-windows.ps1 -VerifyCapture -VerifyRecording
           python scripts/release/release.py build-record --tag $env:RELEASE_TAG --directory artifacts --platform win-x64
       - uses: actions/upload-artifact@v4
         with:

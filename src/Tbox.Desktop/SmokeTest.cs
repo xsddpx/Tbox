@@ -39,10 +39,13 @@ internal static class SmokeTest
             using var preview = new RenderTargetBitmap(new PixelSize((int)Math.Ceiling(client.Width), (int)Math.Ceiling(client.Height)), new Vector(96, 96));
             preview.Render(controller.Main);
             preview.Save(Path.Combine(directory, "main-window.png"));
+            var recording = args.Contains("--verify-recording")
+                ? await RecordingSmokeTest.RunAsync(controller.Platform, controller.Main, directory) : null;
             await WriteResultAsync(directory, JsonSerializer.Serialize(new
             {
                 success = true, nativeOcr = true, pixelCrop = true, uiRendered = true,
-                screenPermission = controller.Platform.HasScreenPermission, captureVerified, displayCount, recognizedText = ocr.Text
+                screenPermission = controller.Platform.HasScreenPermission, captureVerified, displayCount, recognizedText = ocr.Text,
+                recording
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception error)

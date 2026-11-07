@@ -1,5 +1,7 @@
 # 跨平台逐项验收表
 
+1.1.11 增加 Windows 安装版实际录屏验收：320×240、10 FPS 静音录制，红/蓝画面在暂停前后各录制约 2 秒，暂停期间的绿色必须排除，解码时长不得包含暂停；随后导出实际母版的 GIF、WebP 和 MP4。9 项判定回归覆盖黑屏、静帧、缺失片段、暂停画面泄漏和错误时长。当前本机 95 核心、111 桌面、34 发布/材料检查及 Mac 打包检查通过；Mac 已固定路径覆盖安装，权限与独立运行待复查，Windows 云端实际录制待运行。此诊断不覆盖系统声音、完整 UI 或旧电脑升级。
+
 1.1.10 两平台 CI 已全部通过：[运行 42396331339](https://github.com/xsddpx/Tbox/actions/runs/42396331339)。Windows 使用固定源码运行库的签名 MSIX 已在 Windows 2025 runner 实际安装、启动并取得屏幕帧；报告 `success=true`、`nativeOcr=true`、`pixelCrop=true`、`uiRendered=true`、`captureVerified=true`、`displayCount=1`。包内媒体验证实际解码 36 帧，GIF 24 帧/2000 ms、WebP 20 帧/1999 ms、MP4 复制一致。下载到本机的 110706316 字节安装包与云端登记哈希一致，已写入发布历史；证据在 `TEMP/windows-installed/1.1.10/`。仍未完成旧 Windows 用户设备升级、全部交互及公开在线更新验收。
 
 1.1.10 依赖替换验证（2026-11-08）：Windows 动画导出改为与 Mac 相同的固定 FFmpeg 8.1.2 / libwebp 1.6.0 源码构建；[独立 Windows 运行验证](https://github.com/xsddpx/Tbox/actions/runs/42394403213) 已通过实际启动、GIF/WebP 导出及播放。新增输入源码、构建脚本、二进制哈希和载荷校验，25 项发布/依赖检查、95 项核心及 102 项桌面测试通过。Mac 1.1.10 唯一 ZIP 已记录哈希，固定路径覆盖安装并正常独立启动；进程 562 的权限探测显示 `screenPermission=true`、`captureVerified=true`，3024×1964，未重新申请权限。证据在 `TEMP/install-verification/1.1.10/permission.json`。Windows 签名安装验收结果见上；第三方材料已通过 [独立 CI](https://github.com/xsddpx/Tbox/actions/runs/42397291104)，当前发布/依赖检查增至 34 项，正式公开发布仍待完成。

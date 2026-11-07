@@ -1,4 +1,4 @@
-param([switch]$VerifyIdentityOnly, [switch]$VerifyCapture)
+param([switch]$VerifyIdentityOnly, [switch]$VerifyCapture, [switch]$VerifyRecording)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
@@ -65,7 +65,7 @@ try {
         }
         Add-AppxPackage -Path $dependency
     }
-    & "$PSScriptRoot/../package-desktop-windows.ps1" -CertificateThumbprint $signer[0].Thumbprint -TimestampUrl 'http://timestamp.digicert.com' -VerifyCapture:$VerifyCapture
+    & "$PSScriptRoot/../package-desktop-windows.ps1" -CertificateThumbprint $signer[0].Thumbprint -TimestampUrl 'http://timestamp.digicert.com' -VerifyCapture:$VerifyCapture -VerifyRecording:$VerifyRecording
 } finally {
     Remove-Item -LiteralPath $pfx -Force -ErrorAction SilentlyContinue
     foreach ($certificate in $trusted) { Remove-Item -LiteralPath "Cert:\LocalMachine\TrustedPeople\$($certificate.Thumbprint)" -Force -ErrorAction SilentlyContinue }

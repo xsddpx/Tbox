@@ -1,6 +1,7 @@
 ﻿param(
     [switch]$VerifyOnly,
     [switch]$VerifyCapture,
+    [switch]$VerifyRecording,
     [string]$CertificateThumbprint,
     [string]$TimestampUrl
 )
@@ -80,7 +81,7 @@ try {
     if ($TimestampUrl) { $signArguments += @('/tr', $TimestampUrl, '/td', 'SHA256') }
     Invoke-Checked $signTool ($signArguments + $candidate)
     Invoke-Checked $signTool @('verify', '/pa', '/v', $candidate)
-    & (Join-Path $PSScriptRoot 'install-desktop-windows.ps1') -PackagePath $candidate -ResultDirectory (Join-Path $work 'installed-smoke') -VerifyCapture:$VerifyCapture
+    & (Join-Path $PSScriptRoot 'install-desktop-windows.ps1') -PackagePath $candidate -ResultDirectory (Join-Path $work 'installed-smoke') -VerifyCapture:$VerifyCapture -VerifyRecording:$VerifyRecording
     if ((Get-Content -LiteralPath $history -Raw -Encoding UTF8) -ne $historyBefore) { throw 'Release history changed during validation; keep the verified candidate and retry with a new version.' }
     $hash = (Get-FileHash $candidate -Algorithm SHA256).Hash
     $stamp = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time').ToString('yyyy-MM-dd HH:mm:ss zzz')

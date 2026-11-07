@@ -2,6 +2,7 @@
     [Parameter(Mandatory)][string]$PackagePath,
     [string[]]$DependencyPath = @(),
     [switch]$VerifyCapture,
+    [switch]$VerifyRecording,
     [string]$ResultDirectory
 )
 $ErrorActionPreference = 'Stop'
@@ -44,10 +45,11 @@ if (-not (Test-Path -LiteralPath $executable)) { throw 'The installed package do
 New-Item -ItemType Directory -Path $ResultDirectory | Out-Null
 $smokeArguments = "--smoke-test `"$ResultDirectory`""
 if ($VerifyCapture) { $smokeArguments += ' --verify-capture' }
+if ($VerifyRecording) { $smokeArguments += ' --verify-recording' }
 Invoke-CommandInDesktopPackage -PackageFamilyName $installed.PackageFamilyName -AppId App -Command $executable `
     -Args $smokeArguments -PreventBreakaway
 $resultPath = Join-Path $ResultDirectory 'result.json'
-$deadline = [DateTime]::UtcNow.AddSeconds(90)
+$deadline = [DateTime]::UtcNow.AddSeconds(150)
 while (-not (Test-Path -LiteralPath $resultPath)) {
     if ([DateTime]::UtcNow -gt $deadline) { throw "Installed application did not complete verification: $ResultDirectory" }
     Start-Sleep -Milliseconds 250
@@ -56,4 +58,5 @@ $result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom
 if (-not $result.success) { throw "Installed application verification failed: $($result.error)" }
 if (-not $result.nativeOcr -or -not $result.pixelCrop -or -not $result.uiRendered) { throw 'Installed verification is incomplete.' }
 if ($VerifyCapture -and (-not $result.captureVerified -or $result.displayCount -lt 1)) { throw 'Actual display capture was requested but did not pass.' }
+if ($VerifyRecording -and (-not $result.recording -or -not $result.recording.verified)) { throw 'Actual native recording was requested but did not pass.' }
 Write-Host "Installed $($installed.Version), verified package identity, OCR, pixel crop and shared window rendering."

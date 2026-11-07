@@ -145,7 +145,7 @@ jobs:
           TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
           TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
           TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
-        run: ./scripts/release/sign-and-package-windows.ps1 -VerifyCapture
+        run: ./scripts/release/sign-and-package-windows.ps1 -VerifyCapture -VerifyRecording
       - name: Preserve verified installer and package history
         uses: actions/upload-artifact@v4
         with:
