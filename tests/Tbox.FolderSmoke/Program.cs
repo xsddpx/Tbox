@@ -112,7 +112,10 @@ internal static class Program
         try
         {
             await UntilAsync(() => (dialog = FindWindow(null, title)) != 0, "Standard dialog did not appear.");
-            Focus(dialog);
+            // FindWindow can see the HWND before ShowDialog has made it visible
+            // or activated it. Wait for the native modal transition to finish.
+            await UntilAsync(() => IsWindowVisible(dialog) && GetForegroundWindow() == dialog,
+                "The standard dialog did not become visible and foreground.");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var clock = Stopwatch.StartNew();
             var result = await navigation.JumpAsync(timeout.Token);
@@ -177,6 +180,7 @@ internal static class Program
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")] private static extern nint FindWindow(string? className, string title);
     [DllImport("user32.dll")] private static extern bool PostMessage(nint window, uint message, nint wParam, nint lParam);
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern bool IsWindowVisible(nint window);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint window);
     [DllImport("user32.dll")] private static extern bool BringWindowToTop(nint window);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
