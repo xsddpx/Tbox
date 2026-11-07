@@ -115,7 +115,7 @@ internal static class FileDialogNavigator
 
     private static IntPtr WaitForAddressBar(IntPtr dialog, TimeSpan timeout)
     {
-        var toolbar = FindDescendantById(dialog, AddressToolbarId);
+        var toolbar = FindAddressToolbar(dialog);
         var addressHost = NativeMethods.GetParent(toolbar);
         // Native open/save dialogs put the breadcrumb and editor in sibling
         // containers below Address Band Root (the breadcrumb hides on Ctrl+L).
@@ -188,7 +188,7 @@ internal static class FileDialogNavigator
     internal static bool TryGetCurrentAddress(IntPtr dialog, out string addressText)
     {
         addressText = string.Empty;
-        var addressToolbar = FindDescendantById(dialog, AddressToolbarId);
+        var addressToolbar = FindAddressToolbar(dialog);
         if (addressToolbar == IntPtr.Zero) return false;
 
         var text = new char[512];
@@ -247,12 +247,14 @@ internal static class FileDialogNavigator
         return null;
     }
 
-    private static IntPtr FindDescendantById(IntPtr parent, int controlId)
+    private static IntPtr FindAddressToolbar(IntPtr parent)
     {
         var found = IntPtr.Zero;
         NativeMethods.EnumChildProc callback = (window, _) =>
         {
-            if (NativeMethods.GetDlgCtrlID(window) != controlId) return true;
+            // Save dialogs also use ID 1001 for the file-name Edit. Control
+            // IDs are only unique within their own parent, not the dialog tree.
+            if (NativeMethods.GetDlgCtrlID(window) != AddressToolbarId || !HasClass(window, "ToolbarWindow32")) return true;
             found = window;
             return false;
         };
