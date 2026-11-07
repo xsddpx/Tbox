@@ -1,5 +1,7 @@
 # 跨平台逐项验收表
 
+当前共用桌面测试已增至 39 项，新增剪贴板回退、受限重试、超长文字画布及模块热键回滚。提交 `b74fa61` 的 [两平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42377475447) 已通过 95 核心 + 36 桌面测试及实际媒体解码/导出。其后的文件夹适配与热键模块开关已在本机完成两目标编译，仍待实机文件面板验收。
+
 媒体集成证据（2026-11-07，本机 Apple Silicon）：`Tbox.MediaSmoke` 对库内合成视频实际解码 36 次输出回调；GIF 导出 24 帧、2000 ms；WebP 导出 20 个合并帧、1999 ms，循环且不放大 320×240；MP4 复制哈希相同。此检查已接入 CI；不验证实际系统采集、音频、原生视频窗口或安装授权。
 
 冻结基线：`0f88802717d6a2a6ad86e117c20ec35ead91f96c`（Windows 1.0.45）。原产品要求可通过 `git show 0f88802:docs/product-requirements.md` 复核。表中的原平台证据是源码定位，不代替迁移后的实机复验。
@@ -8,13 +10,13 @@
 
 | ID | 原状态 | 原平台源码证据（src/Tbox.App，另注除外） | 共用/目标平台入口（src/Tbox.Desktop，另注除外） | 迁移验收 |
 | --- | --- | --- | --- | --- |
-| FJ-001 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 待实现 |
-| FJ-002 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 待实现 |
-| FJ-003 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 待实现 |
-| FJ-004 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 待实现 |
-| FJ-005 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 待实现 |
+| FJ-001 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 复用原逻辑；Mac 观察选中 Finder 窗口；待实机复验 |
+| FJ-002 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Ctrl+G 已接入，Mac 只允许标准文件面板；待实机复验 |
+| FJ-003 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 复用原重试；Mac 不稳定标题保留旧路径；待实机复验 |
+| FJ-004 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Core/FolderTargetPolicy.cs | 两端共用目录校验和主目录回退；待实机复验 |
+| FJ-005 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | 导航结果校验已接入，Mac 面板属性仍需实际验证 |
 | FJ-006 | 待实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 原基线待实现；不因迁移新增 |
-| FJ-007 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | 待迁移 | 待实现 |
+| FJ-007 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/macos/TboxFolders.swift | 已限定系统文件面板提供者；实际识别待验收 |
 | CAP-001 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/CaptureSession.cs / Views/CaptureWindow.cs | 待逐项复验 |
 | CAP-002 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/CaptureSession.cs / Views/CaptureWindow.cs | 待逐项复验 |
 | CAP-003 | 已实现 | CaptureOverlayWindow.cs / ScreenCaptureService.cs / LongCaptureWindow.cs | Views/CaptureSession.cs / Views/CaptureWindow.cs | 待逐项复验 |

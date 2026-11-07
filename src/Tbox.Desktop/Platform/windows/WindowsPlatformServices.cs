@@ -128,10 +128,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
         finally { _recognitionLock.Release(); }
     }
 
-    public bool RegisterHotkeys(Action<int> onHotkey)
+    public bool RegisterHotkeys(Action<int> onHotkey, int mask = 7)
     {
         _hotkeys?.Dispose(); _hotkeys = new WindowsHotkeys(onHotkey);
-        return _hotkeys.Register();
+        return _hotkeys.Register(mask);
     }
 
     public void PlaceWindow(nint handle, DesktopPlacement p, bool overlay)
@@ -165,6 +165,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     }
     public ICaptureTargetSource CreateCaptureTargets() => WindowsCaptureTargets.CreateSnapshot();
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new WindowsRegionRecorder(area, systemAudio, framesPerSecond);
+    public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation();
     public void Dispose() { _hotkeys?.Dispose(); _hotkeys = null; }
     private static Win32Exception Error(string message) => new(Marshal.GetLastWin32Error(), message);
     private static MonitorInfo ReadMonitor(nint monitor)

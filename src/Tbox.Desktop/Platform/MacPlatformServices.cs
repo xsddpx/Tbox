@@ -45,10 +45,10 @@ public sealed class MacPlatformServices : IPlatformServices
         return Convert.FromBase64String(response.Displays.Single().Png);
     }
 
-    public bool RegisterHotkeys(Action<int> onHotkey)
+    public bool RegisterHotkeys(Action<int> onHotkey, int mask = 7)
     {
         _callback = id => onHotkey(id);
-        return NativeRegisterHotkeys(_callback) == 0;
+        return NativeRegisterHotkeys(_callback, mask) == 0;
     }
 
     public void PlaceWindow(nint handle, DesktopPlacement p, bool overlay) =>
@@ -61,6 +61,7 @@ public sealed class MacPlatformServices : IPlatformServices
     public ICaptureTargetSource CreateCaptureTargets() => new MacCaptureTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) => NativeCaptureOverlay(handle, clickThrough ? 1 : 0);
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new MacRegionRecorder(area, systemAudio, framesPerSecond);
+    public IFolderNavigation CreateFolderNavigation() => new MacFolderNavigation();
 
     public void Dispose()
     {
@@ -93,7 +94,7 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_capture_region")] private static extern nint NativeCaptureRegion(double left, double top, double width, double height);
     [DllImport(Library, EntryPoint = "tbox_capture_overlay")] private static extern void NativeCaptureOverlay(nint handle, int clickThrough);
     [DllImport(Library, EntryPoint = "tbox_recognize")] private static extern nint NativeRecognize(byte[] data, int length);
-    [DllImport(Library, EntryPoint = "tbox_register_hotkeys")] private static extern int NativeRegisterHotkeys(HotkeyCallback callback);
+    [DllImport(Library, EntryPoint = "tbox_register_hotkeys")] private static extern int NativeRegisterHotkeys(HotkeyCallback callback, int mask);
     [DllImport(Library, EntryPoint = "tbox_unregister_hotkeys")] private static extern void NativeUnregisterHotkeys();
     [DllImport(Library, EntryPoint = "tbox_place_window")] private static extern void NativePlaceWindow(nint handle, double left, double top, double width, double height, int overlay);
     [DllImport(Library, EntryPoint = "tbox_move_to_pointer")] private static extern void NativeMoveToPointer(nint handle);

@@ -118,7 +118,7 @@ public func unregisterHotkeys() {
 }
 
 @_cdecl("tbox_register_hotkeys")
-public func registerHotkeys(_ callback: @escaping @convention(c) (Int32) -> Void) -> Int32 {
+public func registerHotkeys(_ callback: @escaping @convention(c) (Int32) -> Void, _ mask: Int32) -> Int32 {
     unregisterHotkeys()
     hotkeyCallback = callback
     var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
@@ -126,14 +126,16 @@ public func registerHotkeys(_ callback: @escaping @convention(c) (Int32) -> Void
         var key = EventHotKeyID()
         let result = GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID),
                                        nil, MemoryLayout<EventHotKeyID>.size, nil, &key)
-        if result == noErr { hotkeyCallback?(Int32(key.id)) }
+        guard result == noErr, key.signature == 0x54424F58 else { return OSStatus(eventNotHandledErr) }
+        hotkeyCallback?(Int32(key.id))
         return noErr
     }, 1, &spec, nil, &eventHandler)
     guard status == noErr else { unregisterHotkeys(); return status }
-    for (index, keyCode) in [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3].enumerated() {
+    for (index, keyCode) in [kVK_ANSI_1, kVK_ANSI_2, kVK_ANSI_3, kVK_ANSI_G].enumerated() {
+        if mask & (1 << index) == 0 { continue }
         var reference: EventHotKeyRef?
         let id = EventHotKeyID(signature: 0x54424F58, id: UInt32(index + 1))
-        let result = RegisterEventHotKey(UInt32(keyCode), UInt32(controlKey | shiftKey), id,
+        let result = RegisterEventHotKey(UInt32(keyCode), UInt32(index == 3 ? controlKey : controlKey | shiftKey), id,
                                          GetApplicationEventTarget(), 0, &reference)
         guard result == noErr, let reference = reference else { unregisterHotkeys(); return result == noErr ? -1 : result }
         hotkeys.append(reference)

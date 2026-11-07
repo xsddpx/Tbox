@@ -23,6 +23,7 @@
     <ProjectReference Include="../Tbox.Core/Tbox.Core.csproj" />
     <AvaloniaResource Include="../Tbox.App/Assets/AppIcon.png" Link="Assets/AppIcon.png" />
     <Content Include="ThirdParty/**" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="../Tbox.App/AppLog.cs" Link="Platform/AppLog.cs" />
     <InternalsVisibleTo Include="Tbox.Desktop.Tests" />
     <InternalsVisibleTo Include="Tbox.MediaSmoke" />
   </ItemGroup>
@@ -30,6 +31,10 @@
     <PackageReference Include="ScreenRecorderLib" Version="6.6.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
     <Compile Include="../Tbox.App/ScreenRegionRecorder.cs" Link="Platform/windows/ScreenRegionRecorder.cs" />
+    <Compile Include="../Tbox.App/NativeMethods.cs" Link="Platform/windows/LegacyNativeMethods.cs" />
+    <Compile Include="../Tbox.App/ExplorerFolderTracker.cs" Link="Platform/windows/ExplorerFolderTracker.cs" />
+    <Compile Include="../Tbox.App/ExplorerShellViewResolver.cs" Link="Platform/windows/ExplorerShellViewResolver.cs" />
+    <Compile Include="../Tbox.App/FileDialogNavigator.cs" Link="Platform/windows/FileDialogNavigator.cs" />
     <Content Include="../Tbox.App/ThirdParty/FFmpeg/**" Link="ThirdParty/FFmpeg/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

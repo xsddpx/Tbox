@@ -49,6 +49,8 @@
 
 ## 主要官方依据
 
+文件夹跳转通过 `IFolderNavigation` 接入共用模块开关和 Ctrl+G。Windows 链接原 `ExplorerFolderTracker`、`ExplorerShellViewResolver`、`FileDialogNavigator`，避免重写已验证的活动标签逻辑。Mac 使用辅助功能接口观察 Finder 的选中窗口，并仅向 AppKit 标准文件面板服务发送导航操作，结果依赖目录属性确认；这些面板属性还须在当前系统实际验证。失败仅在当前状态区反馈，不向未知窗口输入路径。模块设置只在热键注册完整成功后保存，失败会重新注册上一组热键。
+
 - [Avalonia 11 平台支持](https://v11.docs.avaloniaui.net/docs/overview/supported-platforms/)
 - [Avalonia 剪贴板 API](https://docs.avaloniaui.net/docs/how-to/clipboard-how-to)
 - [Apple ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit)

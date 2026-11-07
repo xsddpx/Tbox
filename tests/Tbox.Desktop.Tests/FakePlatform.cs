@@ -14,7 +14,7 @@ internal sealed class FakePlatform : IPlatformServices
     { CaptureRequests++; return Task.FromResult(Displays); }
     public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => throw new NotSupportedException();
     public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) => throw new NotSupportedException();
-    public bool RegisterHotkeys(Action<int> onHotkey) => true;
+    public bool RegisterHotkeys(Action<int> onHotkey, int mask = 7) => true;
     public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) { }
     public void MoveToPointer(nint handle) { }
     public DesktopPlacement GetWindowPlacement(nint handle) => new(0, 0, 800, 600);
@@ -24,10 +24,21 @@ internal sealed class FakePlatform : IPlatformServices
     public ICaptureTargetSource CreateCaptureTargets() => new EmptyTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => throw new NotSupportedException();
+    public IFolderNavigation CreateFolderNavigation() => new EmptyFolders();
     public void Dispose() { }
     private sealed class EmptyTargets : ICaptureTargetSource
     {
         public bool EnableElementDetection() => false;
         public CaptureTargetBounds? FindTarget(CaptureDetectionMode mode, DesktopPoint point) => null;
+    }
+    private sealed class EmptyFolders : IFolderNavigation
+    {
+        public string CurrentDirectory => "";
+        public bool HasPermission => true;
+        public bool RequestPermission() => true;
+        public void Start() { }
+        public void Stop() { }
+        public Task<FolderNavigationResult> JumpAsync(CancellationToken cancellationToken) => Task.FromResult(new FolderNavigationResult(true));
+        public void Dispose() { }
     }
 }

@@ -26,12 +26,13 @@ internal sealed class WindowsHotkeys : IDisposable
         }
     }
 
-    public bool Register()
+    public bool Register(int mask)
     {
-        for (var id = 1; id <= 3; id++)
+        for (var id = 1; id <= 4; id++)
         {
+            if ((mask & (1 << (id - 1))) == 0) continue;
             // Preserve existing Windows shortcuts F6/F7/F8. MOD_NOREPEAT prevents key-repeat.
-            if (RegisterHotKey(_window, id, 0x4000, (uint)(0x74 + id))) continue;
+            if (RegisterHotKey(_window, id, id == 4 ? 0x4002u : 0x4000u, id == 4 ? 0x47u : (uint)(0x74 + id))) continue;
             for (var previous = 1; previous < id; previous++) UnregisterHotKey(_window, previous);
             return false;
         }
@@ -52,7 +53,7 @@ internal sealed class WindowsHotkeys : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        for (var id = 1; id <= 3; id++) UnregisterHotKey(_window, id);
+        for (var id = 1; id <= 4; id++) UnregisterHotKey(_window, id);
         DestroyWindow(_window); _window = 0; UnregisterClass(_className, _module);
     }
 

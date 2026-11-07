@@ -15,7 +15,7 @@ public interface IPlatformServices : IDisposable
     Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken);
     Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
     Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken);
-    bool RegisterHotkeys(Action<int> onHotkey);
+    bool RegisterHotkeys(Action<int> onHotkey, int mask = 7);
     void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay);
     void MoveToPointer(nint handle);
     DesktopPlacement GetWindowPlacement(nint handle);
@@ -25,6 +25,7 @@ public interface IPlatformServices : IDisposable
     ICaptureTargetSource CreateCaptureTargets();
     void PrepareCaptureOverlay(nint handle, bool clickThrough);
     IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond);
+    IFolderNavigation CreateFolderNavigation();
 }
 
 public interface ICaptureTargetSource

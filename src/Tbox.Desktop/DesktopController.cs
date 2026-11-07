@@ -20,6 +20,9 @@ public sealed class DesktopController : IDisposable
     private readonly IClassicDesktopStyleApplicationLifetime _lifetime;
     private readonly JsonSettingsStore _settingsStore;
     private readonly CancellationTokenSource _stop = new();
+    private readonly IFolderNavigation _folders;
+    private readonly HotkeyConfiguration _hotkeys;
+    private readonly SemaphoreSlim _moduleChanges = new(1);
     private readonly List<PinnedWindow> _pins = [];
     private CaptureSession? _capture;
     private LongCaptureSession? _longCapture;
@@ -36,11 +39,16 @@ public sealed class DesktopController : IDisposable
     public MainWindow Main { get; set; } = null!;
     public bool IsQuitting { get; private set; }
     public string CacheDirectory => _cache.DirectoryPath;
+    public AppSettings Settings => _settings;
+    public string FolderDirectory => _folders.CurrentDirectory;
+    public bool HasFolderPermission => _folders.HasPermission;
     public event Action<int>? ThemeLoaded;
 
     public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime)
     {
         Platform = platform; _lifetime = lifetime;
+        _folders = platform.CreateFolderNavigation();
+        _hotkeys = new HotkeyConfiguration(mask => platform.RegisterHotkeys(OnHotkey, mask));
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         _settingsStore = new JsonSettingsStore(Path.Combine(local, "Tbox", "desktop-settings.json"));
         _cache = CreateCache(null);
@@ -54,12 +62,8 @@ public sealed class DesktopController : IDisposable
         ApplyTheme(index); ThemeLoaded?.Invoke(index);
         if (!args.Contains("--smoke-test"))
         {
-            var hotkeys = Platform.RegisterHotkeys(id => Dispatcher.UIThread.Post(() =>
-            {
-                if (id == 1) Run(CaptureAsync);
-                if (id == 2) Run(PinClipboardAsync);
-                if (id == 3) TogglePins();
-            }));
+            var hotkeys = _hotkeys.TryChange(_settings.ScreenPasteEnabled, _settings.FolderJumpEnabled);
+            if (_settings.FolderJumpEnabled) _folders.Start();
             Main.SetStatus(hotkeys ? "已就绪" : "快捷键被占用；可从窗口或菜单栏使用所有功能。");
             Main.Refresh();
             PruneCache();
@@ -75,7 +79,59 @@ public sealed class DesktopController : IDisposable
     {
         try { await action(); }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { Main.SetStatus(exception.Message); ShowMain(); }
+        catch (Exception exception) { Tbox.App.AppLog.Write(exception.ToString()); Main.SetStatus(exception.Message); ShowMain(); }
+    }
+
+    private void OnHotkey(int id) => Dispatcher.UIThread.Post(() =>
+    {
+        if (id == 1) Run(CaptureAsync);
+        if (id == 2) Run(PinClipboardAsync);
+        if (id == 3) TogglePins();
+        if (id == 4) Run(JumpFolderAsync);
+    });
+
+    public void RequestFolderPermission() { _folders.RequestPermission(); Main.Refresh(); }
+    public async Task JumpFolderAsync()
+    {
+        if (!_settings.FolderJumpEnabled) return;
+        var result = await _folders.JumpAsync(_stop.Token);
+        Main.SetStatus(result.Success ? "文件对话框已跳转。" : result.Message ?? "文件夹跳转未完成。");
+        Main.Refresh();
+    }
+
+    public async Task SetModulesAsync(bool capture, bool folders)
+    {
+        await _moduleChanges.WaitAsync(_stop.Token);
+        try
+        {
+            if (!capture && _settings.ScreenPasteEnabled)
+            {
+                foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
+                if (_recording is { } recording) await recording.CancelAsync();
+            }
+            if (!_hotkeys.TryChange(capture, folders))
+            { Main.SetStatus("快捷键被其他应用占用，模块设置未更改。"); return; }
+            var previous = _settings;
+            try
+            {
+                if (folders) _folders.Start(); else _folders.Stop();
+                var updated = _settings with { ScreenPasteEnabled = capture, FolderJumpEnabled = folders };
+                await _settingsStore.SaveAsync(updated, _stop.Token); _settings = updated;
+            }
+            catch
+            {
+                _hotkeys.TryChange(previous.ScreenPasteEnabled, previous.FolderJumpEnabled);
+                if (previous.FolderJumpEnabled) _folders.Start(); else _folders.Stop();
+                throw;
+            }
+            if (!capture)
+            {
+                _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
+                foreach (var pin in _pins.ToArray()) pin.Close();
+            }
+            Main.SetStatus("模块设置已保存。");
+        }
+        finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
     public void ShowMain() { Main.Show(); Main.Activate(); Main.Refresh(); }
@@ -83,7 +139,7 @@ public sealed class DesktopController : IDisposable
 
     public async Task CaptureAsync()
     {
-        if (_capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;
+        if (!_settings.ScreenPasteEnabled || _capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;
         if (!Platform.HasScreenPermission)
         {
             RequestPermission();
@@ -125,6 +181,7 @@ public sealed class DesktopController : IDisposable
 
     public async Task PinClipboardAsync()
     {
+        if (!_settings.ScreenPasteEnabled) return;
         using var picture = await ReadClipboardAsync(allowText: true);
         await PinPictureAsync(picture);
     }
@@ -376,6 +433,7 @@ public sealed class DesktopController : IDisposable
         IsQuitting = true; _stop.Cancel();
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();
+        _folders.Dispose();
         Platform.Dispose();
     }
 }
