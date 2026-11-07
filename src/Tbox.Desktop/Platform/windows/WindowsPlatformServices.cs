@@ -122,9 +122,15 @@ public sealed class WindowsPlatformServices : IPlatformServices
                 var top = line.Words.Min(word => word.BoundingRect.Top);
                 var right = line.Words.Max(word => word.BoundingRect.Right);
                 var bottom = line.Words.Max(word => word.BoundingRect.Bottom);
-                return new RecognizedLine(line.Text, left / size.Width, top / size.Height, (right - left) / size.Width, (bottom - top) / size.Height);
+                return new RecognizedLine(line.Text, left / size.Width, top / size.Height, (right - left) / size.Width, (bottom - top) / size.Height)
+                {
+                    Words = line.Words.Select(word => new RecognizedWord(word.Text,
+                        word.BoundingRect.Left / size.Width, word.BoundingRect.Top / size.Height,
+                        word.BoundingRect.Width / size.Width, word.BoundingRect.Height / size.Height)).ToArray()
+                };
             }).ToArray();
-            return new RecognitionResult(string.Join(Environment.NewLine, lines.Select(line => line.Text)), lines);
+            return new RecognitionResult(string.Join(Environment.NewLine, lines.Select(line => line.Text)), lines)
+            { ImageWidth = checked((int)decoder.PixelWidth), ImageHeight = checked((int)decoder.PixelHeight) };
         }
         finally { _recognitionLock.Release(); }
     }

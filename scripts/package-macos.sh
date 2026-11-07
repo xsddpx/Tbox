@@ -14,6 +14,7 @@ fi
 DOTNET="${TBOX_DOTNET:-$(command -v dotnet || true)}"
 if [[ -z "$DOTNET" ]]; then DOTNET="$ROOT/TEMP/dotnet/dotnet"; fi
 bash tests/macos/test-folder-panel-policy.sh
+bash tests/macos/test-ocr-metadata.sh
 "$DOTNET" test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
 "$DOTNET" test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
 bash scripts/build-macos.sh "$RID"

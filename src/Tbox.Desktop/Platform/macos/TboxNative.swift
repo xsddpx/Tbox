@@ -3,6 +3,7 @@ import Carbon
 import ScreenCaptureKit
 import Vision
 import ApplicationServices
+import ImageIO
 
 // Only capabilities that Avalonia cannot provide live here. All UI and product rules are C#.
 func response(_ value: [String: Any]) -> UnsafeMutablePointer<CChar>? {
@@ -91,6 +92,10 @@ public func recognize(_ bytes: UnsafeRawPointer?, _ length: Int32) -> UnsafeMuta
     return autoreleasepool {
         do {
             let data = Data(bytes: bytes, count: Int(length))
+            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                return response(["error": "无法读取待识别图像。"])
+            }
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.usesLanguageCorrection = true
@@ -102,10 +107,18 @@ public func recognize(_ bytes: UnsafeRawPointer?, _ length: Int32) -> UnsafeMuta
             let lines: [[String: Any]] = (request.results ?? []).compactMap { observation in
                 guard let candidate = observation.topCandidates(1).first else { return nil }
                 let box = observation.boundingBox
+                var words: [[String: Any]] = []
+                candidate.string.enumerateSubstrings(in: candidate.string.startIndex..<candidate.string.endIndex, options: .byWords) { text, range, _, _ in
+                    guard let text = text, let word = try? candidate.boundingBox(for: range) else { return }
+                    let bounds = word.boundingBox
+                    words.append(["text": text, "left": bounds.minX, "top": 1 - bounds.maxY,
+                                  "width": bounds.width, "height": bounds.height])
+                }
                 return ["text": candidate.string, "left": box.minX, "top": 1 - box.maxY,
-                        "width": box.width, "height": box.height]
+                        "width": box.width, "height": box.height, "words": words]
             }
-            return response(["text": lines.compactMap { $0["text"] as? String }.joined(separator: "\n"), "lines": lines])
+            return response(["text": lines.compactMap { $0["text"] as? String }.joined(separator: "\n"), "lines": lines,
+                             "imageWidth": image.width, "imageHeight": image.height])
         } catch { return response(["error": "文字识别失败：\(error.localizedDescription)"]) }
     }
 }

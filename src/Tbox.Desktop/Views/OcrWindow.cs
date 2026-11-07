@@ -8,6 +8,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tbox.Core;
 using Tbox.Desktop.Models;
+using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop.Views;
 
@@ -23,6 +24,7 @@ public sealed class OcrWindow : Window
     private readonly Image _original = new() { Stretch = Stretch.Uniform, IsVisible = false };
     private readonly LatestOperation _requests = new();
     private Picture? _picture;
+    internal RecognitionResult? Recognition { get; private set; }
 
     public OcrWindow(DesktopController controller)
     {
@@ -61,7 +63,7 @@ public sealed class OcrWindow : Window
         copy.Classes.Add("accent"); DockPanel.SetDock(copy, Dock.Right); actions.Children.Add(copy);
         actions.Children.Add(_status); Grid.SetRow(actions, 3); layout.Children.Add(actions);
         Content = layout;
-        Closed += (_, _) => { _requests.Dispose(); _original.Source = null; _picture?.Dispose(); };
+        Closed += (_, _) => { _requests.Dispose(); _original.Source = null; _picture?.Dispose(); _picture = null; Recognition = null; };
     }
 
     internal void Present(bool topmost, OcrWindowSource? source)
@@ -95,6 +97,7 @@ public sealed class OcrWindow : Window
     public async void Recognize(Picture picture)
     {
         var operation = _requests.Begin();
+        Recognition = null;
         _original.Source = null; _picture?.Dispose(); _picture = picture;
         _original.Source = picture.Bitmap;
         _editor.Text = ""; _status.Text = "识别中…";
@@ -102,6 +105,7 @@ public sealed class OcrWindow : Window
         {
             var result = await _controller.Platform.RecognizeAsync(picture.Png, operation.Token);
             if (!_requests.IsCurrent(operation)) return;
+            Recognition = result;
             _editor.Text = result.Text;
             _status.Text = string.IsNullOrWhiteSpace(result.Text)
                 ? "未识别到文字。可展开原图检查清晰度或重新选择区域。"

@@ -95,6 +95,9 @@ jobs:
       - name: Test macOS signing safeguards
         if: runner.os == 'macOS'
         run: bash tests/macos/test-signing-policy.sh
+      - name: Test native macOS OCR metadata on generated images
+        if: runner.os == 'macOS'
+        run: bash tests/macos/test-ocr-metadata.sh
 
   signing-readiness:
     # Explicit, temporary opt-in for configuring persistent identities. No Tbox

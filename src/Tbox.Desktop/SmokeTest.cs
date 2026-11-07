@@ -2,6 +2,7 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Media.Imaging;
 using Tbox.Core;
+using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop;
 
@@ -19,6 +20,8 @@ internal static class SmokeTest
             await File.WriteAllBytesAsync(Path.Combine(directory, "ocr-fixture.png"), picture.Png);
             var ocr = await controller.Platform.RecognizeAsync(picture.Png, CancellationToken.None);
             if (!ocr.Text.Contains("12345")) throw new InvalidOperationException("OCR 没有识别出测试数字。");
+            if (!HasValidOcrMetadata(ocr, picture.Bitmap.PixelSize)) throw new InvalidOperationException("OCR 未保留有效的原图尺寸、行与词位置。");
+            await File.WriteAllTextAsync(Path.Combine(directory, "ocr-result.json"), JsonSerializer.Serialize(ocr));
             using var cropped = picture.Crop(new PixelRegion(10, 10, 200, 50));
             if (cropped.Bitmap.PixelSize != new PixelSize(200, 50)) throw new InvalidOperationException("裁剪像素尺寸错误。");
             var captureVerified = false;
@@ -43,7 +46,7 @@ internal static class SmokeTest
                 ? await RecordingSmokeTest.RunAsync(controller.Platform, controller.Main, directory) : null;
             await WriteResultAsync(directory, JsonSerializer.Serialize(new
             {
-                success = true, nativeOcr = true, pixelCrop = true, uiRendered = true,
+                success = true, nativeOcr = true, nativeOcrMetadata = true, pixelCrop = true, uiRendered = true,
                 screenPermission = controller.Platform.HasScreenPermission, captureVerified, displayCount, recognizedText = ocr.Text,
                 recording
             }, new JsonSerializerOptions { WriteIndented = true }));
@@ -54,6 +57,16 @@ internal static class SmokeTest
             Environment.ExitCode = 1;
         }
         finally { controller.Quit(); }
+    }
+
+    internal static bool HasValidOcrMetadata(RecognitionResult result, PixelSize expected)
+    {
+        if (result.ImageWidth != expected.Width || result.ImageHeight != expected.Height || result.Lines.Count == 0) return false;
+        static bool Box(double left, double top, double width, double height) =>
+            double.IsFinite(left) && double.IsFinite(top) && double.IsFinite(width) && double.IsFinite(height) &&
+            left >= -.001 && top >= -.001 && width > 0 && height > 0 && left + width <= 1.001 && top + height <= 1.001;
+        return result.Lines.All(line => Box(line.Left, line.Top, line.Width, line.Height) && line.Words.Count > 0 &&
+            line.Words.All(word => !string.IsNullOrWhiteSpace(word.Text) && Box(word.Left, word.Top, word.Width, word.Height)));
     }
 
     private static async Task WriteResultAsync(string directory, string json)

@@ -16,6 +16,40 @@ namespace Tbox.Desktop.Tests;
 
 public sealed class OcrWindowTests
 {
+    [AvaloniaFact]
+    public async Task OriginalWordMetadataStaysInMemoryUntilReplacedOrClosed()
+    {
+        using var fixture = new Fixture();
+        var word = new RecognizedWord("原图", .1, .2, .3, .1);
+        var result = new RecognitionResult("原图", [new RecognizedLine("原图", .1, .2, .3, .1) { Words = [word] }])
+        { ImageWidth = 1280, ImageHeight = 200 };
+        fixture.Platform.Recognizer = (_, _) => Task.FromResult(result);
+        var window = fixture.Open(); await Drain();
+        window.GetVisualDescendants().OfType<TextBox>().Single().Text = "编辑后的文字";
+        var retained = Assert.IsType<RecognitionResult>(window.Recognition);
+        Assert.Same(result, retained);
+        Assert.Same(word, Assert.Single(Assert.Single(retained.Lines).Words));
+        var next = new TaskCompletionSource<RecognitionResult>();
+        fixture.Platform.Recognizer = (_, _) => next.Task;
+        fixture.Open(); Assert.Null(window.Recognition);
+        next.SetResult(result); await Drain(); Assert.Same(result, window.Recognition);
+        window.Close(); Assert.Null(window.Recognition);
+    }
+
+    [Fact]
+    public void NativeAcceptanceRejectsMissingWordsWrongSourceSizeAndInvalidCoordinates()
+    {
+        var line = new RecognizedLine("12345", .1, .2, .3, .1)
+        { Words = [new RecognizedWord("12345", .1, .2, .3, .1)] };
+        var result = new RecognitionResult("12345", [line]) { ImageWidth = 1280, ImageHeight = 200 };
+        var size = new PixelSize(1280, 200);
+        Assert.True(SmokeTest.HasValidOcrMetadata(result, size));
+        Assert.False(SmokeTest.HasValidOcrMetadata(result with { ImageWidth = 640 }, size));
+        Assert.False(SmokeTest.HasValidOcrMetadata(result with { Lines = [line with { Words = [] }] }, size));
+        Assert.False(SmokeTest.HasValidOcrMetadata(result with { Lines = [line with { Words = [line.Words[0] with { Left = double.NaN }] }] }, size));
+        Assert.False(SmokeTest.HasValidOcrMetadata(result with { Lines = [line with { Words = [line.Words[0] with { Left = .9 }] }] }, size));
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(1.25)]

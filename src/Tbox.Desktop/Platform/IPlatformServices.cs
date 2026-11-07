@@ -3,8 +3,18 @@ namespace Tbox.Desktop.Platform;
 public sealed record CapturedDisplay(uint Id, double Left, double Top, double Width, double Height, byte[] Png);
 public sealed record DesktopPlacement(double Left, double Top, double Width, double Height);
 public sealed record DesktopPoint(double X, double Y);
-public sealed record RecognizedLine(string Text, double Left, double Top, double Width, double Height);
-public sealed record RecognitionResult(string Text, IReadOnlyList<RecognizedLine> Lines);
+// OCR boxes use normalized original-image coordinates with a top-left origin.
+// Retain the source dimensions so coordinates survive engine downscaling.
+public sealed record RecognizedWord(string Text, double Left, double Top, double Width, double Height);
+public sealed record RecognizedLine(string Text, double Left, double Top, double Width, double Height)
+{
+    public IReadOnlyList<RecognizedWord> Words { get; init; } = [];
+}
+public sealed record RecognitionResult(string Text, IReadOnlyList<RecognizedLine> Lines)
+{
+    public int ImageWidth { get; init; }
+    public int ImageHeight { get; init; }
+}
 
 // Top-left desktop units: macOS points, Windows physical pixels. Image pixels remain separate.
 // Platform code owns permission prompts and all interaction with the operating system.
