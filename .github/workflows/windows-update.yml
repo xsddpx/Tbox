@@ -1,0 +1,66 @@
+name: Installed Windows online update
+
+on:
+  push:
+    branches: ['codex/test-windows-updates']
+    paths: ['tests/Tbox.UpdateSmoke/**', 'scripts/test-windows-update.ps1', '.github/workflows/windows-update.yml']
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: Successful private run containing windows-installed-package
+        default: '42402478448'
+        required: true
+      baseline_version:
+        description: Version installed before the update
+        default: '1.1.13'
+        required: true
+      baseline_sha256:
+        description: Pinned SHA-256 of that actual signed MSIX
+        default: 'CF793D4A313A03C3D79910256BE7384A13E6C51EB62A34D011D9F531DF1C41BF'
+        required: true
+      target_version:
+        description: Expected newer public stable version
+        default: '1.1.15'
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  update:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.313
+            8.0.x
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installed-package
+          path: TEMP/update-baseline
+          run-id: ${{ inputs.baseline_run_id || '42402478448' }}
+          github-token: ${{ github.token }}
+      - name: Upgrade the real installed old app through its public updater
+        shell: powershell
+        env:
+          BASELINE_VERSION: ${{ inputs.baseline_version || '1.1.13' }}
+          BASELINE_SHA256: ${{ inputs.baseline_sha256 || 'CF793D4A313A03C3D79910256BE7384A13E6C51EB62A34D011D9F531DF1C41BF' }}
+          TARGET_VERSION: ${{ inputs.target_version || '1.1.15' }}
+        run: |
+          $packages = @(Get-ChildItem TEMP/update-baseline -Recurse -Filter *.msix)
+          if ($packages.Count -ne 1) { throw 'Expected exactly one baseline package.' }
+          ./scripts/test-windows-update.ps1 -BaselinePackage $packages[0].FullName -BaselineVersion $env:BASELINE_VERSION -BaselineSha256 $env:BASELINE_SHA256 -TargetVersion $env:TARGET_VERSION
+      - name: Preserve real UI and installation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-online-update-evidence
+          path: TEMP/update-smoke/**
+          if-no-files-found: warn
+          retention-days: 14
