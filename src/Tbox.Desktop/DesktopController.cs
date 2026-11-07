@@ -346,6 +346,7 @@ public sealed class DesktopController : IDisposable
             _ocr.Closed += (_, _) => _ocr = null;
         }
         _ocr.Topmost = topmost;
+        if (_ocr.WindowState == WindowState.Minimized) _ocr.WindowState = WindowState.Normal;
         _ocr.Show(); _ocr.Activate();
         _ocr.Recognize(new Picture(picture.Png));
     }

@@ -20,7 +20,7 @@ public sealed class OcrWindow : Window
         Padding = new Thickness(8), BorderThickness = new Thickness(0), Watermark = "识别结果将在这里显示"
     };
     private readonly TextBlock _status = Ui.Text("", 12);
-    private readonly Image _original = new() { Stretch = Stretch.Uniform, Height = 180, IsVisible = false };
+    private readonly Image _original = new() { Stretch = Stretch.Uniform, IsVisible = false };
     private readonly LatestOperation _requests = new();
     private Picture? _picture;
 
@@ -29,12 +29,17 @@ public sealed class OcrWindow : Window
         _controller = controller;
         Ui.Configure(this, "文字识别 · Tbox", 800, 600);
         MinWidth = 460; MinHeight = 360;
+        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,0,65*,Auto"), Margin = new Thickness(24) };
         var expand = new CheckBox { Content = "显示原图" };
-        expand.IsCheckedChanged += (_, _) => _original.IsVisible = expand.IsChecked == true;
+        expand.IsCheckedChanged += (_, _) =>
+        {
+            var expanded = expand.IsChecked == true;
+            _original.IsVisible = expanded;
+            layout.RowDefinitions[1].Height = expanded ? new GridLength(35, GridUnitType.Star) : new GridLength(0);
+        };
         var topmost = new CheckBox { Content = "置顶" };
         topmost.IsCheckedChanged += (_, _) => Topmost = topmost.IsChecked == true;
         Activated += (_, _) => topmost.IsChecked = Topmost;
-        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto"), Margin = new Thickness(24) };
         var title = Ui.Text("文字识别", DesignTokens.PageTitle); title.FontWeight = FontWeight.SemiBold;
         var header = new DockPanel();
         var options = Ui.Row(expand, topmost); DockPanel.SetDock(options, Dock.Right);

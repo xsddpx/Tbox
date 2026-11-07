@@ -15,7 +15,9 @@ internal sealed class FakePlatform : IPlatformServices
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
     { CaptureRequests++; return Task.FromResult(Displays); }
     public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => throw new NotSupportedException();
-    public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public Func<byte[], CancellationToken, Task<RecognitionResult>>? Recognizer { get; set; }
+    public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) =>
+        Recognizer?.Invoke(png, cancellationToken) ?? throw new NotSupportedException();
     public bool RegisterHotkeys(Action<int> onHotkey, int mask = 7) => true;
     public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) { }
     public void MoveToPointer(nint handle) { }
