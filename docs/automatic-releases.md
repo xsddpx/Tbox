@@ -1,0 +1,65 @@
+# 自动发布 Windows 与 Mac 安装包
+
+## 流程与范围
+
+`.github/workflows/release.yml` 在私有源码仓库 **发布 Release**（`release.published`）时启动。它只接受已合入 `main` 的提交和 `v<主>.<次>.<补丁>` 标签。创建草稿、普通推送不会发布软件。
+
+1. 检查证书配置、源码仍为私有、下载仓库仍为公开、所有版本文件一致、版本未打包、公开版本说明存在。
+2. Windows 2025 x64 与 macOS 15 Apple Silicon 并行运行现有测试、媒体检查和打包脚本。Windows 签名、验签、安装 MSIX，并以包身份启动 OCR/裁剪/界面检查；Mac 复用持久签名，验签后运行 OCR/裁剪/界面与媒体检查。
+3. 汇总 Windows MSIX、Mac `.app` ZIP、Windows 公钥证书与中文安装说明，生成 `SHA256SUMS`、`release-manifest.json`。不发布未签名验证包、日志、源码或签名私钥。
+4. 在公开的 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases) 创建草稿，上传全部文件；逐一核对 GitHub 返回的大小、上传状态和 SHA-256。任一平台失败或文件校验失败时，不公开此版本。
+5. 将实际打包时间及哈希提交到源码仓库的 `codex/release-record-vX.Y.Z` 分支，尝试创建发布历史 PR。记录成功推送后才公开 Release。公开版本说明来自 `docs/releases/vX.Y.Z.md`，不会复制私有 Release 的正文。
+6. 保留源 Release 的预发布标记；预发布不会成为应用更新源的正式最新版。正式版本公开后，两平台更新器可匿名发现它。
+
+当前覆盖 Windows 11 x64、macOS 14+ Apple Silicon。Intel Mac 尚未接入。当前证书属于持久开发签名，流程不等于 Apple 公证或商业可信签名；安装限制见 [公开安装说明](releases/INSTALL.md)。完整功能与用户设备升级验收仍遵循活需求文档。
+
+## 首次配置
+
+在**私有源码仓库**的 [Actions Secrets and variables](https://github.com/xsddpx/Tbox/settings/secrets/actions) 配置下表。不得把私钥上传到公开仓库或提交 Git。
+
+| 类型 | 名称 | 内容 |
+| --- | --- | --- |
+| Secret | `TBOX_WINDOWS_PFX_BASE64` | 原 Windows 签名证书及私钥的 PFX，Base64 编码；发布者必须是 `CN=Tbox Development` |
+| Secret | `TBOX_WINDOWS_PFX_PASSWORD` | PFX 密码，使用非空密码 |
+| Secret | `TBOX_MAC_P12_BASE64` | 当前持久 Mac 签名身份的 P12，仅导出 Tbox 这一个身份；Base64 编码 |
+| Secret | `TBOX_MAC_P12_PASSWORD` | P12 密码，使用非空密码 |
+| Secret | `TBOX_RELEASE_TOKEN` | 仅授权 `xsddpx/Tbox-releases`、Repository Contents **Read and write** 的 fine-grained token；下载用户不需要该令牌 |
+| Variable | `TBOX_WINDOWS_CERT_SHA1` | 原 Windows 签名证书的 40 位指纹，无空格/冒号 |
+| Variable | `TBOX_MAC_CERT_SHA1` | 原 Mac 签名证书的 40 位指纹，无空格/冒号 |
+| Variable | `TBOX_MAC_SIGN_IDENTITY` | 可选；默认 `Tbox Local Development` |
+
+当前本机 Mac 指纹为 `FA0F60B5D7C8EE3DCFE356A0D564F8F0B1BE2EE6`。只传同一个身份，不重新生成证书。不能把本机 `gh` 的广泛账号令牌直接保存为发布 Secret。
+
+Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书，并把对应叶证书放入当前用户“受信任人”，结束后删除。Mac 使用一次性钥匙串，结束后删除；不清空用户设备授权、不修改系统根证书信任。
+
+`GITHUB_TOKEN` 只用于源码仓库的读取与发布记录分支。跨仓库上传使用单独的受限令牌；这是因为内置令牌的仓库范围有限，见 [GitHub 官方认证说明](https://docs.github.com/en/actions/tutorials/authenticate-with-github_token)。
+
+当前仓库不允许 Actions 创建 PR。流程会保留已推送的发布记录分支并输出提醒，公开发布仍可继续。若希望自动创建记录 PR，可在 Actions → General → Workflow permissions 开启 “Allow GitHub Actions to create and approve pull requests”；不需要开启默认全仓库写权限。流程不会自行修改此设置或自动合并记录 PR。
+
+## 每次发布
+
+1. 同步提升 `Tbox.Desktop.csproj` 的 Version/AssemblyVersion/FileVersion、Mac `Info.plist`、Windows `Package.appxmanifest`。使用从未本地或 CI 打包过的新版本，不能重新打包 1.1.8。
+2. 完成功能、安装、升级及第三方依赖分发验收。添加 `docs/releases/vX.Y.Z.md` 的中文版本说明，写清已验证范围与限制。将变更合入 main。
+3. 在 [源码仓库 Releases](https://github.com/xsddpx/Tbox/releases) 选择这个 main 提交，创建对应标签并点击 **Publish release**。也可以用 `gh release create vX.Y.Z --repo xsddpx/Tbox --target main --notes-file docs/releases/vX.Y.Z.md`。发布预览时加 `--prerelease`；标签本身仍使用三段版本。
+4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，公开仓库的对应 Release 包含两个安装包、Windows 公钥证书、说明和校验清单；原私有 Release 仅承担触发入口。
+5. 合并自动生成的发布记录 PR（或提示中的记录分支），再验收真实在线更新。不要通过移动旧标签、覆盖旧包或删除已有正式 Release 来处理问题。
+
+打包与上传耗用已有 Actions 配额；本次没有变更计费或开通付费 runner。
+
+## 失败与重试
+
+构建失败时不会运行发布任务，修复后可重跑失败任务；已经成功的另一个平台产物保留 7 天。上传/记录失败可能留下公开仓库草稿；自动流程拒绝覆盖或接管它，需要检查失败日志与资产后处理，或发布新的版本。已经公开的同版本不会被重写。
+
+若 GitHub 返回的资产还没有 SHA-256、大小不符或缺失平台，任务会失败并保持草稿。不能通过跳过检查强行公开。发布记录推送成功但最终公开请求失败时，记录保留，供核对恢复。
+
+## 验证与当前状态
+
+20 项离线回归测试覆盖标签注入/版本范围、版本与包身份不一致、缺说明、复用版本、漏包、额外私钥文件、篡改文件、实际打包时间、上传损坏、草稿/正式切换、预发布保留和审计失败。运行：
+
+```sh
+python3 -m unittest discover -s tests/release -v
+```
+
+现有双平台 CI 也运行这些测试。签名私钥、Windows 指纹及公开仓库发布令牌尚未配置，故**尚未执行真实签名自动发布**；离线测试或未签名 MSIX 验证不代表首次发布完成。当前跨平台迁移分支仍未合入 main，工作流会随该需求合并后启用。
+
+事件与 runner 的选择依据 [GitHub Release 事件](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)、[托管 runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)；上传校验使用 [Release assets API](https://docs.github.com/en/rest/releases/assets) 的 `size`、`state`、`digest`。

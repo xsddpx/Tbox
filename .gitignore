@@ -11,3 +11,6 @@ AppPackages/
 artifacts/
 TEMP/
 *.pfx
+*.p12
+*.key
+__pycache__/

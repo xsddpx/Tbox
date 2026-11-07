@@ -3,9 +3,9 @@ name: Shared desktop checks
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/desktop.yml']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
   pull_request:
-    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/desktop.yml']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
   workflow_dispatch:
 
 permissions:
@@ -27,6 +27,11 @@ jobs:
           dotnet-version: |
             9.0.313
             8.0.x
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test release transaction safeguards
+        run: python -m unittest discover -s tests/release -v
       - name: Test shared core
         run: dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
       - name: Test shared desktop
