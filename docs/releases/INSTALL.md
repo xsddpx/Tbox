@@ -3,7 +3,7 @@
 - Windows：Windows 11 x64，下载 `Tbox_<版本>.0_win-x64.msix`。
 - Mac：macOS 14 或以上的 Apple Silicon（M 系列），下载 `Tbox_<版本>_osx-arm64.zip`，解压后将 Tbox.app 放到 `~/Applications` 或 `/Applications`。Intel Mac 暂无安装包。
 
-先阅读对应版本说明。`SHA256SUMS` 和 `release-manifest.json` 列出下载文件的大小与 SHA-256；包内附第三方许可。Windows 可用 `Get-FileHash <文件> -Algorithm SHA256`，Mac 可用 `shasum -a 256 <文件>` 检查下载完整性。
+先阅读对应版本说明。`SHA256SUMS` 和 `release-manifest.json` 列出下载文件的大小与 SHA-256；包内附第三方许可。`Tbox_third-party-sources.tar.gz` 提供第三方组件的对应源码、许可和构建材料，普通安装无需下载它。Windows 可用 `Get-FileHash <文件> -Algorithm SHA256`，Mac 可用 `shasum -a 256 <文件>` 检查下载完整性。
 
 ## Windows
 

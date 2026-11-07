@@ -6,7 +6,7 @@
 
 1. 检查证书配置、源码仍为私有、下载仓库仍为公开、所有版本文件一致、版本未打包、公开版本说明存在。
 2. Windows 2025 x64 与 macOS 15 Apple Silicon 并行运行现有测试、媒体检查和打包脚本。Windows 签名、验签、安装 MSIX，并以包身份启动 OCR/裁剪/界面检查；Mac 复用持久签名，验签后运行 OCR/裁剪/界面与媒体检查。
-3. 汇总 Windows MSIX、Mac `.app` ZIP、Windows 公钥证书与中文安装说明，生成 `SHA256SUMS`、`release-manifest.json`。不发布未签名验证包、日志、源码或签名私钥。
+3. 汇总 Windows MSIX、Mac `.app` ZIP、Windows 公钥证书、第三方源码归档与中文安装说明，生成 `SHA256SUMS`、`release-manifest.json`。不发布未签名验证包、日志、Tbox 私有业务源码或签名私钥。
 4. 在公开的 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases) 创建草稿，上传全部文件；逐一核对 GitHub 返回的大小、上传状态和 SHA-256。任一平台失败或文件校验失败时，不公开此版本。
 5. 将实际打包时间及哈希提交到源码仓库的 `codex/release-record-vX.Y.Z` 分支，尝试创建发布历史 PR。记录成功推送后才公开 Release。公开版本说明来自 `docs/releases/vX.Y.Z.md`，不会复制私有 Release 的正文。
 6. 保留源 Release 的预发布标记；预发布不会成为应用更新源的正式最新版。正式版本公开后，两平台更新器可匿名发现它。
@@ -45,7 +45,7 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 1. 同步提升 `Tbox.Desktop.csproj` 的 Version/AssemblyVersion/FileVersion、Mac `Info.plist`、Windows `Package.appxmanifest`。使用从未本地或 CI 打包过的新版本，不能重新打包 1.1.8。
 2. 完成功能、安装、升级及第三方依赖分发验收。添加 `docs/releases/vX.Y.Z.md` 的中文版本说明，写清已验证范围与限制。将变更合入 main。
 3. 在 [源码仓库 Releases](https://github.com/xsddpx/Tbox/releases) 选择这个 main 提交，创建对应标签并点击 **Publish release**。也可以用 `gh release create vX.Y.Z --repo xsddpx/Tbox --target main --notes-file docs/releases/vX.Y.Z.md`。发布预览时加 `--prerelease`；标签本身仍使用三段版本。
-4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，公开仓库的对应 Release 包含两个安装包、Windows 公钥证书、说明和校验清单；原私有 Release 仅承担触发入口。
+4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，公开仓库的对应 Release 包含两个安装包、Windows 公钥证书、第三方源码归档、说明和校验清单；原私有 Release 仅承担触发入口。
 5. 合并自动生成的发布记录 PR（或提示中的记录分支），再验收真实在线更新。不要通过移动旧标签、覆盖旧包或删除已有正式 Release 来处理问题。
 
 打包与上传耗用已有 Actions 配额；本次没有变更计费或开通付费 runner。
@@ -58,7 +58,7 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 
 ## 验证与当前状态
 
-20 项离线回归测试覆盖标签注入/版本范围、版本与包身份不一致、缺说明、复用版本、漏包、额外私钥文件、篡改文件、实际打包时间、上传损坏、草稿/正式切换、预发布保留和审计失败。运行：
+34 项离线回归测试覆盖标签注入/版本范围、版本与包身份不一致、缺说明、复用版本、漏包、额外私钥文件、篡改文件、实际打包时间、上传损坏、草稿/正式切换、预发布保留、审计失败、固定依赖、跨系统换行及源码材料完整性。运行：
 
 ```sh
 python3 -m unittest discover -s tests/release -v
@@ -76,8 +76,10 @@ python3 -m unittest discover -s tests/release -v
 
 2026-11-08 的 [1.1.9 检查](https://github.com/xsddpx/Tbox/actions/runs/42393228787) 全部通过；Windows 实际签名安装后额外取帧成功（1 个显示器），安装产物下载复核哈希一致并登记。临时安装验收开关已再次关闭，避免重复打包同版。正式 Release 事务尚未运行。
 
-公开分发准备：旧 Windows FFmpeg 为 `n8.1.2-22-g94138f6973`，不能只用基础 8.1.2 归档代表对应源码。新增独立 Windows 导出运行库构建检查（`windows-media.yml`），使用固定 FFmpeg 8.1.2、libwebp 1.6.0 源码与最小配置；记录来源哈希、构建脚本哈希、二进制哈希及系统 DLL 导入，生成对应源码归档，再在 Windows 上实际验证 GIF/WebP 导出。当前仍在验证，尚未替换安装依赖或接入正式发布；VLC 等其他组件的完整分发材料仍待补齐。
+公开分发准备：旧 Windows FFmpeg 为 `n8.1.2-22-g94138f6973`，不能只用基础 8.1.2 归档代表对应源码。新增独立 Windows 导出运行库构建检查（`windows-media.yml`），使用固定 FFmpeg 8.1.2、libwebp 1.6.0 源码与最小配置；记录来源哈希、构建脚本哈希、二进制哈希及系统 DLL 导入，生成对应源码归档，再在 Windows 上实际验证 GIF/WebP 导出。后续 1.1.10 已接入共用工程，并通过实际 Windows 签名安装、启动及取帧检查。
 
 固定源码 Windows 导出运行库已在 [独立构建及 Windows 实测](https://github.com/xsddpx/Tbox/actions/runs/42394403213) 通过，输入为 FFmpeg 8.1.2、libwebp 1.6.0，构建结果约 6.5 MB，只依赖系统 DLL。1.1.10 共用工程从 `TEMP/media-runtime/windows` 载入该运行库，不再复制旧 WinUI 的 FFmpeg 目录。
 
-正常双平台 CI 和 Release 均调用 `windows-media.yml` 构建并传递该产物；构建缓存按完整脚本哈希隔离，消费前核对源码、配方和二进制哈希。Windows 打包需要 Python 3，并拒绝缺失许可、旧 DLL 混入或文件被改写。若在本地 Windows 开发，从对应成功 CI 下载 `windows-media-runtime` 到 `TEMP/media-runtime/windows`，运行 `python scripts/verify-windows-media.py` 后再构建；也可在 Linux 执行 `bash scripts/prepare-windows-media.sh` 自行构建。对应源码归档作为同次 CI 的 `windows-media-source` 保存；正式公开发布仍需汇总 VLC 等完整第三方材料。
+正常双平台 CI 和 Release 均调用 `windows-media.yml` 构建并传递该产物；构建缓存按完整脚本哈希隔离，消费前核对源码、配方和二进制哈希。Windows 打包需要 Python 3，并拒绝缺失许可、旧 DLL 混入或文件被改写。若在本地 Windows 开发，从对应成功 CI 下载 `windows-media-runtime` 到 `TEMP/media-runtime/windows`，运行 `python scripts/verify-windows-media.py` 后再构建；也可在 Linux 执行 `bash scripts/prepare-windows-media.sh` 自行构建。对应源码归档作为同次 CI 的 `windows-media-source` 保存；正式公开发布由独立源码材料任务汇总 VLC、其 contrib 输入及 LibVLCSharp 固定提交。
+
+第三方源码发布门槛：`third-party-sources.yml` 读取版本化清单，校验 128 个归档/头文件输入及 7 个 Git 固定提交材料；其中包括 125 个 VLC contrib 输入（排除两个未分发的 WiX 安装工具）、3 个顶层源码归档。版本必须与共用项目和构建配方一致，源码归档必须匹配原始哈希。它将许可、上游源码、补丁/配方和构建说明汇成 `Tbox_third-party-sources.tar.gz`。发布汇总缺少该归档、清单变更或哈希不符时拒绝继续；公共校验清单覆盖源码包。具体范围及重建方式见 [第三方材料说明](third-party-sources.md)。本机 135 项输入已验证并生成约 701 MB 归档，独立 CI 验证待完成。

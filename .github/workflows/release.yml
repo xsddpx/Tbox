@@ -60,6 +60,10 @@ jobs:
     needs: preflight
     uses: ./.github/workflows/windows-media.yml
 
+  third-party-sources:
+    needs: preflight
+    uses: ./.github/workflows/third-party-sources.yml
+
   windows:
     needs: [preflight, windows-media]
     runs-on: windows-2025
@@ -141,7 +145,7 @@ jobs:
           compression-level: 0
 
   publish:
-    needs: [preflight, windows, macos]
+    needs: [preflight, windows, macos, third-party-sources]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -160,6 +164,10 @@ jobs:
           pattern: '*-installer'
           path: TEMP/release-assets
           merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: third-party-sources
+          path: TEMP/release-assets
       - name: Create checksums, upload draft and publish complete release
         env:
           GH_TOKEN: ${{ secrets.TBOX_RELEASE_TOKEN }}

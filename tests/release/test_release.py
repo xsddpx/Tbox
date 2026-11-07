@@ -26,11 +26,15 @@ class ReleaseTests(unittest.TestCase):
         self.notes.write_text('公开版本说明', encoding='utf-8')
         self.install = self.notes.parent / 'INSTALL.md'
         self.install.write_text('安装说明', encoding='utf-8')
-        for name in ['Tbox_2.3.4_osx-arm64.zip', 'Tbox_2.3.4.0_win-x64.msix', 'Tbox-Development.cer']:
+        for name in ['Tbox_2.3.4_osx-arm64.zip', 'Tbox_2.3.4.0_win-x64.msix', 'Tbox-Development.cer', 'Tbox_third-party-sources.tar.gz']:
             (self.directory / name).write_bytes(name.encode())
         for platform, name in [('osx-arm64', 'Tbox_2.3.4_osx-arm64.zip'), ('win-x64', 'Tbox_2.3.4.0_win-x64.msix')]:
             path = self.directory / name
             (self.directory / (platform + '-build.json')).write_text(json.dumps({'name': name, 'size': path.stat().st_size, 'sha256': release.sha256(path), 'packagedAt': '2026-11-07T12:00:00+08:00'}))
+        self.source_manifest = self.root / 'source-manifest.json'
+        self.source_manifest.write_text('{"pinned": "source inputs"}')
+        archive = self.directory / 'Tbox_third-party-sources.tar.gz'
+        (self.directory / 'third-party-build.json').write_text(json.dumps({'name': archive.name, 'size': archive.stat().st_size, 'sha256': release.sha256(archive), 'manifestSha256': release.sha256(self.source_manifest)}))
         self.source = self.root / 'src/Tbox.Desktop'
         (self.source / 'Platform/macos').mkdir(parents=True)
         (self.source / 'Platform/windows').mkdir(parents=True)
@@ -43,7 +47,7 @@ class ReleaseTests(unittest.TestCase):
         self.history.write_text('# History')
 
     def collected(self):
-        return release.collect(self.directory, 'v2.3.4', self.install)
+        return release.collect(self.directory, 'v2.3.4', self.install, self.source_manifest)
 
     def remote_assets(self):
         return [{'name': p.name, 'size': p.stat().st_size, 'state': 'uploaded', 'digest': 'sha256:' + release.sha256(p)} for p in sorted(self.directory.iterdir())]
@@ -111,6 +115,17 @@ class ReleaseTests(unittest.TestCase):
         (self.directory / 'Tbox_2.3.4_osx-arm64.zip').write_bytes(b'changed')
         with self.assertRaises(ValueError):
             self.collected()
+
+    def test_missing_or_changed_source_materials_prevent_publication(self):
+        source = self.directory / 'Tbox_third-party-sources.tar.gz'
+        original = source.read_bytes()
+        source.unlink()
+        with self.assertRaises(ValueError): self.collected()
+        source.write_bytes(b'changed')
+        with self.assertRaises(ValueError): self.collected()
+        source.write_bytes(original)
+        self.source_manifest.write_text('{"pinned": "other inputs"}')
+        with self.assertRaises(ValueError): self.collected()
 
     def test_checksums_match_artifacts(self):
         manifest = self.collected()

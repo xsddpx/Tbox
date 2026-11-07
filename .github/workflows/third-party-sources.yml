@@ -1,0 +1,38 @@
+name: Verify corresponding source materials
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: ['codex/**']
+    paths: ['assets/third-party/**', 'scripts/release/prepare-third-party-sources.py', 'docs/third-party-sources.md', '.github/workflows/third-party-sources.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: TEMP/third-party-source-cache
+          key: third-party-source-v1-${{ hashFiles('assets/third-party/media-sources.json') }}
+      - name: Verify collection and release safeguards
+        run: python -m unittest discover -s tests/release -v
+      - name: Retrieve exact upstream inputs and create source bundle
+        run: python scripts/release/prepare-third-party-sources.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: third-party-sources
+          path: TEMP/third-party-release-assets/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

@@ -76,17 +76,23 @@ def build_record(root, directory, tag, platform):
     (directory / f'{platform}-build.json').write_text(json.dumps(record) + '\n', encoding='utf-8')
 
 
-def collect(directory, tag, install_notes):
+def collect(directory, tag, install_notes, source_manifest):
     version = version_from_tag(tag)
-    expected = {f'Tbox_{version}_osx-arm64.zip', f'Tbox_{version}.0_win-x64.msix', 'Tbox-Development.cer'}
-    records = {'osx-arm64-build.json', 'win-x64-build.json'}
+    expected = {f'Tbox_{version}_osx-arm64.zip', f'Tbox_{version}.0_win-x64.msix', 'Tbox-Development.cer', 'Tbox_third-party-sources.tar.gz'}
+    records = {'osx-arm64-build.json', 'win-x64-build.json', 'third-party-build.json'}
     if {p.name for p in directory.iterdir()} != expected | records:
-        raise ValueError('Expected exactly the Windows MSIX, Mac ZIP and public Windows certificate.')
+        raise ValueError('Expected the two installers, public certificate and corresponding source materials.')
     for path in directory.iterdir():
         if path.is_symlink() or not path.is_file() or not 0 < path.stat().st_size <= 2 * 1024**3:
             raise ValueError('Missing, empty, linked or oversized artifact.')
     times = {}
+    source_record = json.loads((directory / 'third-party-build.json').read_text(encoding='utf-8'))
+    source_name = 'Tbox_third-party-sources.tar.gz'
+    if source_record.get('name') != source_name or source_record.get('sha256') != sha256(directory / source_name) or source_record.get('size') != (directory / source_name).stat().st_size or source_record.get('manifestSha256') != sha256(source_manifest):
+        raise ValueError('Source material differs from the reviewed manifest or build audit.')
     for name in records:
+        if name == 'third-party-build.json':
+            continue
         record = json.loads((directory / name).read_text(encoding='utf-8'))
         platform = name.removesuffix('-build.json')
         expected_name = f'Tbox_{version}_osx-arm64.zip' if platform == 'osx-arm64' else f'Tbox_{version}.0_win-x64.msix'
@@ -162,9 +168,9 @@ def record_history(root, tag, manifest):
              '| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |', '| --- | --- | --- | --- |']
     for a in manifest['assets']:
         stamp = datetime.fromisoformat(a.get('packagedAt', manifest['createdAt'])).astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S %z')
-        if a['name'].endswith('.zip'):
+        if a['name'] == f"Tbox_{manifest['version']}_osx-arm64.zip":
             lines.append(f"| {manifest['version']} | macOS osx-arm64 | {stamp} | `{a['sha256']}` |")
-        if a['name'].endswith('.msix'):
+        if a['name'] == f"Tbox_{manifest['version']}.0_win-x64.msix":
             lines.append(f"| {manifest['version']}.0 | Windows win-x64 | {stamp} | `{a['sha256']}` |")
     history.write_text(before.rstrip() + '\n'.join(lines) + '\n', encoding='utf-8')
     command('git', 'config', 'user.name', 'github-actions[bot]')
@@ -190,7 +196,7 @@ def publish(root, directory, tag, prerelease, *, audit=record_history):
     paths = sorted(directory.iterdir())
     manifest = json.loads((directory / 'release-manifest.json').read_text(encoding='utf-8'))
     notes = (root / 'docs/releases' / (tag + '.md')).read_text(encoding='utf-8')
-    notes += '\n\n安装与权限说明见附件 INSTALL.md；校验值见 SHA256SUMS。\n'
+    notes += '\n\n安装与权限说明见附件 INSTALL.md；校验值见 SHA256SUMS；第三方对应源码与构建材料见 Tbox_third-party-sources.tar.gz。\n'
     # GitHub rejects a duplicate tag. Never clobber assets, edit an old release,
     # or automatically adopt a leftover draft from an earlier failed attempt.
     release = api(f'repos/{PUBLIC_REPO}/releases', 'POST', {
@@ -231,7 +237,7 @@ def main():
             raise ValueError('Choose a build platform.')
         build_record(root, args.directory, args.tag, args.platform)
     elif args.action == 'collect':
-        collect(args.directory, args.tag, root / 'docs/releases/INSTALL.md')
+        collect(args.directory, args.tag, root / 'docs/releases/INSTALL.md', root / 'assets/third-party/media-sources.json')
     else:
         publish(root, args.directory.resolve(), args.tag, args.prerelease)
 
