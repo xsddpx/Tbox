@@ -32,6 +32,9 @@ public sealed class App : Application
             var main = new MainWindow(_controller);
             lifetime.MainWindow = main;
             _controller.Main = main;
+            var activation = this.TryGetFeature<IActivatableLifetime>();
+            void OnActivated(object? sender, ActivatedEventArgs args) => RestoreOnReopen(_controller, args);
+            if (activation is not null) activation.Activated += OnActivated;
             var menu = new NativeMenu();
             Add(menu, "打开 Tbox", _controller.ShowMain);
             menu.Add(new NativeMenuItemSeparator());
@@ -47,7 +50,11 @@ public sealed class App : Application
             };
             _tray.Clicked += (_, _) => _controller.ShowMain();
             TrayIcon.SetIcons(this, new TrayIcons { _tray });
-            lifetime.Exit += (_, _) => { _tray.Dispose(); _controller.Dispose(); };
+            lifetime.Exit += (_, _) =>
+            {
+                if (activation is not null) activation.Activated -= OnActivated;
+                _tray.Dispose(); _controller.Dispose();
+            };
             lifetime.ShutdownRequested += (_, e) =>
             {
                 if (!_controller.IsQuitting) { e.Cancel = true; _controller.Quit(); }
@@ -64,6 +71,14 @@ public sealed class App : Application
             main.Opened += (_, _) => _controller.Run(() => _controller.InitializeAsync(lifetime.Args ?? []));
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    internal static void RestoreOnReopen(DesktopController controller, ActivatedEventArgs args)
+    {
+        // macOS reopens an existing process through the application lifetime,
+        // without starting the second process handled by SingleInstance.
+        if (args.Kind == ActivationKind.Reopen)
+            Dispatcher.UIThread.Post(controller.ShowMain);
     }
 
     private static void Add(NativeMenu menu, string title, Action action)

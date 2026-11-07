@@ -71,3 +71,5 @@ python3 -m unittest discover -s tests/release -v
 首次云端签名检查发现并修正两处集成差异：Mac `codesign` 的证书导出前缀需使用等号参数；Windows MSIX 需使用本地计算机的 TrustedPeople 信任，并以独立 MSIX 夹具验证包签名策略，不用普通 PE 文件代替。Windows 信任位置依据 [Microsoft 包签名证书说明](https://learn.microsoft.com/windows/msix/package/create-certificate-package-signing)，从未将开发证书加入根证书颁发机构。修复后的 [完整 CI](https://github.com/xsddpx/Tbox/actions/runs/42390103544) 已通过：两平台 95 项核心、96 项桌面和 20 项发布事务测试、媒体验证、Windows MSIX 结构检查，以及两平台实际证书导入、签名、验签和指纹核对。Windows 签名夹具使用独立的 `Tbox.SigningFixture` 包身份，未安装为 Tbox、未作为下载产物发布。验证后已将 `TBOX_VERIFY_SIGNING` 关闭。
 
 2026-11-08 真实 Windows 安装检查通过：[运行 42390887997](https://github.com/xsddpx/Tbox/actions/runs/42390887997) 生成唯一的 1.1.8.0 签名 MSIX，在 Windows 2025 runner 实际安装、按包身份启动并通过系统 OCR、像素裁剪及界面检查；产物哈希已登记。检查结束后 `TBOX_VERIFY_INSTALLER` 已关闭。尚未执行公开 Release 事务，也未验证旧用户电脑覆盖升级。
+
+安装验证支持显式 `-VerifyCapture`：只有实际取得至少一个显示器原始帧才通过，当前迁移分支的可选 Windows 安装作业已启用。普通 CI 的 `-VerifyOnly` 仅在隔离临时目录校验未签名载荷，可重复检查已登记版本；交付模式仍严格拒绝版本或文件重复。两端开发包记录按各自章节插入，避免混入另一平台表格。

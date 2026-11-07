@@ -34,8 +34,22 @@ try {
     Set-Content -Encoding UTF8 $history '# Test history'
     Set-Content $package 'existing artifact'
     Expect-Rejection 'existing artifact'
+    Set-Content -Encoding UTF8 $history "| $version | 2026-01-01 | hash |"
+    if ((Assert-DesktopPackageVersion $project $manifest $history $package -VerificationOnly) -ne $version) {
+        throw 'Isolated unsigned verification must remain repeatable after a delivery.'
+    }
+    if ((Get-Content $package -Raw).Trim() -ne 'existing artifact') { throw 'Verification changed an existing delivery.' }
+    Set-Content -Encoding UTF8 $project ($originalProject -replace '<FileVersion>[^<]+</FileVersion>', '<FileVersion>0.0.1.0</FileVersion>')
+    $rejected = $false
+    try { $null = Assert-DesktopPackageVersion $project $manifest $history $package -VerificationOnly } catch { $rejected = $true }
+    if (-not $rejected) { throw 'Verification must still reject mismatched versions.' }
+    $recorded = Add-DesktopPackageHistory "# History`n`n## Windows 共用桌面开发包`n`n| old | date | hash |`n`n## macOS 开发包`n`nmac-row`n" $version 'stamp' 'digest'
+    if ($recorded.IndexOf("| $version | stamp | ``digest`` |") -gt $recorded.IndexOf('## macOS 开发包')) {
+        throw 'Windows record was inserted into another platform section.'
+    }
+    if (-not $recorded.EndsWith("mac-row`n")) { throw 'Existing Mac history changed.' }
     $rejected = $false
     try { Assert-DesktopPayload $directory $version } catch { $rejected = $true }
     if (-not $rejected) { throw 'Incomplete runtime accepted.' }
-    Write-Host 'Package policy: valid configuration accepted; six invalid cases rejected.'
+    Write-Host 'Package policy passed: delivery uniqueness, repeatable isolated verification, payload and section placement.'
 } finally { Remove-Item -LiteralPath $directory -Recurse -Force }

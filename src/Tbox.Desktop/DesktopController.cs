@@ -172,7 +172,13 @@ public sealed class DesktopController : IDisposable
         finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
-    public void ShowMain() { Main.Show(); Main.Activate(); Main.Refresh(); }
+    public void ShowMain()
+    {
+        if (IsQuitting) return;
+        Main.Show();
+        if (Main.WindowState == WindowState.Minimized) Main.WindowState = WindowState.Normal;
+        Main.Activate(); Main.Refresh();
+    }
     public void RequestPermission()
     {
         if (Platform.HasScreenPermission) { Main.Refresh(); return; }

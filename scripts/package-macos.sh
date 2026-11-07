@@ -48,5 +48,15 @@ if ! grep -q '^## macOS 开发包' docs/release-history.md; then
 | --- | --- | --- | --- |
 EOF
 fi
-printf '| %s | macOS %s | %s | `%s` |\n' "$VERSION" "$RID" "$STAMP" "$HASH" >> docs/release-history.md
+python3 - "$VERSION" "$RID" "$STAMP" "$HASH" <<'PY'
+import pathlib, sys
+path = pathlib.Path('docs/release-history.md')
+text = path.read_text()
+start = text.index('\n## macOS 开发包\n')
+end = text.find('\n## ', start + 1)
+if end < 0: end = len(text)
+version, rid, stamp, digest = sys.argv[1:]
+row = f'| {version} | macOS {rid} | {stamp} | `{digest}` |\n'
+path.write_text(text[:end].rstrip() + '\n' + row + text[end:])
+PY
 echo "$PACKAGE"

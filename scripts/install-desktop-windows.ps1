@@ -1,6 +1,7 @@
 ﻿param(
     [Parameter(Mandatory)][string]$PackagePath,
     [string[]]$DependencyPath = @(),
+    [switch]$VerifyCapture,
     [string]$ResultDirectory
 )
 $ErrorActionPreference = 'Stop'
@@ -41,8 +42,10 @@ if ($installed.Version -ne [Version]$manifest.Package.Identity.Version) { throw 
 $executable = Join-Path $installed.InstallLocation 'Tbox.Desktop.exe'
 if (-not (Test-Path -LiteralPath $executable)) { throw 'The installed package does not contain the shared desktop application.' }
 New-Item -ItemType Directory -Path $ResultDirectory | Out-Null
+$smokeArguments = "--smoke-test `"$ResultDirectory`""
+if ($VerifyCapture) { $smokeArguments += ' --verify-capture' }
 Invoke-CommandInDesktopPackage -PackageFamilyName $installed.PackageFamilyName -AppId App -Command $executable `
-    -Args "--smoke-test `"$ResultDirectory`"" -PreventBreakaway
+    -Args $smokeArguments -PreventBreakaway
 $resultPath = Join-Path $ResultDirectory 'result.json'
 $deadline = [DateTime]::UtcNow.AddSeconds(90)
 while (-not (Test-Path -LiteralPath $resultPath)) {
@@ -52,4 +55,5 @@ while (-not (Test-Path -LiteralPath $resultPath)) {
 $result = Get-Content -LiteralPath $resultPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $result.success) { throw "Installed application verification failed: $($result.error)" }
 if (-not $result.nativeOcr -or -not $result.pixelCrop -or -not $result.uiRendered) { throw 'Installed verification is incomplete.' }
+if ($VerifyCapture -and (-not $result.captureVerified -or $result.displayCount -lt 1)) { throw 'Actual display capture was requested but did not pass.' }
 Write-Host "Installed $($installed.Version), verified package identity, OCR, pixel crop and shared window rendering."

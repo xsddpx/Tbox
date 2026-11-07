@@ -1,5 +1,6 @@
 ﻿param(
     [switch]$VerifyOnly,
+    [switch]$VerifyCapture,
     [string]$CertificateThumbprint,
     [string]$TimestampUrl
 )
@@ -24,7 +25,7 @@ function Invoke-Checked {
 try {
     try { $held = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held = $true }
     if (-not $held) { throw 'Another shared desktop package build is running.' }
-    $version = Assert-DesktopPackageVersion $project $manifest $history $package
+    $version = Assert-DesktopPackageVersion $project $manifest $history $package -VerificationOnly:$VerifyOnly
     $historyBefore = Get-Content -LiteralPath $history -Raw -Encoding UTF8
     $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
         Sort-Object { try { [Version]$_.Name } catch { [Version]'0.0' } } -Descending |
@@ -77,15 +78,11 @@ try {
     if ($TimestampUrl) { $signArguments += @('/tr', $TimestampUrl, '/td', 'SHA256') }
     Invoke-Checked $signTool ($signArguments + $candidate)
     Invoke-Checked $signTool @('verify', '/pa', '/v', $candidate)
-    & (Join-Path $PSScriptRoot 'install-desktop-windows.ps1') -PackagePath $candidate -ResultDirectory (Join-Path $work 'installed-smoke')
+    & (Join-Path $PSScriptRoot 'install-desktop-windows.ps1') -PackagePath $candidate -ResultDirectory (Join-Path $work 'installed-smoke') -VerifyCapture:$VerifyCapture
     if ((Get-Content -LiteralPath $history -Raw -Encoding UTF8) -ne $historyBefore) { throw 'Release history changed during validation; keep the verified candidate and retry with a new version.' }
     $hash = (Get-FileHash $candidate -Algorithm SHA256).Hash
     $stamp = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time').ToString('yyyy-MM-dd HH:mm:ss zzz')
-    $updated = $historyBefore
-    if ($updated -notmatch '(?m)^## Windows 共用桌面开发包') {
-        $updated = $updated.TrimEnd() + "`n`n## Windows 共用桌面开发包`n`n持久证书签名，安装后已验证系统 OCR 与共用界面启动。完整功能验收另见跨平台验收表。`n`n| 版本 | 打包时间（Asia/Shanghai） | SHA-256 |`n| --- | --- | --- |`n"
-    }
-    $updated = $updated.TrimEnd() + "`n| $version | $stamp | ``$hash`` |`n"
+    $updated = Add-DesktopPackageHistory $historyBefore $version $stamp $hash
     New-Item -ItemType Directory -Path (Split-Path $package -Parent) -Force | Out-Null
     $publicCertificate = Join-Path $work 'Tbox-Development.cer'
     Export-Certificate -Cert $certificate -FilePath $publicCertificate | Out-Null
