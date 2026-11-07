@@ -82,4 +82,6 @@ python3 -m unittest discover -s tests/release -v
 
 正常双平台 CI 和 Release 均调用 `windows-media.yml` 构建并传递该产物；构建缓存按完整脚本哈希隔离，消费前核对源码、配方和二进制哈希。Windows 打包需要 Python 3，并拒绝缺失许可、旧 DLL 混入或文件被改写。若在本地 Windows 开发，从对应成功 CI 下载 `windows-media-runtime` 到 `TEMP/media-runtime/windows`，运行 `python scripts/verify-windows-media.py` 后再构建；也可在 Linux 执行 `bash scripts/prepare-windows-media.sh` 自行构建。对应源码归档作为同次 CI 的 `windows-media-source` 保存；正式公开发布由独立源码材料任务汇总 VLC、其 contrib 输入及 LibVLCSharp 固定提交。
 
-第三方源码发布门槛：`third-party-sources.yml` 读取版本化清单，校验 128 个归档/头文件输入及 7 个 Git 固定提交材料；其中包括 125 个 VLC contrib 输入（排除两个未分发的 WiX 安装工具）、3 个顶层源码归档。版本必须与共用项目和构建配方一致，源码归档必须匹配原始哈希。它将许可、上游源码、补丁/配方和构建说明汇成 `Tbox_third-party-sources.tar.gz`。发布汇总缺少该归档、清单变更或哈希不符时拒绝继续；公共校验清单覆盖源码包。具体范围及重建方式见 [第三方材料说明](third-party-sources.md)。本机 135 项输入已验证并生成约 701 MB 归档，独立 CI 验证待完成。
+第三方源码发布门槛：`third-party-sources.yml` 读取版本化清单，校验 128 个归档/头文件输入及 7 个 Git 固定提交材料；其中包括 125 个 VLC contrib 输入（排除两个未分发的 WiX 安装工具）、3 个顶层源码归档。版本必须与共用项目和构建配方一致，源码归档必须匹配原始哈希。它将许可、上游源码、补丁/配方和构建说明汇成 `Tbox_third-party-sources.tar.gz`。发布汇总缺少该归档、清单变更或哈希不符时拒绝继续；公共校验清单覆盖源码包。具体范围及重建方式见 [第三方材料说明](third-party-sources.md)。[独立 CI](https://github.com/xsddpx/Tbox/actions/runs/42397291104) 已通过，135 项输入生成的归档为 700588719 字节；云端与本机 SHA-256 均为 `b6b5d388281f9c8a4d447075dc2ea4f00a079b877fcbc5ed51a69e97dd5b541c`。独立逐项读取归档再次核对全部输入通过。
+
+1.1.10 实际安装包离线发布演练通过：使用已验收的 Mac ZIP、Windows 签名 MSIX、公钥证书及上述源码包，生成完整的 7 个公开资产和校验清单；原始打包时间与哈希均与发布历史相符。演练只在 `TEMP/release-rehearsal/1.1.10/` 生成文件，没有创建 GitHub Release 或触发客户端升级；已打包版本仍不可再次打包发布。

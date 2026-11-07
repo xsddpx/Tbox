@@ -2,7 +2,9 @@
 
 1.1.10 两平台 CI 已全部通过：[运行 42396331339](https://github.com/xsddpx/Tbox/actions/runs/42396331339)。Windows 使用固定源码运行库的签名 MSIX 已在 Windows 2025 runner 实际安装、启动并取得屏幕帧；报告 `success=true`、`nativeOcr=true`、`pixelCrop=true`、`uiRendered=true`、`captureVerified=true`、`displayCount=1`。包内媒体验证实际解码 36 帧，GIF 24 帧/2000 ms、WebP 20 帧/1999 ms、MP4 复制一致。下载到本机的 110706316 字节安装包与云端登记哈希一致，已写入发布历史；证据在 `TEMP/windows-installed/1.1.10/`。仍未完成旧 Windows 用户设备升级、全部交互及公开在线更新验收。
 
-1.1.10 依赖替换验证（2026-11-08）：Windows 动画导出改为与 Mac 相同的固定 FFmpeg 8.1.2 / libwebp 1.6.0 源码构建；[独立 Windows 运行验证](https://github.com/xsddpx/Tbox/actions/runs/42394403213) 已通过实际启动、GIF/WebP 导出及播放。新增输入源码、构建脚本、二进制哈希和载荷校验，25 项发布/依赖检查、95 项核心及 102 项桌面测试通过。Mac 1.1.10 唯一 ZIP 已记录哈希，固定路径覆盖安装并正常独立启动；进程 562 的权限探测显示 `screenPermission=true`、`captureVerified=true`，3024×1964，未重新申请权限。证据在 `TEMP/install-verification/1.1.10/permission.json`。Windows 1.1.10 签名安装包验收与完整第三方源码发布材料仍待完成。
+1.1.10 依赖替换验证（2026-11-08）：Windows 动画导出改为与 Mac 相同的固定 FFmpeg 8.1.2 / libwebp 1.6.0 源码构建；[独立 Windows 运行验证](https://github.com/xsddpx/Tbox/actions/runs/42394403213) 已通过实际启动、GIF/WebP 导出及播放。新增输入源码、构建脚本、二进制哈希和载荷校验，25 项发布/依赖检查、95 项核心及 102 项桌面测试通过。Mac 1.1.10 唯一 ZIP 已记录哈希，固定路径覆盖安装并正常独立启动；进程 562 的权限探测显示 `screenPermission=true`、`captureVerified=true`，3024×1964，未重新申请权限。证据在 `TEMP/install-verification/1.1.10/permission.json`。Windows 签名安装验收结果见上；第三方材料已通过 [独立 CI](https://github.com/xsddpx/Tbox/actions/runs/42397291104)，当前发布/依赖检查增至 34 项，正式公开发布仍待完成。
+
+1.1.10 长截图实机复验尚未获得有效结果：尝试滚动 Safari 测试页及 Chrome 公开文档时，实际屏幕截图仍是 Codex 前台，未取得目标页面序列；随后检测到窗口被操作并结束该次验收。此记录不证明拼接通过或失败。临时浏览器标签页与 Finder 窗口已清理，不把后台页面滚动等同于真实屏幕采集验证。
 
 当前验证汇总（2026-11-08）：1.1.9 的 [Windows/macOS CI](https://github.com/xsddpx/Tbox/actions/runs/42393228787) 全部通过，含两端 95 核心、102 共用桌面、20 发布事务检查、实际媒体解码/导出和 Windows MSIX 载荷检查。Windows 1.1.9.0 在 Windows 2025 runner 以持久证书签名、实际安装并按包身份启动，系统 OCR、像素裁剪、界面渲染及实际屏幕取帧通过，`captureVerified=true`、`displayCount=1`。签名安装包已下载并核对 SHA-256，登记在发布历史；原始报告在本地 `TEMP/windows-installed/1.1.9/verification/`。Windows 1.1.8 检查没有执行取帧，并非已证实无显示器。旧 Windows 用户电脑覆盖升级与其余完整交互仍待验收。
 
