@@ -1,6 +1,6 @@
 # 跨平台逐项验收表
 
-当前验证汇总（2026-11-08）：Mac 1.1.9 本地 95 项核心、102 项共用桌面、20 项发布事务检查通过；此前 1.1.8 的 95 核心、96 桌面、20 发布事务及双平台媒体 CI 全部通过。Windows 1.1.8.0 已在一次性 Windows 2025 runner 上以持久证书签名、实际安装并按包身份启动，系统 OCR、像素裁剪及界面渲染通过，见 [实际安装 CI](https://github.com/xsddpx/Tbox/actions/runs/42390887997)。安装检查未传入 `--verify-capture`，所以报告的 `captureVerified=false`、`displayCount=0` 表示未执行取帧，不能据此判定没有显示器。旧 Windows 用户电脑上的覆盖升级与完整交互仍待验收。
+当前验证汇总（2026-11-08）：1.1.9 的 [Windows/macOS CI](https://github.com/xsddpx/Tbox/actions/runs/42393228787) 全部通过，含两端 95 核心、102 共用桌面、20 发布事务检查、实际媒体解码/导出和 Windows MSIX 载荷检查。Windows 1.1.9.0 在 Windows 2025 runner 以持久证书签名、实际安装并按包身份启动，系统 OCR、像素裁剪、界面渲染及实际屏幕取帧通过，`captureVerified=true`、`displayCount=1`。签名安装包已下载并核对 SHA-256，登记在发布历史；原始报告在本地 `TEMP/windows-installed/1.1.9/verification/`。Windows 1.1.8 检查没有执行取帧，并非已证实无显示器。旧 Windows 用户电脑覆盖升级与其余完整交互仍待验收。
 
 Mac 1.1.8 真实跨应用剪贴板验收：从贴图复制，关闭来源贴图，再在 Chrome 使用系统粘贴；得到 160×100 PNG，四个采样点 RGBA 与原图完全一致，常驻进程保持运行，未产生新崩溃日志。证据为本地 `TEMP/clipboard-real-test/1.1.8/result.json` 与 `result.png`。这补齐了此前被前台操作变化中止的验收。
 

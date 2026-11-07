@@ -73,3 +73,5 @@ python3 -m unittest discover -s tests/release -v
 2026-11-08 真实 Windows 安装检查通过：[运行 42390887997](https://github.com/xsddpx/Tbox/actions/runs/42390887997) 生成唯一的 1.1.8.0 签名 MSIX，在 Windows 2025 runner 实际安装、按包身份启动并通过系统 OCR、像素裁剪及界面检查；产物哈希已登记。检查结束后 `TBOX_VERIFY_INSTALLER` 已关闭。尚未执行公开 Release 事务，也未验证旧用户电脑覆盖升级。
 
 安装验证支持显式 `-VerifyCapture`：只有实际取得至少一个显示器原始帧才通过，当前迁移分支的可选 Windows 安装作业已启用。普通 CI 的 `-VerifyOnly` 仅在隔离临时目录校验未签名载荷，可重复检查已登记版本；交付模式仍严格拒绝版本或文件重复。两端开发包记录按各自章节插入，避免混入另一平台表格。
+
+2026-11-08 的 [1.1.9 检查](https://github.com/xsddpx/Tbox/actions/runs/42393228787) 全部通过；Windows 实际签名安装后额外取帧成功（1 个显示器），安装产物下载复核哈希一致并登记。临时安装验收开关已再次关闭，避免重复打包同版。正式 Release 事务尚未运行。
