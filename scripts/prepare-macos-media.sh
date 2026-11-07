@@ -2,6 +2,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$(uname -m)" == arm64 ]] || { echo "当前媒体依赖构建仅验证 Apple Silicon。" >&2; exit 1; }
+# Match the declared app minimum regardless of the developer/runner's macOS.
+export MACOSX_DEPLOYMENT_TARGET=14.0
 SOURCE="$ROOT/TEMP/media-sources"
 RUNTIME="$ROOT/TEMP/media-runtime"
 DOWNLOAD="$ROOT/TEMP/media-downloads"
@@ -25,6 +27,7 @@ if [[ ! -f "$RUNTIME/build-id" ]] || [[ "$(cat "$RUNTIME/build-id")" != "$STAMP"
   (
     cd "$SOURCE/libwebp-1.6.0"
     ./configure --prefix="$RUNTIME/webp" --disable-shared --enable-static --enable-libwebpmux --disable-sdl --disable-png --disable-jpeg --disable-tiff --disable-gif
+    make clean
     make -j"$(sysctl -n hw.ncpu)"
     make install
   ) > "$ROOT/TEMP/webp-build.log" 2>&1
@@ -36,6 +39,7 @@ if [[ ! -f "$RUNTIME/build-id" ]] || [[ "$(cat "$RUNTIME/build-id")" != "$STAMP"
       --enable-decoder=h264,aac,rawvideo,wrapped_avframe --enable-parser=h264,aac \
       --enable-encoder=gif,libwebp,libwebp_anim,h264_videotoolbox \
       --enable-filter=fps,scale,split,palettegen,paletteuse,testsrc2,format,null,anull --enable-indev=lavfi --enable-videotoolbox
+    make clean
     make -j"$(sysctl -n hw.ncpu)"
     make install
   ) > "$ROOT/TEMP/ffmpeg-build.log" 2>&1
@@ -57,6 +61,7 @@ if [[ ! -f "$RUNTIME/build-id" ]] || [[ "$(cat "$RUNTIME/build-id")" != "$STAMP"
   rmdir "$MOUNT"; trap - EXIT
   printf '%s\n' "$STAMP" > "$RUNTIME/build-id"
 fi
+python3 "$ROOT/scripts/verify-macos-deployment-target.py" "$RUNTIME/FFmpeg/bin/ffmpeg" "$RUNTIME/VLC"
 mkdir -p "$RUNTIME/Licenses"
 cp "$SOURCE/ffmpeg-8.1.2/COPYING.LGPLv2.1" "$RUNTIME/Licenses/FFmpeg-LGPL-2.1.txt"
 cp "$SOURCE/libwebp-1.6.0/COPYING" "$RUNTIME/Licenses/libwebp-LICENSE.txt"

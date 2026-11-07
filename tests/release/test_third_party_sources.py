@@ -28,7 +28,7 @@ class ThirdPartySourceTests(unittest.TestCase):
             archives=[dict(path='upstream/example.tar.gz', sha256=sources.sha256(self.cache / 'upstream/example.tar.gz'), urls=['https://example.invalid/source'])],
             git=[dict(path='git/example.tar.gz', sha256=sources.sha256(self.cache / 'git/example.tar.gz'), url='https://example.invalid/repo.git', commit='a' * 40, prefix='example/')])
         self.save()
-        for name in ['docs/third-party-sources.md', 'scripts/prepare-windows-media.sh', 'scripts/prepare-macos-media.sh', 'src/Tbox.Desktop/ThirdParty/LICENSE.txt']:
+        for name in ['docs/third-party-sources.md', 'scripts/prepare-windows-media.sh', 'scripts/prepare-macos-media.sh', 'scripts/verify-macos-deployment-target.py', 'src/Tbox.Desktop/ThirdParty/LICENSE.txt']:
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('public build material\n', encoding='utf-8')
@@ -48,6 +48,7 @@ class ThirdPartySourceTests(unittest.TestCase):
             names = archive.getnames()
             self.assertIn('tbox-third-party-source/licenses/LICENSE.txt', names)
             self.assertIn('tbox-third-party-source/source-manifest.json', names)
+            self.assertIn('tbox-third-party-source/scripts/verify-macos-deployment-target.py', names)
             self.assertFalse(any('private' in name for name in names))
             self.assertTrue(all(member.isfile() for member in archive.getmembers()))
 

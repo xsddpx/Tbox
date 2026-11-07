@@ -8,6 +8,8 @@ VLC contrib 材料包含可选组件，因此清单不等于安装包实际加�
 
 Windows 与 Mac 的 FFmpeg/libwebp 源码未作修改，配置选项保存在 `scripts/prepare-windows-media.sh` 和 `scripts/prepare-macos-media.sh`。Windows 构建需要 Linux、MinGW-w64、nasm、pkg-config、make；Mac 构建需要 Apple Silicon macOS、Xcode Command Line Tools 和 pkg-config。
 
+Mac 编译显式固定 `MACOSX_DEPLOYMENT_TARGET=14.0`；配置变化时清理旧目标文件，并使用随附的 `verify-macos-deployment-target.py` 检查原生运行库。较新的 SDK 或链接器版本不代表提高最低系统版本，但任何库声明高于 macOS 14.0 都会阻止打包。
+
 将 `upstream/ffmpeg-8.1.2.tar.xz` 与 `upstream/libwebp-1.6.0.tar.gz` 放到 `TEMP/windows-media-build/sources/` 后，在归档根目录运行 `bash scripts/prepare-windows-media.sh`。脚本校验输入，输出独立运行的 LGPL FFmpeg 及构建记录；未启用 GPL 或非自由组件。Mac 将 `upstream/` 的三个归档复制到 `TEMP/media-sources/`，运行 `bash scripts/prepare-macos-media.sh`；该脚本还会下载并校验 VideoLAN 官方 Mac 分发包，以复制所选 LibVLC 动态库和插件。
 
 ## 回放运行库

@@ -48,6 +48,7 @@ cp TEMP/media-runtime/Licenses/*.txt "$APP/Contents/Resources/Licenses/"
 mkdir -p "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin"
 cp TEMP/media-runtime/FFmpeg/bin/ffmpeg "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin/"
 ditto TEMP/media-runtime/VLC "$APP/Contents/MacOS/ThirdParty/VLC"
+python3 scripts/verify-macos-deployment-target.py "$APP"
 ICONSET="$BUILD/Tbox.iconset"
 mkdir -p "$ICONSET"
 for SIZE in 16 32 128 256 512; do

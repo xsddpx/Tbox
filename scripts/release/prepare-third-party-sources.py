@@ -126,7 +126,7 @@ def build_bundle(root, manifest_path, cache, output):
     files = {item['path']: cache / item['path'] for item in items}
     files['source-manifest.json'] = manifest_path
     files['README.md'] = root / 'docs/third-party-sources.md'
-    for name in ['prepare-windows-media.sh', 'prepare-macos-media.sh']:
+    for name in ['prepare-windows-media.sh', 'prepare-macos-media.sh', 'verify-macos-deployment-target.py']:
         files['scripts/' + name] = root / 'scripts' / name
     for path in (root / 'src/Tbox.Desktop/ThirdParty').glob('*.txt'):
         files['licenses/' + path.name] = path
