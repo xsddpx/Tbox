@@ -130,7 +130,8 @@ jobs:
   windows-installed-package:
     needs: windows-media
     # Opt-in acceptance of the actual installer on a disposable Windows runner.
-    # Artifacts remain private; this job never creates a public Release.
+    # Artifacts are accessible from this public repository; never include secrets.
+    # This job does not create a Release.
     if: github.event_name == 'push' && github.ref == 'refs/heads/codex/feat-macos-basic' && vars.TBOX_VERIFY_INSTALLER == 'true'
     runs-on: windows-2025
     timeout-minutes: 45
