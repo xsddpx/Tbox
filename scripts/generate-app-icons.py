@@ -13,23 +13,30 @@ MENU_ICON = ROOT / "src/Tbox.Desktop/Platform/macos/menu-bar-icon.png"
 NS = "{http://www.w3.org/2000/svg}"
 
 
-def menu_icon(svg):
-    # macOS tints the template alpha mask. Use only the approved crystal outline
-    # so the dark app tile does not become a solid block in the menu bar.
-    crystal = svg.find(f".//{NS}path[@id='crystal']")
-    outline = crystal.get("d", "") if crystal is not None else ""
+def polygon(svg, path_id):
+    path = svg.find(f".//{NS}path[@id='{path_id}']")
+    outline = path.get("d", "") if path is not None else ""
     if not re.fullmatch(r"M\d+ \d+(?:L\d+ \d+){2,}Z", outline):
-        raise ValueError("图标原稿须提供由直线组成的晶体轮廓。")
-    points = [(int(x), int(y)) for x, y in re.findall(r"(\d+) (\d+)", outline)]
-    xs, ys = zip(*points)
+        raise ValueError(f"图标原稿须提供由直线组成的 {path_id} 轮廓。")
+    return [(int(x), int(y)) for x, y in re.findall(r"(\d+) (\d+)", outline)]
+
+
+def menu_icon(svg):
+    # macOS tints the template alpha mask. Use the approved box outline with the
+    # T cut out so the dark app tile does not become a solid block in the menu bar.
+    box, mark = polygon(svg, "box"), polygon(svg, "mark")
+    xs, ys = zip(*box)
     center_x = (min(xs) + max(xs)) / 2
     center_y = (min(ys) + max(ys)) / 2
     scale = 224 / max(max(xs) - min(xs), max(ys) - min(ys))
+
+    def place(points):
+        return [(128 + (x - center_x) * scale, 128 + (y - center_y) * scale) for x, y in points]
+
     mask = Image.new("RGBA", (256, 256))
-    ImageDraw.Draw(mask).polygon(
-        [(128 + (x - center_x) * scale, 128 + (y - center_y) * scale) for x, y in points],
-        fill=(0, 0, 0, 255),
-    )
+    draw = ImageDraw.Draw(mask)
+    draw.polygon(place(box), fill=(0, 0, 0, 255))
+    draw.polygon(place(mark), fill=(0, 0, 0, 0))
     return mask.resize((64, 64), Image.Resampling.LANCZOS)
 
 
