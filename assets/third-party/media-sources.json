@@ -34,6 +34,7 @@
       "sha512": "1d0482e4ddc813111bfe539c0916866517225a76a462d46e764123947b5d0e2653dc64a03843ccd12eb8ce7fa122a257f077a3cac8983bf6ab4042863f4cb8c5",
       "urls": [
         "https://download.videolan.org/pub/contrib/SDL_image/SDL3_image-3.4.4.tar.gz",
+        "https://www.libsdl.org/projects/SDL_image/release/SDL3_image-3.4.4.tar.gz",
         "https://github.com/libsdl-org/SDL_image/releases/download/release-3.4.4/SDL3_image-3.4.4.tar.gz"
       ]
     },
