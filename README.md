@@ -1,6 +1,6 @@
 # Tbox
 
-Tbox 是面向 Windows 和 macOS 的桌面工具。当前公开交付为共用 Avalonia 界面的 1.1.15，提供截图、标注、贴图、离线 OCR 和区域录屏。原 WinUI 工程保留为迁移基线，完整功能和交互验收仍在继续。
+Tbox 是面向 Windows 和 macOS 的桌面工具。当前公开交付为共用 Avalonia 界面的 1.1.20，提供截图、标注、贴图、离线 OCR 和区域录屏。原 WinUI 工程保留为迁移基线，完整功能和交互验收仍在继续。
 
 **[下载最新正式版](https://github.com/xsddpx/Tbox-releases/releases/latest)** · Windows 11 x64 / macOS 14+ Apple Silicon · 无需登录。首次安装见 [安装与权限说明](docs/releases/INSTALL.md)。
 
