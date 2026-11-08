@@ -9,7 +9,7 @@ internal static class DesignTokens
 {
     public const double PageTitle = 28, SectionTitle = 16, Body = 14, Caption = 12;
     public const double CardRadius = 12, ControlRadius = 8, TaskRadius = 8;
-    public const double SidebarWidth = 224, ControlHeight = 36;
+    public const double ControlHeight = 36;
     public const string Accent = "#5265DB";
     public const string TaskBackground = "#20242D", TaskBorder = "#4B5363";
     public static ThemeColors Colors(bool dark) => dark

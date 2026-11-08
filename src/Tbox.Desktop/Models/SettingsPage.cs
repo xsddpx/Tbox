@@ -1,3 +1,3 @@
 namespace Tbox.Desktop.Models;
 
-internal enum SettingsPage { Home, General, Folders, Capture }
+internal enum SettingsPage { Home, General, Folders, Ocr }

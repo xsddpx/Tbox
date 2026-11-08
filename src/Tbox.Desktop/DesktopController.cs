@@ -89,7 +89,7 @@ public sealed class DesktopController : IDisposable
         {
             var hotkeys = _hotkeys.TryChange(_settings.ScreenPasteEnabled, _settings.FolderJumpEnabled);
             if (_settings.FolderJumpEnabled) _folders.Start();
-            Main.SetStatus(hotkeys ? "已就绪" : "快捷键被占用；可从窗口或菜单栏使用所有功能。");
+            if (!hotkeys) Main.SetStatus("快捷键被占用。可从面板或菜单启动工具。");
             Main.Refresh();
             await RefreshStartupAsync();
             var location = await Task.Run(() => CacheLocation.Prepare(_cache.DirectoryPath,
@@ -194,13 +194,15 @@ public sealed class DesktopController : IDisposable
         Main.Refresh();
     }
 
-    public async Task CaptureAsync()
+    public Task CaptureAsync() => CaptureAsync(selectRecordingRegion: false);
+
+    internal async Task CaptureAsync(bool selectRecordingRegion)
     {
         if (!_settings.ScreenPasteEnabled || _capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;
         if (!Platform.HasScreenPermission)
         {
             ShowMain();
-            Main.SetStatus("截图尚未获授权。请点击“允许屏幕录制”或“打开屏幕录制设置”；贴图和已有图片识别仍可使用。");
+            Main.ShowCapturePermission();
             return;
         }
         _capturing = true;
@@ -215,7 +217,7 @@ public sealed class DesktopController : IDisposable
             {
                 _capture = null;
                 if (restore && cancelled && !IsQuitting) ShowMain();
-            });
+            }, selectRecordingRegion);
             _capture.Show();
         }
         catch { if (restore) ShowMain(); throw; }
@@ -346,7 +348,9 @@ public sealed class DesktopController : IDisposable
             _ocr.Closed += (_, _) => _ocr = null;
         }
         _ocr.Topmost = topmost;
-        _ocr.Show(); _ocr.Activate();
+        _ocr.Show();
+        if (_ocr.WindowState == WindowState.Minimized) _ocr.WindowState = WindowState.Normal;
+        _ocr.Activate();
         _ocr.Recognize(new Picture(picture.Png));
     }
 

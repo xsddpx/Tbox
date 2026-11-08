@@ -18,10 +18,13 @@ internal sealed class CaptureSession
     private bool _detecting;
     public CaptureDetectionMode DetectionMode { get; private set; }
     public CaptureSessionState State { get; } = new();
+    public bool SelectingRecordingRegion { get; }
 
-    public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action<bool> closed)
+    public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action<bool> closed,
+        bool selectRecordingRegion = false)
     {
         _controller = controller; _closed = closed;
+        SelectingRecordingRegion = selectRecordingRegion;
         _targets = controller.Platform.CreateCaptureTargets();
         foreach (var display in displays) _windows.Add(new CaptureWindow(this, display));
     }

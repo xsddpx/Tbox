@@ -10,12 +10,14 @@ internal sealed class FakePlatform : IPlatformServices
     public int CaptureRequests { get; private set; }
     public int PermissionSettingsOpens { get; private set; }
     public IReadOnlyList<CapturedDisplay> Displays { get; set; } = [];
+    public RecognitionResult? OcrResult { get; set; }
     public bool RequestScreenPermission() { PermissionRequests++; return HasScreenPermission; }
     public void OpenScreenPermissionSettings() { PermissionSettingsOpens++; }
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
     { CaptureRequests++; return Task.FromResult(Displays); }
     public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => throw new NotSupportedException();
-    public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) =>
+        Task.FromResult(OcrResult ?? throw new NotSupportedException());
     public bool RegisterHotkeys(Action<int> onHotkey, int mask = 7) => true;
     public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) { }
     public void MoveToPointer(nint handle) { }
