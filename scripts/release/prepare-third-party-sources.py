@@ -70,6 +70,33 @@ def validate_versions(root, manifest):
                 raise ValueError('Source version/hash differs from the build recipe: ' + script)
 
 
+GITHUB_RELEASE = re.compile(r'https://github\.com/([\w.-]+)/([\w.-]+)/releases/download/([^/]+)/([^/]+)')
+
+
+def download(url, output, accept=None):
+    command = ['curl', '-fLsS', '--retry', '1', '--http1.1', '--connect-timeout', '20', '--max-time', '600']
+    if accept:
+        command += ['-H', 'Accept: ' + accept]
+    return subprocess.run(command + [url, '-o', str(output)], capture_output=True).returncode == 0
+
+
+def github_api_asset(url, output):
+    # The release download page can return 504 while the API still serves the same asset.
+    match = GITHUB_RELEASE.fullmatch(url)
+    if not match:
+        return False
+    owner, repo, tag, name = match.groups()
+    listing = output.with_suffix('.json')
+    if not download(f'https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}', listing, 'application/vnd.github+json'):
+        return False
+    try:
+        assets = json.loads(listing.read_text(encoding='utf-8')).get('assets', [])
+    except ValueError:
+        return False
+    asset = next((a for a in assets if a.get('name') == name and isinstance(a.get('id'), int)), None)
+    return asset is not None and download(f'https://api.github.com/repos/{owner}/{repo}/releases/assets/{asset["id"]}', output, 'application/octet-stream')
+
+
 def fetch_archive(item, cache):
     target = cache / item['path']
     if matching(target, item):
@@ -78,10 +105,10 @@ def fetch_archive(item, cache):
     with tempfile.TemporaryDirectory(dir=target.parent) as temporary:
         candidate = Path(temporary) / 'download'
         for url in item['urls']:
-            result = subprocess.run(['curl', '-fLsS', '--retry', '1', '--http1.1', '--connect-timeout', '20', '--max-time', '600', url, '-o', str(candidate)], capture_output=True)
-            if result.returncode == 0 and matching(candidate, item):
-                candidate.replace(target)
-                return target
+            for attempt in (download, github_api_asset):
+                if attempt(url, candidate) and matching(candidate, item):
+                    candidate.replace(target)
+                    return target
     raise ValueError('Unable to retrieve matching source: ' + item['path'])
 
 
