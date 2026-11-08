@@ -2,7 +2,7 @@
 
 ## 下载渠道
 
-用户已将下载权限改为公开。安装包使用独立的公开仓库 [xsddpx/Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)，现有 `xsddpx/Tbox` 源码仓库保持私有。客户端没有 GitHub 登录流程，不读取或保存账号令牌，不申请钥匙串权限。
+用户已将下载权限改为公开。安装包使用独立的公开仓库 [xsddpx/Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)，2026-11-08 用户进一步要求公开 `xsddpx/Tbox` 源码仓库并恢复 Actions。客户端没有 GitHub 登录流程，不读取或保存账号令牌，不申请钥匙串权限。
 
 [1.1.15](https://github.com/xsddpx/Tbox-releases/releases/tag/v1.1.15) 已正式公开。Windows 和 Mac 安装包均已匿名完整下载并校验大小及 SHA-256；Mac 包还通过与当前安装版相同的签名要求。公开渠道验证不等于应用内升级完成：本机仍是 1.1.13 且已锁屏，需用户解锁后继续真实检查、下载、安装、重启及权限验收。
 
@@ -28,7 +28,7 @@
 - 在草稿中上传两平台已验收的安装包、SHA-256 和说明，确认资产完全就绪后再正式发布。旧版本不可覆盖。
 - macOS 目前使用持久本地开发证书，尚未完成 Developer ID 签名和公证；Windows 已使用固定的持久开发证书，首次安装需信任配套公钥证书，旧用户设备升级仍待验收。当前配置不能据此宣称已实现公开环境的无提示安装。
 
-2026-11-08 按用户要求关闭源码仓库的 GitHub Actions，Release 事件不再触发自动构建或上传。客户端仍从公开 Releases 检查和下载更新，已发布版本继续可用；后续手动发布仍遵循上述资产与验收约定。停用状态和原流程见 [发布流程说明](automatic-releases.md)。停用前的 [首次正式流程](https://github.com/xsddpx/Tbox/actions/runs/42407512233) 已成功：两平台签名、运行检查、完整资产校验及公开发布全部通过，自动生成的发布记录包含实际时间与哈希。
+2026-11-08 按用户最新要求公开源码仓库并恢复 GitHub Actions，新源码 Release 的发布事件再次触发双平台构建、签名和完整性验收，全部通过后才公开下载。客户端继续从原公开下载仓库检查和下载更新。配置与验收规则见 [发布流程说明](automatic-releases.md)。此前的 [首次正式流程](https://github.com/xsddpx/Tbox/actions/runs/42407512233) 已成功：两平台签名、运行检查、完整资产校验及公开发布全部通过，自动生成的发布记录包含实际时间与哈希。
 
 ## 验证范围
 

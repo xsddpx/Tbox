@@ -6,7 +6,7 @@ import plistlib
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('release', ROOT / 'scripts/release/release.py')
@@ -54,6 +54,29 @@ class ReleaseTests(unittest.TestCase):
 
     def test_accepts_consistent_new_version(self):
         self.assertEqual('2.3.4', release.preflight(self.root, 'v2.3.4'))
+
+    def test_accepts_public_source_and_download_repositories(self):
+        with patch.dict(release.os.environ, {'TBOX_SOURCE_TOKEN': 'test-source-token'}):
+            with patch.object(release, 'api', side_effect=[{'private': False}, {'private': False}]) as api:
+                release.remote_preflight()
+        self.assertEqual([
+            call('repos/xsddpx/Tbox-releases'),
+            call('repos/xsddpx/Tbox', token='test-source-token')
+        ], api.call_args_list)
+
+    def test_rejects_private_or_unknown_source_visibility(self):
+        with patch.dict(release.os.environ, {'TBOX_SOURCE_TOKEN': 'test-source-token'}):
+            for source in [{'private': True}, {}, {'private': None}]:
+                with self.subTest(source=source), patch.object(release, 'api', side_effect=[{'private': False}, source]):
+                    with self.assertRaisesRegex(ValueError, 'Source repository must be public'):
+                        release.remote_preflight()
+
+    def test_rejects_private_or_unknown_download_visibility(self):
+        for download in [{'private': True}, {}, {'private': None}]:
+            with self.subTest(download=download), patch.object(release, 'api', return_value=download) as api:
+                with self.assertRaisesRegex(ValueError, 'Download repository must be public'):
+                    release.remote_preflight()
+                api.assert_called_once_with('repos/xsddpx/Tbox-releases')
 
     def test_rejects_unsafe_or_unsupported_tags(self):
         for tag in ['v2.3.4;echo secret', 'v2.3.4\n', '../v2.3.4', 'v2.3.4-beta', 'v02.3.4', 'v0.1.0', 'v2.3.65536', '2.3.4']:

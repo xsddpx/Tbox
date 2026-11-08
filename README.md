@@ -52,7 +52,7 @@ Mac 媒体构建另需 Xcode Command Line Tools、`make` 与 `pkg-config`（`bre
 dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
 ```
 
-检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试及固定源码构建的 FFmpeg。1.1.15 已发布在独立公开仓库 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases/latest)，两个安装包均经匿名实际下载和 SHA-256 校验；源码仓库保持私有。应用内“常规 → 检查更新”使用同一公开渠道，真实在线升级仍待本机解锁及旧 Windows 设备验收，详见 [更新机制](docs/online-updates.md)。
+检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试及固定源码构建的 FFmpeg。1.1.15 已发布在独立公开仓库 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases/latest)，两个安装包均经匿名实际下载和 SHA-256 校验；源码仓库也已按用户要求公开。应用内“常规 → 检查更新”使用同一公开渠道，真实在线升级仍待本机解锁及旧 Windows 设备验收，详见 [更新机制](docs/online-updates.md)。
 
 ## Windows 完整版
 
@@ -155,4 +155,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -
 
 ## 发布与下载
 
-2026-11-08 按用户要求关闭源码仓库的 GitHub Actions，自动构建、测试及 Release 发布流程均不再执行。已公开的 Windows MSIX、Apple Silicon Mac ZIP 及应用内更新渠道仍保留在 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)。本地构建与打包脚本继续可用；后续发布仍须完成签名、运行及完整性验收。停用状态和原流程配置见 [发布流程说明](docs/automatic-releases.md)。
+2026-11-08 按用户最新要求公开 [Tbox 源码仓库](https://github.com/xsddpx/Tbox) 并恢复 GitHub Actions。普通推送与 PR 执行双平台检查；发布新的源码 Release 时，自动构建、签名和验证 Windows MSIX 与 Apple Silicon Mac ZIP，全部通过后上传到 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)。使用 GitHub 标准构建机器；签名私钥和发布令牌保留在 Actions Secrets，不提交源码。既有 1.1.15 与应用内更新地址不变。配置与验收规则见 [发布流程说明](docs/automatic-releases.md)。

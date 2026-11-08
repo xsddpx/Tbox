@@ -1,31 +1,31 @@
-# 发布流程（GitHub Actions 已停用）
+# 自动发布 Windows 与 Mac 安装包
 
 ## 当前状态
 
-2026-11-08 用户要求“取消 actions”，已关闭私有源码仓库 `xsddpx/Tbox` 的 Actions 总开关，接口复核为 `enabled: false`。停用时没有运行中或排队的任务。推送、PR、Release 和手动触发均不再执行仓库工作流，包括开发分支上的验收流程；不会自动恢复，需要用户明确要求后才重新启用。
+2026-11-08 用户明确要求“公开并且恢复 actions”，取代此前的停用要求。源码仓库 `xsddpx/Tbox` 改为公开并恢复 Actions，下载仓库 `xsddpx/Tbox-releases` 继续公开。普通推送、PR、手动检查恢复运行；发布新源码 Release 时执行自动打包发布。使用 GitHub 标准 Linux、Windows 和 macOS 构建机器，没有启用付费 Larger runners。
 
-已公开的 1.1.15 Release、7 项附件及客户端匿名更新渠道继续保留。公开下载仓库没有 Actions 工作流。本地构建、测试、打包脚本继续可用；后续手动发布仍须满足活需求文档中的双平台构建、签名、运行和资产完整性验收。工作流文件、历史日志、签名身份和已有 Secrets 保留，没有删除或撤销凭据。
+公开前使用 Gitleaks 8.30.1 扫描全部分支可达的 19 次提交，未发现凭据泄漏；历史路径也未发现私钥或环境凭据文件。签名身份及发布令牌仍保存在 Actions Secrets。普通 PR 使用只读仓库权限且不获得签名或发布 Secrets；签名仅用于维护者发布或显式启用的指定开发分支。公开仓库的工作流、日志及产物可被他人访问，上传内容不得包含凭据或用户数据。
 
-以下自动流程及配置仅记录停用前的实现，不是当前可执行的发布入口。发布源码仓库 Release 不会再自动生成或上传安装包。
+既有 1.1.15 Release、7 项附件、持久签名与客户端匿名更新渠道保持不变。本次仅调整仓库及发布基础设施，不重复打包旧版本、不发布新应用版本，也不代表此前未完成的应用内升级验收已通过。
 
-## 停用前的流程与范围
+## 流程与范围
 
 2026-11-08 首发安排：用户明确要求上线，首发版本顺延为 1.1.15。1.1.14 已打包 Mac，但 Windows 干净环境编译冲突导致整轮未公开；已打包版本不复用。Windows 文件面板门槛现由同一脚本串行构建并独立运行，普通 CI 在任何其他 .NET 构建前验证它。[1.1.15 正式发布流程](https://github.com/xsddpx/Tbox/actions/runs/42407512233) 已全部成功，7 项附件已公开，两个安装包已匿名下载校验。首发不代表全部迁移完成；本机锁屏，应用内升级验收待解锁。
 
-启用期间，`.github/workflows/release.yml` 在私有源码仓库 **发布 Release**（`release.published`）时启动。它只接受已合入 `main` 的提交和 `v<主>.<次>.<补丁>` 标签。创建草稿、普通推送不会发布软件。
+`.github/workflows/release.yml` 在公开源码仓库 **发布 Release**（`release.published`）时启动。它只接受已合入 `main` 的提交和 `v<主>.<次>.<补丁>` 标签。创建草稿、普通推送不会发布软件。
 
-1. 检查证书配置、源码仍为私有、下载仓库仍为公开、所有版本文件一致、版本未打包、公开版本说明存在。
+1. 检查证书配置、源码与下载仓库均为公开、所有版本文件一致、版本未打包、公开版本说明存在。
 2. Windows 2025 x64 与 macOS 15 Apple Silicon 并行运行现有测试、媒体检查和打包脚本。Windows 签名、验签、安装 MSIX，并以包身份启动 OCR/裁剪/界面检查；Mac 复用持久签名，验签后运行 OCR/裁剪/界面与媒体检查。
-3. 汇总 Windows MSIX、Mac `.app` ZIP、Windows 公钥证书、第三方源码归档与中文安装说明，生成 `SHA256SUMS`、`release-manifest.json`。不发布未签名验证包、日志、Tbox 私有业务源码或签名私钥。
+3. 汇总 Windows MSIX、Mac `.app` ZIP、Windows 公钥证书、第三方源码归档与中文安装说明，生成 `SHA256SUMS`、`release-manifest.json`。不发布未签名验证包、日志、非分发所需的业务源码副本或签名私钥。
 4. 在公开的 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases) 创建草稿，上传全部文件；逐一核对 GitHub 返回的大小、上传状态和 SHA-256。任一平台失败或文件校验失败时，不公开此版本。
-5. 将实际打包时间及哈希提交到源码仓库的 `codex/release-record-vX.Y.Z` 分支，尝试创建发布历史 PR。记录成功推送后才公开 Release。公开版本说明来自 `docs/releases/vX.Y.Z.md`，不会复制私有 Release 的正文。
+5. 将实际打包时间及哈希提交到源码仓库的 `codex/release-record-vX.Y.Z` 分支，尝试创建发布历史 PR。记录成功推送后才公开 Release。下载版本说明来自 `docs/releases/vX.Y.Z.md`，不会复制源码 Release 的正文。
 6. 保留源 Release 的预发布标记；预发布不会成为应用更新源的正式最新版。正式版本公开后，两平台更新器可匿名发现它。
 
 当前覆盖 Windows 11 x64、macOS 14+ Apple Silicon。Intel Mac 尚未接入。当前证书属于持久开发签名，流程不等于 Apple 公证或商业可信签名；安装限制见 [公开安装说明](releases/INSTALL.md)。完整功能与用户设备升级验收仍遵循活需求文档。
 
-## 原流程配置（停用期间不执行）
+## 发布配置
 
-在**私有源码仓库**的 [Actions Secrets and variables](https://github.com/xsddpx/Tbox/settings/secrets/actions) 配置下表。不得把私钥上传到公开仓库或提交 Git。
+在**源码仓库**的 [Actions Secrets and variables](https://github.com/xsddpx/Tbox/settings/secrets/actions) 配置下表。不得把私钥上传为公开附件或提交 Git。
 
 | 类型 | 名称 | 内容 |
 | --- | --- | --- |
@@ -40,7 +40,7 @@
 
 2026-11-08：用户确认没有原 Windows PFX；本机及项目相关下载目录未找到可恢复副本，已一次性建立 Windows 持久开发签名身份并存入 Actions Secrets。Windows 指纹为 `10859D3FDA689CC8CCC92143C79DA6CCFCDA5D92`。发布者仍为 `CN=Tbox Development`，旧 Windows 用户需首次信任新的公钥证书；原电脑覆盖升级尚未验证，不能承诺无提示升级。以后不得逐轮生成新证书。
 
-Windows 加密 PFX、原 Mac 身份导出的加密 P12 均备份在本机 `~/Library/Application Support/Tbox/Signing/`，目录权限 0700、私钥包权限 0600；密码保存在登录钥匙串。仅导出匹配 Tbox 指纹的 Mac 身份，没有导出其他钥匙串身份。四个证书 Secrets 和两平台指纹变量已配置；公开发布令牌也已配置。用户先要求 10 年，GitHub 自定义期限上限为 1 年，经用户再次选择后改为不设到期时间，可随时撤销。令牌 `Tbox Release Publisher` 仅授权 `xsddpx/Tbox-releases` 的 Contents Read and write 与必要的 Metadata Read-only，没有账号权限；真实 API 验证可访问公开下载仓库、无法访问私有源码仓库。令牌仅保存到私有仓库的 `TBOX_RELEASE_TOKEN` Secret，临时明文文件已删除。管理入口为 https://github.com/settings/personal-access-tokens/22557510 。
+Windows 加密 PFX、原 Mac 身份导出的加密 P12 均备份在本机 `~/Library/Application Support/Tbox/Signing/`，目录权限 0700、私钥包权限 0600；密码保存在登录钥匙串。仅导出匹配 Tbox 指纹的 Mac 身份，没有导出其他钥匙串身份。四个证书 Secrets 和两平台指纹变量已配置；公开发布令牌也已配置。用户先要求 10 年，GitHub 自定义期限上限为 1 年，经用户再次选择后改为不设到期时间，可随时撤销。令牌 `Tbox Release Publisher` 仅授权 `xsddpx/Tbox-releases` 的 Contents Read and write 与必要的 Metadata Read-only，没有账号权限；创建时真实 API 验证可访问下载仓库、无法访问当时私有的源码仓库。源码公开后可匿名读取，但该令牌的写入授权仍仅限下载仓库。令牌仅保存到源码仓库的 `TBOX_RELEASE_TOKEN` Secret，临时明文文件已删除。管理入口为 https://github.com/settings/personal-access-tokens/22557510 。
 
 当前本机 Mac 指纹为 `FA0F60B5D7C8EE3DCFE356A0D564F8F0B1BE2EE6`。只传同一个身份，不重新生成证书。不能把本机 `gh` 的广泛账号令牌直接保存为发布 Secret。
 
@@ -50,23 +50,23 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 
 当前仓库不允许 Actions 创建 PR。流程会保留已推送的发布记录分支并输出提醒，公开发布仍可继续。若希望自动创建记录 PR，可在 Actions → General → Workflow permissions 开启 “Allow GitHub Actions to create and approve pull requests”；不需要开启默认全仓库写权限。流程不会自行修改此设置或自动合并记录 PR。
 
-## 原自动发布步骤（停用期间不执行）
+## 每次发布
 
 1. 同步提升 `Tbox.Desktop.csproj` 的 Version/AssemblyVersion/FileVersion、Mac `Info.plist`、Windows `Package.appxmanifest`。使用从未本地或 CI 打包过的新版本，不能重新打包 1.1.8。
 2. 完成功能、安装、升级及第三方依赖分发验收。添加 `docs/releases/vX.Y.Z.md` 的中文版本说明，写清已验证范围与限制。将变更合入 main。
 3. 在 [源码仓库 Releases](https://github.com/xsddpx/Tbox/releases) 选择这个 main 提交，创建对应标签并点击 **Publish release**。也可以用 `gh release create vX.Y.Z --repo xsddpx/Tbox --target main --notes-file docs/releases/vX.Y.Z.md`。发布预览时加 `--prerelease`；标签本身仍使用三段版本。
-4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，公开仓库的对应 Release 包含两个安装包、Windows 公钥证书、第三方源码归档、说明和校验清单；原私有 Release 仅承担触发入口。
+4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，下载仓库的对应 Release 包含两个安装包、Windows 公钥证书、第三方源码归档、说明和校验清单；源码 Release 承担触发入口。
 5. 合并自动生成的发布记录 PR（或提示中的记录分支），再验收真实在线更新。不要通过移动旧标签、覆盖旧包或删除已有正式 Release 来处理问题。
 
 打包与上传耗用已有 Actions 配额；本次没有变更计费或开通付费 runner。
 
-## 原流程的失败与重试（停用期间不执行）
+## 失败与重试
 
 构建失败时不会运行发布任务，修复后可重跑失败任务；已经成功的另一个平台产物保留 7 天。上传/记录失败可能留下公开仓库草稿；自动流程拒绝覆盖或接管它，需要检查失败日志与资产后处理，或发布新的版本。已经公开的同版本不会被重写。
 
 若 GitHub 返回的资产还没有 SHA-256、大小不符或缺失平台，任务会失败并保持草稿。不能通过跳过检查强行公开。发布记录推送成功但最终公开请求失败时，记录保留，供核对恢复。
 
-## 本地验证与停用前的发布结果
+## 本地验证与发布结果
 
 38 项离线回归测试覆盖标签注入/版本范围、版本与包身份不一致、缺说明、复用版本、漏包、额外私钥文件、篡改文件、实际打包时间、上传损坏、草稿/正式切换、预发布保留、审计失败、固定依赖、跨系统换行及源码材料完整性。运行：
 

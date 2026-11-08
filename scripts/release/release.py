@@ -141,11 +141,11 @@ def api(path, method='GET', body=None, token=None):
 
 
 def remote_preflight():
-    # Separate checks prevent a typo from exposing source history or publishing elsewhere.
+    # Both repositories are public by user choice; reject missing visibility data.
     if api(f'repos/{PUBLIC_REPO}').get('private') is not False:
         raise ValueError('Download repository must be public.')
-    if api(f'repos/{SOURCE_REPO}', token=os.environ['TBOX_SOURCE_TOKEN']).get('private') is not True:
-        raise ValueError('Source repository visibility changed; review before publishing.')
+    if api(f'repos/{SOURCE_REPO}', token=os.environ['TBOX_SOURCE_TOKEN']).get('private') is not False:
+        raise ValueError('Source repository must be public.')
 
 
 def assert_unused_tag(tag):
