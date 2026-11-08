@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
@@ -27,7 +28,7 @@ public sealed class OcrWorkspaceTests
         {
             Resize(800);
             var editor = Assert.Single(window.GetVisualDescendants().OfType<TextBox>());
-            var source = Assert.Single(window.GetVisualDescendants().OfType<Image>());
+            var source = Assert.Single(window.GetVisualDescendants().OfType<Image>(), i => AutomationProperties.GetName(i) == "识别原图");
             Assert.Equal(recognized, editor.Text);
             Assert.True(source.IsEffectivelyVisible);
             Assert.True(Position(editor).X > Position(source).X + source.Bounds.Width);

@@ -26,12 +26,19 @@ internal sealed class FailureNotificationWindow : Window
         ShowActivated = false; Topmost = true; ShowInTaskbar = false; CanResize = false;
         SystemDecorations = SystemDecorations.None;
         SizeToContent = SizeToContent.Height;
-        Content = Ui.Card(new StackPanel { Spacing = 12, Children =
+        TransparencyLevelHint = [Avalonia.Controls.WindowTransparencyLevel.Transparent];
+        Background = Avalonia.Media.Brushes.Transparent;
+        // Same floating card as the tray panel: brand, title, message and two quiet actions.
+        var header = Ui.Header(title, null, Ui.IconButton(IconKind.Close, "关闭", Close), out var brand);
+        Closed += (_, _) => brand.Dispose();
+        var actions = Ui.Row(Ui.Link("打开 Tbox", () => { Close(); controller.ShowPanel(); }));
+        actions.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
+        var card = Ui.Card(new StackPanel { Spacing = 8, Children =
         {
-            Ui.Text(title, 16),
-            new ScrollViewer { Content = Ui.Text(message), MaxHeight = 72 },
-            Ui.Row(Ui.Button("打开 Tbox", () => { Close(); controller.ShowPanel(); }), Ui.Button("关闭", Close))
+            header, new ScrollViewer { Content = Ui.Text(message), MaxHeight = 72 }, actions
         }});
+        card.Padding = new Thickness(14, 12); card.CornerRadius = new CornerRadius(DesignTokens.PanelRadius);
+        Content = card;
         Opened += (_, _) =>
         {
             if ((Screens.ScreenFromWindow(this) ?? Screens.Primary) is { } screen)

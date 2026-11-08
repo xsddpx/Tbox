@@ -4,9 +4,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform;
-using Avalonia.Styling;
 using Tbox.Desktop.Models;
 
 namespace Tbox.Desktop.Views;
@@ -16,15 +13,15 @@ public sealed class MainWindow : Window
 {
     private readonly DesktopController _controller;
     private readonly TextBlock _status = Ui.Caption("");
-    private readonly TextBlock _cache = Ui.Caption("");
-    private readonly TextBlock _folder = Ui.Caption("");
-    private readonly TextBlock _startupStatus = Ui.Caption("");
-    private readonly TextBlock _conflicts = Ui.Caption("部分快捷键被占用。可从托盘面板启动工具。");
+    private readonly SettingsRow _cacheRow;
+    private readonly SettingsRow _folderRow;
+    private readonly SettingsRow _startupRow;
+    private readonly SettingsRow _captureRow;
     private readonly ToggleSwitch _captureToggle = ModuleSwitch("启用截图与贴图");
     private readonly ToggleSwitch _folderToggle = ModuleSwitch("启用文件夹跳转");
     private readonly ToggleSwitch _startupToggle = ModuleSwitch("开机启动");
     private readonly ToggleSwitch _failureToggle = ModuleSwitch("功能失败时通知");
-    private readonly ComboBox _theme = new() { ItemsSource = new[] { "跟随系统", "浅色", "深色" }, MinWidth = 120 };
+    private readonly ComboBox _theme = new() { ItemsSource = new[] { "跟随系统", "浅色", "深色" }, MinWidth = 128 };
     private readonly Button _folderPermission;
     private readonly Button _cancelStartup;
     private readonly Border _notice;
@@ -41,12 +38,16 @@ public sealed class MainWindow : Window
     public MainWindow(DesktopController controller)
     {
         _controller = controller;
-        Ui.Configure(this, "Tbox 设置", 560, 520);
+        Ui.Configure(this, "Tbox 设置", 560, 560);
         MinWidth = 360;
         MinHeight = 360;
 
-        _folderPermission = Ui.Button("允许辅助功能", () => RunCommand(controller.RequestFolderPermission));
-        _cancelStartup = Ui.Button("取消开机启动申请", () => controller.Run(() => controller.SetStartupAsync(false)));
+        _folderPermission = Ui.Primary("允许辅助功能", () => RunCommand(controller.RequestFolderPermission));
+        _cancelStartup = Ui.Button("取消申请", () => controller.Run(() => controller.SetStartupAsync(false)), "取消开机启动申请");
+        _startupRow = new SettingsRow("登录时启动", Ui.Row(_cancelStartup, _startupToggle), icon: IconKind.Startup);
+        _captureRow = new SettingsRow("截图与贴图", _captureToggle, icon: IconKind.Capture);
+        _cacheRow = new SettingsRow("截图缓存", null, icon: IconKind.Folder);
+        _folderRow = new SettingsRow("当前目录", _folderPermission, icon: IconKind.Folder);
         _theme.SelectionChanged += (_, _) =>
         {
             if (!_updatingSettings) controller.Run(() => controller.ChangeThemeAsync(_theme.SelectedIndex));
@@ -68,40 +69,40 @@ public sealed class MainWindow : Window
             if (!_updatingSettings) controller.Run(() => controller.SetModulesAsync(null, _folderToggle.IsChecked == true));
         };
 
-        var heading = Ui.Text("设置", DesignTokens.SectionTitle);
-        heading.FontWeight = FontWeight.SemiBold;
-        heading.VerticalAlignment = VerticalAlignment.Center;
-        using var brandAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/StoreLogo.png"));
-        var brandBitmap = new Bitmap(brandAsset);
-        var brand = new Image
-        {
-            Source = brandBitmap, Width = 24, Height = 24,
-            VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false
-        };
-        Closed += (_, _) => brandBitmap.Dispose();
-        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        // A segmented control: one tinted track with the selected tab raised as a surface.
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         foreach (var (page, label) in new[] { (SettingsPage.General, "常规"), (SettingsPage.Folders, "文件夹跳转") })
         {
-            var tab = new ToggleButton { Content = label, Padding = new Thickness(12, 4), MinHeight = 30,
-                CornerRadius = new CornerRadius(DesignTokens.ControlRadius) };
+            var tab = new ToggleButton { Content = label, Padding = new Thickness(12, 0), Height = 28, MinHeight = 28,
+                CornerRadius = new CornerRadius(6), BorderThickness = default, VerticalContentAlignment = VerticalAlignment.Center };
             AutomationProperties.SetName(tab, label);
             tab.Click += (_, _) => Navigate(page);
+            Ui.Themed(tab, (t, c) =>
+            {
+                t.Resources["ToggleButtonBackground"] = Brushes.Transparent;
+                t.Resources["ToggleButtonBackgroundPointerOver"] = Brush.Parse(c.Hover);
+                t.Resources["ToggleButtonBackgroundPressed"] = Brush.Parse(c.Hover);
+                t.Resources["ToggleButtonForeground"] = Brush.Parse(c.SecondaryText);
+                t.Resources["ToggleButtonForegroundPointerOver"] = Brush.Parse(c.Text);
+                t.Resources["ToggleButtonForegroundPressed"] = Brush.Parse(c.Text);
+                foreach (var state in new[] { "", "PointerOver", "Pressed" })
+                {
+                    t.Resources["ToggleButtonBackgroundChecked" + state] = Brush.Parse(c.Surface);
+                    t.Resources["ToggleButtonForegroundChecked" + state] = Brush.Parse(c.Text);
+                }
+            });
             _tabs[page] = tab; tabs.Children.Add(tab);
         }
-        var header = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-            MaxWidth = 560,
-            Margin = new Thickness(16, 12, 16, 4)
-        };
-        header.Children.Add(Ui.Row(brand, heading));
-        Grid.SetColumn(tabs, 1);
-        header.Children.Add(tabs);
+        var tabStrip = Ui.Themed(new Border { Child = tabs, Padding = new Thickness(2), CornerRadius = new CornerRadius(DesignTokens.ControlRadius),
+            BorderThickness = new Thickness(1) }, (b, c) => { b.Background = Brush.Parse(c.SecondarySurface); b.BorderBrush = Brush.Parse(c.Border); });
+        var header = Ui.Header("设置", $"Tbox {Version}", tabStrip, out var brandBitmap);
+        header.MaxWidth = 560; header.Margin = new Thickness(20, 14, 20, 6);
+        Closed += (_, _) => brandBitmap.Dispose();
 
         _notice = Ui.Card(_status);
         _notice.Padding = new Thickness(12, 8);
         _notice.MaxWidth = 560;
-        _notice.Margin = new Thickness(16, 0, 16, 12);
+        _notice.Margin = new Thickness(20, 0, 20, 14);
         _notice.IsVisible = false;
         BuildPages();
 
@@ -153,40 +154,46 @@ public sealed class MainWindow : Window
 
     private void BuildPages()
     {
+        var shortcuts = new WrapPanel { Orientation = Orientation.Horizontal };
+        foreach (var (label, key) in new[] { ("截图", ShortcutLabels.Capture), ("贴图", ShortcutLabels.Pin), ("显隐贴图", ShortcutLabels.Toggle) })
+            shortcuts.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 2, 14, 2),
+                Children = { Ui.Caption(label), Ui.Key(key) } });
+        var shortcutRow = new SettingsRow("快捷键", Ui.Button("检查", () =>
+        {
+            Refresh();
+            SetStatus(_controller.HasHotkeyConflict ? "快捷键被占用。请关闭占用它们的应用后重新启用工具。" : "当前未发现快捷键冲突。");
+        }, "检查快捷键"), icon: IconKind.Keyboard);
+        var cacheActions = Ui.Row(Ui.Button("打开", () => RunCommand(_controller.OpenCache), "打开目录"),
+            Ui.Button("更换…", () => _controller.Run(_controller.ChooseCacheAsync), "更换目录…"));
         AddPage(SettingsPage.General,
-            Section("常规",
-                new SettingsRow("主题", _theme),
-                new SettingsRow("登录时启动", _startupToggle), _startupStatus, _cancelStartup,
-                new SettingsRow("失败通知", _failureToggle)),
-            Section("工具",
-                new SettingsRow("截图与贴图", _captureToggle), _conflicts,
-                Ui.Caption($"截图 {ShortcutLabels.Capture} · 剪贴板贴图 {ShortcutLabels.Pin} · 显隐贴图 {ShortcutLabels.Toggle}"),
-                Ui.Button("检查快捷键", () =>
-                {
-                    Refresh();
-                    SetStatus(_controller.HasHotkeyConflict ? "快捷键被占用。请关闭占用它们的应用后重新启用工具。" : "当前未发现快捷键冲突。");
-                })),
-            Section("截图缓存", _cache, Actions(
-                Ui.Button("打开目录", () => RunCommand(_controller.OpenCache)),
-                Ui.Button("更换目录…", () => _controller.Run(_controller.ChooseCacheAsync)))),
-            Section("关于",
-                new SettingsRow($"Tbox {Version}", Ui.Button("检查更新", _controller.ShowUpdates)),
-                Ui.Button("帮助与反馈", () => _controller.Run(async () =>
+            Ui.SectionLabel("外观与启动"),
+            Ui.Group(new SettingsRow("主题", _theme, icon: IconKind.Theme), _startupRow,
+                new SettingsRow("失败通知", _failureToggle, "功能失败时在屏幕角落提示", IconKind.Bell)),
+            Ui.SectionLabel("截图与贴图"),
+            Ui.Group(_captureRow, Indented(shortcutRow, shortcuts)),
+            Ui.SectionLabel("截图缓存"),
+            Ui.Group(Indented(_cacheRow, cacheActions)),
+            Ui.SectionLabel("关于"),
+            Ui.Group(new SettingsRow($"Tbox {Version}", Ui.Primary("检查更新", _controller.ShowUpdates), "公开下载，无需登录", IconKind.Update),
+                new SettingsRow("帮助与反馈", Ui.Link("打开", () => _controller.Run(async () =>
                 {
                     if (!await Launcher.LaunchUriAsync(new Uri("https://github.com/xsddpx/Tbox/issues")))
                         SetStatus("无法打开反馈页面。");
-                }))));
+                }), "帮助与反馈"), "在 GitHub 提交问题或建议", IconKind.Help)));
 
         AddPage(SettingsPage.Folders,
-            Section("当前目录", _folder, _folderPermission),
-            Section("在打开或保存面板中跳转",
-                new SettingsRow("启用文件夹跳转", _folderToggle),
-                Ui.Caption($"在系统文件面板中按 {ShortcutLabels.Folder}，跳到最近使用的目录。")));
+            Ui.SectionLabel("在打开或保存面板中跳转"),
+            Ui.Group(new SettingsRow("启用文件夹跳转", _folderToggle, $"在系统文件面板中按 {ShortcutLabels.Folder}，跳到最近使用的目录", IconKind.Jump),
+                _folderRow));
     }
+
+    // A row followed by extra content aligned under its title.
+    private static StackPanel Indented(SettingsRow row, Control content) =>
+        new() { Children = { row, new Border { Child = content, Margin = new Thickness(48, -4, 16, 12) } } };
 
     private void AddPage(SettingsPage key, params Control[] content)
     {
-        var panel = new StackPanel { Spacing = 8, MaxWidth = 560, Margin = new Thickness(16, 8, 16, 16) };
+        var panel = new StackPanel { Spacing = 8, MaxWidth = 560, Margin = new Thickness(20, 6, 20, 20) };
         foreach (var child in content) panel.Children.Add(child);
         _pages[key] = new ScrollViewer
         {
@@ -196,31 +203,9 @@ public sealed class MainWindow : Window
         };
     }
 
-    private static Border Section(string title, params Control[] children)
-    {
-        var heading = Ui.Text(title, DesignTokens.SectionTitle);
-        heading.FontWeight = FontWeight.SemiBold;
-        var panel = new StackPanel { Spacing = 8, Children = { heading } };
-        foreach (var child in children) panel.Children.Add(child);
-        var card = Ui.Card(panel);
-        card.Padding = new Thickness(16);
-        return card;
-    }
-
-    private static WrapPanel Actions(params Control[] children)
-    {
-        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var child in children)
-        {
-            child.Margin = new Thickness(0, 0, 8, 0);
-            panel.Children.Add(child);
-        }
-        return panel;
-    }
-
     private static ToggleSwitch ModuleSwitch(string label)
     {
-        var toggle = new ToggleSwitch { OnContent = null, OffContent = null, MinHeight = 40 };
+        var toggle = new ToggleSwitch { OnContent = null, OffContent = null, MinWidth = 0 };
         AutomationProperties.SetName(toggle, label);
         return toggle;
     }
@@ -251,34 +236,14 @@ public sealed class MainWindow : Window
         _theme.SelectedIndex = _controller.Settings.AppTheme switch { "light" => 1, "dark" => 2, _ => 0 };
         _updatingSettings = false;
 
-        _conflicts.IsVisible = _controller.HasHotkeyConflict;
-        _startupStatus.Text = _controller.Startup.Message ?? "";
-        _startupStatus.IsVisible = _startupStatus.Text.Length > 0;
+        _captureRow.Description = _controller.HasHotkeyConflict ? "部分快捷键被占用。可从托盘面板启动工具。" : "截图、贴图、长截图、录屏和识字";
+        _startupRow.Description = _controller.Startup.Message;
         _cancelStartup.IsVisible = _controller.Startup.RequiresApproval;
-        _folder.Text = !_controller.HasFolderPermission
+        _folderRow.Description = !_controller.HasFolderPermission
             ? "启用辅助功能权限后，Tbox 才能读取最近目录并跳转。"
             : string.IsNullOrWhiteSpace(_controller.FolderDirectory) ? "尚未读取目录，将使用用户主目录。" : _controller.FolderDirectory;
         _folderPermission.IsVisible = !_controller.HasFolderPermission;
-        _cache.Text = _controller.CacheDirectory;
+        _cacheRow.Description = _controller.CacheDirectory;
         if (_controller.Panel is { IsVisible: true } panel) panel.Refresh();
-    }
-}
-
-internal sealed class SettingsRow : Grid
-{
-    public SettingsRow(string title, Control input)
-    {
-        MinHeight = 44; RowSpacing = 4; ColumnSpacing = 12;
-        ColumnDefinitions = new ColumnDefinitions("*,Auto"); RowDefinitions = new RowDefinitions("Auto,Auto");
-        var text = Ui.Text(title);
-        text.VerticalAlignment = VerticalAlignment.Center;
-        Children.Add(text); Children.Add(input); Grid.SetColumn(input, 1);
-        SizeChanged += (_, e) =>
-        {
-            var stacked = e.NewSize.Width < 320;
-            ColumnDefinitions[1].Width = stacked ? new GridLength(0) : GridLength.Auto;
-            Grid.SetColumn(input, stacked ? 0 : 1); Grid.SetRow(input, stacked ? 1 : 0);
-            input.HorizontalAlignment = stacked ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        };
     }
 }

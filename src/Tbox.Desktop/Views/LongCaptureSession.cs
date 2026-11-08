@@ -35,21 +35,21 @@ internal sealed class LongCaptureSession
         _border.Background = Brushes.Transparent; _border.ShowActivated = false;
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         buttons.Children.Add(_size);
-        Add(buttons, "⌖", "固定为贴图", () => FinishAsync(CaptureAction.Pin));
-        Add(buttons, "↓", "保存图片", () => FinishAsync(CaptureAction.Save));
-        Add(buttons, "⛶", "全屏预览", () => FinishAsync(null));
-        var cancel = AnnotationToolbar.IconButton("×", "取消长截图 · Esc", Stop);
+        Add(buttons, IconKind.Pin, "固定为贴图", () => FinishAsync(CaptureAction.Pin));
+        Add(buttons, IconKind.Save, "保存图片", () => FinishAsync(CaptureAction.Save));
+        Add(buttons, IconKind.FullScreen, "全屏预览", () => FinishAsync(null));
+        var cancel = AnnotationToolbar.IconButton(IconKind.Close, "取消长截图 · Esc", Stop);
         buttons.Children.Add(cancel);
-        Add(buttons, "⧉", "复制图片", () => FinishAsync(CaptureAction.Copy));
-        var bar = new Border { Background = Ui.ToolbarBackground, Padding = new Thickness(8), CornerRadius = new CornerRadius(8), Child = buttons };
+        Add(buttons, IconKind.Copy, "复制图片", () => FinishAsync(CaptureAction.Copy));
+        var bar = Ui.ToolbarSurface(buttons, 6);
         bar.Measure(Size.Infinity);
         _toolbar = Floating("Tbox 长截图工具条", bar);
         _toolbar.Width = Math.Max(300, bar.DesiredSize.Width); _toolbar.Height = bar.DesiredSize.Height;
         _toolbar.KeyDown += (_, e) => { if (e.Key == Key.Escape) { Stop(); e.Handled = true; } };
         _preview = Floating("Tbox 长截图实时预览", new Border
         {
-            Background = Ui.ToolbarBackground, BorderBrush = Brush.Parse(DesignTokens.TaskBorder), BorderThickness = new Thickness(1),
-            Padding = new Thickness(6), Child = _surface
+            Background = Ui.ToolbarBackground, BorderBrush = Ui.ToolbarBorder, BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(DesignTokens.TaskRadius), Padding = new Thickness(6), Child = _surface
         });
         _preview.Width = 240; _preview.Height = 480; _preview.ShowActivated = false;
         _preview.Closed += (_, _) => Stop();
@@ -150,7 +150,7 @@ internal sealed class LongCaptureSession
         _ = _loop.ContinueWith(_ => _stop.Dispose(), TaskScheduler.Default);
     }
 
-    private void Add(StackPanel panel, string icon, string label, Func<Task> action)
+    private void Add(StackPanel panel, IconKind icon, string label, Func<Task> action)
     {
         var button = AnnotationToolbar.IconButton(icon, label, () => _controller.Run(action));
         button.IsEnabled = false; _actions.Add(button); panel.Children.Add(button);

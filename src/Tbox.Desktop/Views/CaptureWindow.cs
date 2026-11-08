@@ -44,11 +44,12 @@ internal sealed class CaptureWindow : Window
         overlay.Children.Add(_hint);
         _modeConfirmation = new Border
         {
-            IsVisible = false, Background = Ui.ToolbarBackground, Padding = new Thickness(20), CornerRadius = new CornerRadius(10),
+            IsVisible = false, Background = Ui.ToolbarBackground, BorderBrush = Ui.ToolbarBorder, BorderThickness = new Thickness(1),
+            Padding = new Thickness(20), CornerRadius = new CornerRadius(DesignTokens.CardRadius),
             Child = new StackPanel { Spacing = 12, Children =
             {
                 _modePrompt,
-                Ui.Row(Ui.Button("丢弃标注并继续", () => { DismissConfirmation(); Editor.Reset(); session.Finish(this, _pendingMode); }),
+                Ui.Row(Ui.Primary("丢弃标注并继续", () => { DismissConfirmation(); Editor.Reset(); session.Finish(this, _pendingMode); }),
                     Ui.Button("保留标注", DismissConfirmation))
             } }
         };
@@ -70,24 +71,19 @@ internal sealed class CaptureWindow : Window
         if (_session.Preset is { } preset)
         {
             var name = preset == CaptureAction.Record ? "录屏" : "长截图";
-            var confirm = Ui.Button($"确认{name}区域", () => _session.Finish(this, preset), $"确认{name}区域 · Enter");
-            confirm.Classes.Add("accent");
-            return new Border
-            {
-                Background = Ui.ToolbarBackground, BorderBrush = Brush.Parse(DesignTokens.TaskBorder),
-                BorderThickness = new Thickness(1), Padding = new Thickness(4), CornerRadius = new CornerRadius(DesignTokens.TaskRadius),
-                Child = Ui.Row(confirm, Ui.Button("取消", _session.Cancel, $"取消{name}选区 · Esc"))
-            };
+            var confirm = Ui.Primary($"确认{name}区域", () => _session.Finish(this, preset), $"确认{name}区域 · Enter");
+            var cancel = Ui.Button("取消", _session.Cancel, $"取消{name}选区 · Esc");
+            return Ui.ToolbarSurface(Ui.Row(confirm, cancel));
         }
 
         var toolbar = new AnnotationToolbar(Editor, _text.Commit);
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↕", "长截图", () => RequestMode(CaptureAction.Long)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("●", "区域录屏", () => RequestMode(CaptureAction.Record)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⌖", $"固定为贴图 · {ShortcutLabels.Command}T / 鼠标中键", () => _session.Finish(this, CaptureAction.Pin)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("Aa", "识别文字", () => _session.Finish(this, CaptureAction.Ocr)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↓", $"保存图片 · {ShortcutLabels.Command}S", () => _session.Finish(this, CaptureAction.Save)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⧉", $"复制图片 · {ShortcutLabels.Command}C / Enter", () => _session.Finish(this, CaptureAction.Copy)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("×", "取消截图 · Esc", _session.Cancel));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Long, "长截图", () => RequestMode(CaptureAction.Long)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Record, "区域录屏", () => RequestMode(CaptureAction.Record), Ui.RecordRed));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Pin, $"固定为贴图 · {ShortcutLabels.Command}T / 鼠标中键", () => _session.Finish(this, CaptureAction.Pin)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", () => _session.Finish(this, CaptureAction.Ocr)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Save, $"保存图片 · {ShortcutLabels.Command}S", () => _session.Finish(this, CaptureAction.Save)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Copy, $"复制图片 · {ShortcutLabels.Command}C / Enter", () => _session.Finish(this, CaptureAction.Copy)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Close, "取消截图 · Esc", _session.Cancel));
         return toolbar;
     }
 

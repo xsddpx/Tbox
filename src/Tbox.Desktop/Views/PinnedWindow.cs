@@ -65,10 +65,10 @@ public sealed class PinnedWindow : Window
         if (_toolbarWindow is null)
         {
             var toolbar = new AnnotationToolbar(Editor, _text.Commit);
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("Aa", "识别文字", Recognize));
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↓", "保存图片", () => _controller.Run(SaveAsync)));
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⧉", "复制图片", () => _controller.Run(CopyAsync)));
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("✓", "完成标注 · Esc", FinishEditing));
+            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", Recognize));
+            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Save, "保存图片", () => _controller.Run(SaveAsync)));
+            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Copy, "复制图片", () => _controller.Run(CopyAsync)));
+            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Check, "完成标注 · Esc", FinishEditing));
             toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             _toolbarWindow = new Window
             {

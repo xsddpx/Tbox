@@ -12,11 +12,13 @@ internal sealed class ImageResultWindow : Window
     public ImageResultWindow(DesktopController controller, Picture picture, bool fullScreen)
     {
         Ui.Configure(this, "Tbox 图片预览", 900, 700);
-        var actions = Ui.Row(Ui.Button("识别文字", () => controller.ShowOcr(picture, false)),
+        var buttons = Ui.Row(Ui.Button("识别文字", () => controller.ShowOcr(picture, false)),
             Ui.Button("贴图", () => controller.Run(() => controller.PinPictureAsync(picture))),
             Ui.Button("保存", () => controller.Run(() => controller.SaveAsync(picture, this))),
-            Ui.Button("复制", () => controller.Run(() => controller.CopyAsync(picture))), Ui.Button("关闭", Close));
-        actions.Margin = new Thickness(16);
+            Ui.Primary("复制", () => controller.Run(() => controller.CopyAsync(picture))), Ui.Button("关闭", Close));
+        var actions = Ui.Header("图片预览", $"{picture.Bitmap.PixelSize.Width} × {picture.Bitmap.PixelSize.Height}", buttons, out var brand);
+        actions.Margin = new Thickness(20, 14, 20, 12);
+        Closed += (_, _) => brand.Dispose();
         DockPanel.SetDock(actions, Dock.Top);
         var image = new Image { Source = picture.Bitmap, Width = Math.Min(1200, picture.Bitmap.PixelSize.Width),
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };

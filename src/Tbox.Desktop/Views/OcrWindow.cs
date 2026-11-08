@@ -20,7 +20,7 @@ public sealed class OcrWindow : Window
         AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontSize = 14,
         Padding = new Thickness(8), BorderThickness = new Thickness(0), Watermark = "识别结果将在这里显示"
     };
-    private readonly TextBlock _status = Ui.Text("", 12);
+    private readonly TextBlock _status = Ui.Caption("");
     private readonly Image _original = new() { Stretch = Stretch.Uniform };
     private readonly Grid _workspace = new()
     {
@@ -37,6 +37,9 @@ public sealed class OcrWindow : Window
     public OcrWindow(DesktopController controller)
     {
         _controller = controller;
+        // The editor sits inside a card, so it draws no border or fill of its own.
+        foreach (var state in new[] { "", "PointerOver", "Focused" }) _editor.Resources["TextControlBackground" + state] = Brushes.Transparent;
+        _editor.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(0);
         Ui.Configure(this, "文字识别 · Tbox", 800, 600);
         MinWidth = 460; MinHeight = 360;
         var source = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), RowSpacing = 8 };
@@ -57,15 +60,9 @@ public sealed class OcrWindow : Window
         var topmost = new CheckBox { Content = "置顶" };
         topmost.IsCheckedChanged += (_, _) => Topmost = topmost.IsChecked == true;
         Activated += (_, _) => topmost.IsChecked = Topmost;
-        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Margin = new Thickness(16), RowSpacing = 12 };
-        var title = Ui.Text("文字识别", DesignTokens.PageTitle);
-        title.FontWeight = FontWeight.SemiBold;
-        title.VerticalAlignment = VerticalAlignment.Center;
-        var header = new DockPanel();
-        var options = Ui.Row(_sourceToggle, topmost);
-        DockPanel.SetDock(options, Dock.Right);
-        header.Children.Add(options);
-        header.Children.Add(title);
+        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Margin = new Thickness(20, 14, 20, 16), RowSpacing = 12 };
+        var header = Ui.Header("文字识别", "本机离线识别，可直接编辑", Ui.Row(_sourceToggle, topmost), out var brand);
+        Closed += (_, _) => brand.Dispose();
         layout.Children.Add(header);
 
         var editorLayout = new Grid { ColumnDefinitions = new ColumnDefinitions("40,*") };
@@ -79,12 +76,12 @@ public sealed class OcrWindow : Window
         Grid.SetRow(_workspace, 1);
         layout.Children.Add(_workspace);
         var actions = new DockPanel { LastChildFill = true };
-        var copy = Ui.Button("复制全部", () => controller.Run(async () =>
+        var copy = Ui.Primary("复制全部", () => controller.Run(async () =>
         {
             await (Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。")).SetTextAsync(_editor.Text ?? "");
             _status.Text = "已复制当前全文。";
         }));
-        copy.Classes.Add("accent"); DockPanel.SetDock(copy, Dock.Right); actions.Children.Add(copy);
+        DockPanel.SetDock(copy, Dock.Right); actions.Children.Add(copy);
         _status.VerticalAlignment = VerticalAlignment.Center;
         _status.Margin = new Thickness(0, 0, 12, 0);
         actions.Children.Add(_status); Grid.SetRow(actions, 2); layout.Children.Add(actions);
@@ -161,7 +158,8 @@ internal sealed class LogicalLineGutter : Control
             var y = rect.Top + offset.Y;
             if (y < -24 || y > Bounds.Height) continue;
             var text = new FormattedText((i + 1).ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture,
-                FlowDirection.LeftToRight, new Typeface(_editor.FontFamily), 14, Brushes.Gray);
+                FlowDirection.LeftToRight, new Typeface(_editor.FontFamily), 13,
+                Brush.Parse(DesignTokens.Colors(ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark).SecondaryText));
             context.DrawText(text, new Point(Math.Max(0, Bounds.Width - text.Width - 8), y));
         }
     }

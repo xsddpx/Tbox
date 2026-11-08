@@ -50,15 +50,14 @@ public sealed class TrayPanel : Window
 
         using (var asset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/StoreLogo.png"))) _brand = new Bitmap(asset);
         var name = Ui.Text("Tbox", 15); name.FontWeight = FontWeight.SemiBold;
-        var settings = IconButton(IconKind.Gear, "设置", () => Run(controller.ShowSettings));
+        var settings = Ui.IconButton(IconKind.Gear, "设置", () => Run(controller.ShowSettings));
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 10, Margin = new Thickness(4, 0, 0, 8) };
         header.Children.Add(new Image { Source = _brand, Width = 26, Height = 26, VerticalAlignment = VerticalAlignment.Center });
         var title = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { name, _ready } };
         Grid.SetColumn(title, 1); header.Children.Add(title);
         Grid.SetColumn(settings, 2); header.Children.Add(settings);
 
-        _permissionButton = Ui.Button("去授权", () => Run(controller.RequestPermission));
-        _permissionButton.Classes.Add("accent");
+        _permissionButton = Ui.Primary("去授权", () => Run(controller.RequestPermission));
         var permissionText = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
         {
             new TextBlock { Text = "需要屏幕录制权限", FontWeight = FontWeight.SemiBold },
@@ -84,28 +83,24 @@ public sealed class TrayPanel : Window
         Button? ocr = null;
         ocr = Item("识别图片文字", IconKind.Ocr, Ui.Row(Ui.Caption("文件 · 剪贴板"), new LineIcon(IconKind.Chevron) { Width = 16, Height = 16 }),
             () => { _suppressAutoHide = true; ocrMenu.ShowAt(ocr!); });
-        var toggle = Item("显隐全部贴图", IconKind.Eye, Ui.Row(_hiddenPins, Ui.Caption(ShortcutLabels.Toggle)), () => Run(controller.TogglePins));
+        var toggle = Item("显隐全部贴图", IconKind.Eye, Ui.Row(_hiddenPins, Ui.Key(ShortcutLabels.Toggle)), () => Run(controller.TogglePins));
         AutomationProperties.SetName(_folderToggle, "启用文件夹跳转");
         _folderToggle.IsCheckedChanged += (_, _) =>
         {
             if (!_updating) controller.Run(() => controller.SetModulesAsync(null, _folderToggle.IsChecked == true));
         };
-        var folders = Item("文件夹跳转", IconKind.Jump, Ui.Row(Ui.Caption(ShortcutLabels.Folder), _folderToggle),
+        var folders = Item("文件夹跳转", IconKind.Jump, Ui.Row(Ui.Key(ShortcutLabels.Folder), _folderToggle),
             () => _folderToggle.IsChecked = _folderToggle.IsChecked != true);
         _captureActions.AddRange([capture, pin, record, longCapture, ocr, toggle]);
         var list = new StackPanel { Margin = new Thickness(0, 8, 0, 0), Children = { longCapture, ocr, toggle, folders } };
 
-        var openCache = Ui.Button(OperatingSystem.IsMacOS() ? "在访达中显示" : "打开文件夹", () => Run(controller.OpenCache));
-        openCache.Classes.Add("link"); openCache.Padding = new Thickness(4, 2); openCache.MinHeight = 0;
-        Ui.Themed(openCache, (b, c) => { b.Foreground = Brush.Parse(c.Accent); b.Background = Brushes.Transparent; b.BorderThickness = default; });
-        var recentTitle = Ui.Caption("最近截图"); recentTitle.FontWeight = FontWeight.SemiBold; recentTitle.VerticalAlignment = VerticalAlignment.Center;
+        var openCache = Ui.Link(OperatingSystem.IsMacOS() ? "在访达中显示" : "打开文件夹", () => Run(controller.OpenCache));
+        var recentTitle = Ui.SectionLabel("最近截图"); recentTitle.Margin = default; recentTitle.VerticalAlignment = VerticalAlignment.Center;
         var recentHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(6, 12, 0, 6), Children = { recentTitle } };
         Grid.SetColumn(openCache, 1); recentHeader.Children.Add(openCache);
         _recentEmpty.Margin = new Thickness(6, 0, 0, 0);
 
-        var quit = Ui.Button("退出", controller.Quit, "退出 Tbox");
-        quit.Padding = new Thickness(8, 2); quit.MinHeight = 0;
-        Ui.Themed(quit, (b, c) => { b.Foreground = Brush.Parse(c.SecondaryText); b.Background = Brushes.Transparent; b.BorderThickness = default; });
+        var quit = Ui.Link("退出", controller.Quit, "退出 Tbox", accent: false);
         var footer = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(6, 10, 0, 0), Children = { _footer } };
         _footer.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(quit, 1); footer.Children.Add(quit);
@@ -321,15 +316,6 @@ public sealed class TrayPanel : Window
             b.Resources["ButtonBackgroundPressed"] = Brush.Parse(c.Border);
             b.Resources["ButtonForegroundPressed"] = b.Foreground;
         });
-        return button;
-    }
-
-    private static Button IconButton(IconKind icon, string label, Action action)
-    {
-        var button = Ui.Button(label, action, label);
-        button.Content = new LineIcon(icon);
-        button.Padding = new Thickness(6); button.MinHeight = 32;
-        Ui.Themed(button, (b, c) => { b.Background = Brushes.Transparent; b.BorderThickness = default; b.Resources["ButtonBackgroundPointerOver"] = Brush.Parse(c.Hover); });
         return button;
     }
 
