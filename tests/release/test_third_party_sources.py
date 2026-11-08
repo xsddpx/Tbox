@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -87,6 +88,31 @@ class ThirdPartySourceTests(unittest.TestCase):
     def test_verified_cache_needs_no_network(self):
         self.assertEqual(sources.fetch_archive(self.manifest['archives'][0], self.cache), self.cache / 'upstream/example.tar.gz')
         self.assertEqual(sources.fetch_git(self.manifest['git'][0], self.cache), self.cache / 'git/example.tar.gz')
+
+    def test_github_release_falls_back_to_the_api_and_still_checks_the_hash(self):
+        content = b'release asset'
+        item = dict(path='upstream/asset.tar.gz', sha256=hashlib.sha256(content).hexdigest(),
+            urls=['https://github.com/owner/repo/releases/download/v1/asset.tar.gz'])
+        calls = []
+        def fake(url, output, accept=None):
+            calls.append(url)
+            if url.endswith('/releases/tags/v1'):
+                output.write_text(json.dumps({'assets': [{'name': 'asset.tar.gz', 'id': 7}]}), encoding='utf-8'); return True
+            if url.endswith('/releases/assets/7'):
+                output.write_bytes(served); return True
+            return False  # The release download page is unavailable.
+        original = sources.download
+        sources.download = fake
+        try:
+            served = content
+            self.assertEqual(sources.fetch_archive(item, self.cache).read_bytes(), content)
+            self.assertEqual(calls[0], item['urls'][0])
+            self.assertIn('https://api.github.com/repos/owner/repo/releases/assets/7', calls)
+            served = b'tampered'
+            (self.cache / item['path']).unlink()
+            with self.assertRaises(ValueError): sources.fetch_archive(item, self.cache)
+        finally:
+            sources.download = original
 
     def test_runtime_upgrade_requires_corresponding_source_update(self):
         repository = Path(__file__).resolve().parents[2]
