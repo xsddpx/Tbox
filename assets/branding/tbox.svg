@@ -1,8 +1,72 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <title>Tbox — Standard Inverted Pin</title>
-  <g fill="#FFFFFF">
-    <rect x="40" y="40" width="80" height="80"/>
-    <rect x="136" y="40" width="80" height="80"/>
-    <rect x="88" y="136" width="80" height="80"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Tbox</title>
+  <desc id="desc">A faceted violet T on a dark rounded square.</desc>
+  <defs>
+    <path id="tile" d="M352 96H672C850 96 928 128 928 352V672C928 850 896 928 672 928H352C174 928 96 896 96 672V352C96 174 128 96 352 96Z"/>
+    <path id="crystal" d="M246 329L358 230L616 225L771 312L729 414L596 452L584 708L505 805L418 740L426 452L289 412Z"/>
+    <linearGradient id="graphite" x1="0" y1="0" x2="0.18" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#29282E"/>
+      <stop offset=".53" stop-color="#1B1A21"/>
+      <stop offset="1" stop-color="#131218"/>
+    </linearGradient>
+    <radialGradient id="ambient" cx="48%" cy="43%" r="58%">
+      <stop stop-color="#8851EC" stop-opacity=".20"/>
+      <stop offset="1" stop-color="#8851EC" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFFFFF" stop-opacity=".20"/>
+      <stop offset=".48" stop-color="#FFFFFF" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity=".10"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="395" y1="215" x2="588" y2="320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F0E4FF"/>
+      <stop offset="1" stop-color="#B191FF"/>
+    </linearGradient>
+    <linearGradient id="crown" x1="287" y1="274" x2="486" y2="436" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#DAC2FF"/>
+      <stop offset=".55" stop-color="#AF88FC"/>
+      <stop offset="1" stop-color="#8554F1"/>
+    </linearGradient>
+    <linearGradient id="right-crown" x1="615" y1="223" x2="730" y2="405" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B68CFF"/>
+      <stop offset=".53" stop-color="#9363FA"/>
+      <stop offset="1" stop-color="#7442DE"/>
+    </linearGradient>
+    <linearGradient id="right-wing" x1="551" y1="335" x2="625" y2="456" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9668F2"/>
+      <stop offset="1" stop-color="#5525B2"/>
+    </linearGradient>
+    <linearGradient id="left-bevel" x1="317" y1="415" x2="463" y2="455" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6032B5"/>
+      <stop offset="1" stop-color="#7F4EE9"/>
+    </linearGradient>
+    <linearGradient id="left-stem" x1="476" y1="426" x2="448" y2="769" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8F5EF5"/>
+      <stop offset=".63" stop-color="#6D3DD9"/>
+      <stop offset="1" stop-color="#4A22A4"/>
+    </linearGradient>
+    <linearGradient id="right-stem" x1="574" y1="466" x2="515" y2="808" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C6A7FF"/>
+      <stop offset=".48" stop-color="#A274FA"/>
+      <stop offset="1" stop-color="#8051E6"/>
+    </linearGradient>
+    <filter id="tile-shadow" x="-12%" y="-12%" width="124%" height="130%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="19" flood-color="#120D20" flood-opacity=".30"/>
+    </filter>
+    <filter id="crystal-shadow" x="-25%" y="-25%" width="150%" height="158%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="17" flood-color="#0D071A" flood-opacity=".56"/>
+    </filter>
+  </defs>
+  <use href="#tile" fill="url(#graphite)" filter="url(#tile-shadow)"/>
+  <use href="#tile" fill="url(#ambient)" stroke="url(#rim)" stroke-width="2"/>
+  <g filter="url(#crystal-shadow)">
+    <use href="#crystal" fill="#8652EF"/>
+    <path d="M358 230L616 225L522 317Z" fill="url(#cap)"/>
+    <path d="M246 329L358 230L522 317L495 428L289 412Z" fill="url(#crown)"/>
+    <path d="M616 225L771 312L729 414L647 325L522 317Z" fill="url(#right-crown)"/>
+    <path d="M522 317L647 325L729 414L596 452L495 428Z" fill="url(#right-wing)"/>
+    <path d="M289 412L495 428L426 452Z" fill="url(#left-bevel)"/>
+    <path d="M426 452L495 428L520 669L505 805L418 740Z" fill="url(#left-stem)"/>
+    <path d="M495 428L596 452L584 708L505 805L520 669Z" fill="url(#right-stem)"/>
   </g>
 </svg>

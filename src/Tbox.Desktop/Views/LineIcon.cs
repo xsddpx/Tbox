@@ -5,19 +5,17 @@ using Avalonia.Styling;
 
 namespace Tbox.Desktop.Views;
 
-internal enum IconKind { Brand, Back, Settings, Folder, Capture, Pin, Ocr, Chevron }
+internal enum IconKind { Back, Settings, Folder, Capture, Pin, Ocr, Chevron }
 
 internal sealed class LineIcon : Control
 {
     private readonly Geometry _geometry;
-    private readonly IconKind _kind;
     private readonly bool _accent;
     public LineIcon(IconKind kind, bool accent = false)
     {
-        Width = Height = 20; _accent = accent; _kind = kind;
+        Width = Height = 20; _accent = accent;
         _geometry = Geometry.Parse(kind switch
         {
-            IconKind.Brand => "M3.75 3.75 H11.25 V11.25 H3.75 Z M12.75 3.75 H20.25 V11.25 H12.75 Z M8.25 12.75 H15.75 V20.25 H8.25 Z",
             IconKind.Back => "M19 12 H5 M11 6 L5 12 L11 18",
             IconKind.Settings => "M4 7 L20 7 M4 17 L20 17 M8 4 L8 10 M16 14 L16 20",
             IconKind.Folder => "M3 6 L9 6 L11 8 L21 8 L21 20 L3 20 Z M3 11 L21 11",
@@ -32,12 +30,7 @@ internal sealed class LineIcon : Control
     {
         var colors = DesignTokens.Colors(ActualThemeVariant == ThemeVariant.Dark);
         using (context.PushTransform(Matrix.CreateScale(Bounds.Width / 24, Bounds.Height / 24)))
-        {
-            if (_kind == IconKind.Brand)
-                context.DrawGeometry(Brush.Parse(colors.Text), null, _geometry);
-            else
-                context.DrawGeometry(null, new Pen(Brush.Parse(_accent ? colors.Accent : colors.SecondaryText), 1.7,
-                    lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round), _geometry);
-        }
+            context.DrawGeometry(null, new Pen(Brush.Parse(_accent ? colors.Accent : colors.SecondaryText), 1.7,
+                lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round), _geometry);
     }
 }

@@ -43,13 +43,15 @@ public sealed class App : Application
             Add(menu, $"隐藏 / 显示贴图   {ShortcutLabels.Toggle}", _controller.TogglePins);
             menu.Add(new NativeMenuItemSeparator());
             Add(menu, "退出 Tbox", _controller.Quit);
+            var trayResource = OperatingSystem.IsMacOS() ? "MenuBarIcon.png" : "AppIcon.png";
+            using var trayAsset = AssetLoader.Open(new Uri($"avares://Tbox.Desktop/Assets/{trayResource}"));
             _tray = new TrayIcon
             {
-                Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/AppIcon.png"))),
+                Icon = new WindowIcon(trayAsset),
                 ToolTipText = "Tbox", Menu = menu, IsVisible = true
             };
             // Use the approved monochrome silhouette with the system menu bar tint.
-            MacOSProperties.SetIsTemplateIcon(_tray, true);
+            if (OperatingSystem.IsMacOS()) MacOSProperties.SetIsTemplateIcon(_tray, true);
             _tray.Clicked += (_, _) => _controller.ShowMain();
             TrayIcon.SetIcons(this, new TrayIcons { _tray });
             lifetime.Exit += (_, _) =>

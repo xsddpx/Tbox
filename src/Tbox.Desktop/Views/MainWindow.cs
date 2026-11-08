@@ -4,6 +4,8 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using Avalonia.Styling;
 using Tbox.Desktop.Models;
 
@@ -77,7 +79,14 @@ public sealed class MainWindow : Window
         _heading = Ui.Text("Tbox", DesignTokens.SectionTitle);
         _heading.FontWeight = FontWeight.SemiBold;
         _heading.VerticalAlignment = VerticalAlignment.Center;
-        var brand = new LineIcon(IconKind.Brand) { VerticalAlignment = VerticalAlignment.Center };
+        using var brandAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/StoreLogo.png"));
+        var brandBitmap = new Bitmap(brandAsset);
+        var brand = new Image
+        {
+            Source = brandBitmap, Width = 24, Height = 24,
+            VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false
+        };
+        Closed += (_, _) => brandBitmap.Dispose();
         var header = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
