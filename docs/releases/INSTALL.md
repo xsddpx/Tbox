@@ -1,5 +1,7 @@
 # Tbox 安装与升级
 
+所有平台的正式安装文件统一从 [xsddpx/Tbox Releases](https://github.com/xsddpx/Tbox/releases) 下载。GitHub 自动显示的两个 `Source code` 压缩包不是安装包。
+
 - Windows：Windows 11 x64，下载 `Tbox_<版本>.0_win-x64.msix`。
 - Mac：macOS 14 或以上的 Apple Silicon（M 系列），下载 `Tbox_<版本>_osx-arm64.zip`，解压后将 Tbox.app 放到 `~/Applications` 或 `/Applications`。Intel Mac 暂无安装包。
 

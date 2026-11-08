@@ -1,8 +1,20 @@
 name: Publish desktop installers
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag such as v1.2.0'
+        required: true
+        type: string
+      prerelease:
+        description: 'Publish as a prerelease'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -13,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  RELEASE_TAG: ${{ github.event.release.tag_name }}
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
   preflight:
@@ -34,7 +46,6 @@ jobs:
           HAS_WINDOWS_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD != '' }}
           HAS_MAC_P12: ${{ secrets.TBOX_MAC_P12_BASE64 != '' }}
           HAS_MAC_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD != '' }}
-          HAS_RELEASE_TOKEN: ${{ secrets.TBOX_RELEASE_TOKEN != '' }}
           WINDOWS_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
           MAC_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
         run: |
@@ -49,8 +60,7 @@ jobs:
           PY
       - name: Check tests, version, notes and repository visibility
         env:
-          GH_TOKEN: ${{ secrets.TBOX_RELEASE_TOKEN }}
-          TBOX_SOURCE_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git merge-base --is-ancestor HEAD origin/main
           python -m unittest discover -s tests/release -v
@@ -183,12 +193,11 @@ jobs:
           path: TEMP/release-assets
       - name: Create checksums, upload draft and publish complete release
         env:
-          GH_TOKEN: ${{ secrets.TBOX_RELEASE_TOKEN }}
-          TBOX_SOURCE_TOKEN: ${{ github.token }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+          IS_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
         run: |
           python scripts/release/release.py collect --tag "$RELEASE_TAG"
           args=()
           if [[ "$IS_PRERELEASE" == true ]]; then args+=(--prerelease); fi
           python scripts/release/release.py publish --tag "$RELEASE_TAG" "${args[@]}"
-          printf '公开下载：[Tbox %s](https://github.com/xsddpx/Tbox-releases/releases/tag/%s)\n' "$RELEASE_TAG" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          printf '公开下载：[Tbox %s](https://github.com/xsddpx/Tbox/releases/tag/%s)\n' "$RELEASE_TAG" "$RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

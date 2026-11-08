@@ -2,7 +2,7 @@
 
 Windows 与 Mac 共用版的图像导出使用 FFmpeg 8.1.2（当前构建为 LGPL-2.1-or-later，未启用 GPL/非自由组件）及 libwebp 1.6.0（BSD 风格许可和专利授权）。版本、下载 SHA-256、构建参数固定在 `scripts/prepare-windows-media.sh` / `scripts/prepare-macos-media.sh`；后者还固定 Mac 回放插件白名单。FFmpeg 是独立进程，LibVLC 是可替换的动态库。上游源代码归档和 VLC contrib 构建配方保存在 `TEMP/media-sources`，最终发布仍须附对应源代码材料及全部传递依赖声明。
 
-依赖版本以 `Tbox.Desktop.csproj` 和还原产生的 `project.assets.json` 为准。安装包在 `Contents/Resources/Licenses` 携带许可原文及第三方通知。正式公开 Release 同时提供 `Tbox_third-party-sources.tar.gz`，包含固定版本媒体源码、VLC contrib 输入、LibVLCSharp 提交、构建配方及许可；下载入口为 https://github.com/xsddpx/Tbox-releases/releases 。发布流程检查这些材料与应用依赖版本及归档哈希一致后才公开；开发构建不代表正式版本已发布。
+依赖版本以 `Tbox.Desktop.csproj` 和还原产生的 `project.assets.json` 为准。安装包在 `Contents/Resources/Licenses` 携带许可原文及第三方通知。正式公开 Release 同时提供 `Tbox_third-party-sources.tar.gz`，包含固定版本媒体源码、VLC contrib 输入、LibVLCSharp 提交、构建配方及许可；下载入口为 https://github.com/xsddpx/Tbox/releases 。发布流程检查这些材料与应用依赖版本及归档哈希一致后才公开；开发构建不代表正式版本已发布。
 
 | 依赖 | 当前版本 | 许可 | 来源 |
 | --- | --- | --- | --- |

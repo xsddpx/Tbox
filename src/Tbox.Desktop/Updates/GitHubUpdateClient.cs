@@ -7,7 +7,7 @@ namespace Tbox.Desktop.Updates;
 
 internal sealed class GitHubUpdateClient : IDisposable
 {
-    internal const string Repository = "xsddpx/Tbox-releases";
+    internal const string Repository = "xsddpx/Tbox";
     private readonly HttpClient _client;
     public GitHubUpdateClient(HttpMessageHandler? handler = null)
     {
