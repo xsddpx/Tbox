@@ -11,8 +11,8 @@ internal sealed class UpdateWindow : Window
 {
     private readonly DesktopController _controller;
     private readonly GitHubUpdateClient _client;
-    private readonly TextBlock _status = Ui.Text("点击检查更新，获取最新正式版本。", 16);
-    private readonly TextBlock _notes = Ui.Text("");
+    private readonly TextBlock _status = Ui.Text("点击检查更新，获取最新正式版本。", 15);
+    private readonly TextBlock _notes = Ui.Caption("");
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 100, Height = 5, IsVisible = false };
     private readonly Button _check;
     private readonly Button _download;
@@ -29,20 +29,21 @@ internal sealed class UpdateWindow : Window
     public UpdateWindow(DesktopController controller, GitHubUpdateClient? client = null)
     {
         _controller = controller; _client = client ?? new();
-        Ui.Configure(this, "Tbox · 软件更新", 560, 450); MinWidth = 440; MinHeight = 360;
+        Ui.Configure(this, "Tbox · 软件更新", 520, 440); MinWidth = 400; MinHeight = 340;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        _check = Ui.Button("检查更新", () => Run(CheckAsync));
-        _download = Ui.Button("下载更新", () => Run(DownloadAsync));
-        _install = Ui.Button(OperatingSystem.IsMacOS() ? "安装并重启" : "打开安装程序", () => Run(InstallAsync));
+        _check = Ui.Primary("检查更新", () => Run(CheckAsync));
+        _download = Ui.Primary("下载更新", () => Run(DownloadAsync));
+        _install = Ui.Primary(OperatingSystem.IsMacOS() ? "安装并重启" : "打开安装程序", () => Run(InstallAsync));
         _cancel = Ui.Button("取消", () => _operation?.Cancel());
-        var heading = Ui.Text("软件更新", 28); heading.FontWeight = FontWeight.SemiBold;
-        var panel = new StackPanel { Margin = new Thickness(28), Spacing = 20, Children =
-        {
-            heading, Ui.Caption($"当前版本 {_installed.ToString(3)} · 公开下载，无需登录"),
-            Ui.Card(new StackPanel { Spacing = 12, Children = { _status, _progress } }),
-            _notes, Ui.Row(_check, _download, _install, _cancel)
-        } };
-        Content = new ScrollViewer { Content = panel, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var header = Ui.Header("软件更新", $"当前版本 {_installed.ToString(3)} · 公开下载，无需登录", null, out var brand);
+        Closed += (_, _) => brand.Dispose();
+        var status = Ui.Card(new StackPanel { Spacing = 12, Children = { _status, _progress } }); status.Padding = new Thickness(16);
+        var actions = Ui.Row(_cancel, _check, _download, _install); actions.HorizontalAlignment = HorizontalAlignment.Right;
+        var notes = new ScrollViewer { Content = _notes, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto"), RowSpacing = 14, Margin = new Thickness(20, 14, 20, 16),
+            Children = { header, status, notes, actions } };
+        Grid.SetRow(status, 1); Grid.SetRow(notes, 2); Grid.SetRow(actions, 3);
+        Content = layout;
         Closed += (_, _) =>
         {
             _closed = true; _operation?.Cancel();

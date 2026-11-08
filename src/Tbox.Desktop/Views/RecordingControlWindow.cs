@@ -35,12 +35,12 @@ internal sealed class RecordingControlWindow : Window
         _border = new Window { Title = "Tbox 录屏区域", Content = new SelectionOutline(Ui.RecordRed), ShowActivated = false };
         ConfigureFloating(_border);
         _dot.Foreground = Ui.RecordRed; _dot.VerticalAlignment = _clock.VerticalAlignment = VerticalAlignment.Center;
-        _start = AnnotationToolbar.IconButton("●", "开始录制", () => controller.Run(StartAsync));
-        _pause = AnnotationToolbar.IconButton("Ⅱ", "暂停 / 继续", TogglePause);
-        _stop = AnnotationToolbar.IconButton("■", "停止并预览", () => controller.Run(StopAsync));
-        var cancel = AnnotationToolbar.IconButton("×", "取消录屏 · Esc", () => controller.Run(CancelAsync));
-        _bar = new Border { Background = Ui.ToolbarBackground, Padding = new Thickness(8), CornerRadius = new CornerRadius(8),
-            Child = new StackPanel { Spacing = 6, Children = { Ui.Row(_dot, _clock, _fps, _audio, _start, _pause, _stop, cancel), _status } } };
+        _start = AnnotationToolbar.IconButton(IconKind.Record, "开始录制", () => controller.Run(StartAsync), Ui.RecordRed);
+        _pause = AnnotationToolbar.IconButton(IconKind.Pause, "暂停 / 继续", TogglePause);
+        _stop = AnnotationToolbar.IconButton(IconKind.Stop, "停止并预览", () => controller.Run(StopAsync));
+        var cancel = AnnotationToolbar.IconButton(IconKind.Close, "取消录屏 · Esc", () => controller.Run(CancelAsync));
+        _bar = Ui.ToolbarSurface(new StackPanel { Spacing = 6, Children =
+            { Ui.Row(_dot, _clock, _fps, _audio, Ui.ToolbarDivider(), _start, _pause, _stop, cancel), _status } }, 8);
         Content = _bar;
         _timer.Tick += (_, _) =>
         {

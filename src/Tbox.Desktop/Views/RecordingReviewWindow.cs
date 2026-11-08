@@ -24,8 +24,8 @@ internal sealed class RecordingReviewWindow : Window
     private readonly VideoView _video = new();
     private readonly Slider _position = new() { Minimum = 0, MinWidth = 100, VerticalAlignment = VerticalAlignment.Center };
     private readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Value = 100, Width = 80 };
-    private readonly TextBlock _time = Ui.Text("00:00 / 00:00", 12);
-    private readonly TextBlock _status = Ui.Text("", 12);
+    private readonly TextBlock _time = new() { Text = "00:00 / 00:00", FontSize = 12, Foreground = Ui.ToolbarText, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _status = new() { FontSize = 12, Foreground = Brush.Parse("#A6A9B6"), TextWrapping = TextWrapping.Wrap };
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 4, IsVisible = false };
     private readonly ComboBox _format = new() { ItemsSource = new[] { "GIF - 图像，兼容性高，质量较低", "WEBP - 图像，质量好，兼容性适中", "MP4 - 视频，体积小，质量好" }, SelectedIndex = 2, MinWidth = 300 };
     private readonly Button _play, _save, _cancelExport, _rerecord;
@@ -47,8 +47,8 @@ internal sealed class RecordingReviewWindow : Window
         _controller = controller; _workspace = workspace; _area = area; _output = output; _duration = duration;
         Ui.Configure(this, $"Tbox 录屏 · {area.PixelWidth} × {area.PixelHeight} · {FormatTime(duration)} · {(output.HasSystemAudio ? "系统声音已启用" : "静音")}", 960, 720);
         RequestedThemeVariant = ThemeVariant.Dark; Background = Ui.ToolbarBackground; MinWidth = 700; MinHeight = 450;
-        _play = Ui.Button("▶", () => controller.Run(TogglePlaybackAsync), "播放 / 暂停 · Space");
-        _save = Ui.Button("保存", () => controller.Run(SaveAsync), "保存录屏 · Command / Ctrl + S"); _save.Classes.Add("accent");
+        _play = Ui.ToolbarButton(IconKind.Play, "播放 / 暂停 · Space", () => controller.Run(TogglePlaybackAsync));
+        _save = Ui.Primary("保存", () => controller.Run(SaveAsync), "保存录屏 · Command / Ctrl + S");
         _cancelExport = Ui.Button("取消导出", () => _exportCancellation?.Cancel()); _cancelExport.IsVisible = false;
         _rerecord = Ui.Button("重新录制", () => controller.Run(async () =>
         {
@@ -57,14 +57,14 @@ internal sealed class RecordingReviewWindow : Window
         _position.Maximum = Math.Max(1, duration.TotalMilliseconds);
         foreach (var name in new[] { "SliderTrackValueFill", "SliderTrackValueFillPointerOver", "SliderTrackValueFillPressed",
             "SliderThumbBackground", "SliderThumbBackgroundPointerOver", "SliderThumbBackgroundPressed" })
-            _position.Resources[name] = Brush.Parse("#F55353");
+            _position.Resources[name] = Ui.RecordRed;
         var playback = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 12 };
         playback.Children.Add(_play); playback.Children.Add(_position); Grid.SetColumn(_position, 1);
         playback.Children.Add(_time); Grid.SetColumn(_time, 2); playback.Children.Add(_volume); Grid.SetColumn(_volume, 3);
         var exports = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 12 };
         exports.Children.Add(_format); exports.Children.Add(_cancelExport); Grid.SetColumn(_cancelExport, 1);
         exports.Children.Add(_rerecord); Grid.SetColumn(_rerecord, 2); exports.Children.Add(_save); Grid.SetColumn(_save, 3);
-        var footer = new StackPanel { Margin = new Thickness(16), Spacing = 12, Children = { playback, exports, _progress, _status } };
+        var footer = new StackPanel { Margin = new Thickness(16, 12, 16, 16), Spacing = 12, Children = { playback, exports, _progress, _status } };
         DockPanel.SetDock(footer, Dock.Bottom);
         var canvas = new Border { Background = Brushes.Black, Child = _video };
         Content = new DockPanel { Children = { footer, canvas } };
@@ -118,7 +118,7 @@ internal sealed class RecordingReviewWindow : Window
         var total = player.Length > 0 ? player.Length : _duration.TotalMilliseconds;
         _updating = true; _position.Maximum = Math.Max(1, total); _position.Value = Math.Max(0, player.Time); _updating = false;
         _time.Text = $"{FormatTime(TimeSpan.FromMilliseconds(Math.Max(0, player.Time)))} / {FormatTime(TimeSpan.FromMilliseconds(total))}";
-        _play.Content = player.IsPlaying ? "Ⅱ" : "▶";
+        _play.Content = new LineIcon(player.IsPlaying ? IconKind.Pause : IconKind.Play, brush: Ui.ToolbarText) { Width = 18, Height = 18 };
     }
 
     private async Task SaveAsync()
