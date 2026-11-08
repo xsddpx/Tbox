@@ -50,7 +50,7 @@ public sealed class UpdateWindowTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Requests++; Assert.Null(request.Headers.Authorization);
-            Assert.Equal("/repos/xsddpx/Tbox-releases/releases", request.RequestUri!.AbsolutePath);
+            Assert.Equal("/repos/xsddpx/Tbox/releases", request.RequestUri!.AbsolutePath);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]") });
         }
     }

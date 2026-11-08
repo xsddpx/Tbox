@@ -7,6 +7,12 @@ on:
   pull_request:
     paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
   workflow_dispatch:
+    inputs:
+      verify_installer:
+        description: 'Build, sign, install, verify and retain the Windows MSIX'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -132,7 +138,7 @@ jobs:
     # Opt-in acceptance of the actual installer on a disposable Windows runner.
     # Artifacts are accessible from this public repository; never include secrets.
     # This job does not create a Release.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/codex/feat-macos-basic' && vars.TBOX_VERIFY_INSTALLER == 'true'
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_installer
     runs-on: windows-2025
     timeout-minutes: 45
     steps:

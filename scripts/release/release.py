@@ -12,8 +12,7 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-PUBLIC_REPO = 'xsddpx/Tbox-releases'
-SOURCE_REPO = 'xsddpx/Tbox'
+REPOSITORY = 'xsddpx/Tbox'
 NS = {'m': 'http://schemas.microsoft.com/appx/manifest/foundation/windows10'}
 
 
@@ -126,7 +125,7 @@ def validate_assets(release, paths):
 
 
 def command(*args, env=None, input=None):
-    return subprocess.run(args, input=input, text=True, check=True, stdout=subprocess.PIPE, env=env).stdout.strip()
+    return subprocess.run(args, input=input, text=True, encoding='utf-8', check=True, stdout=subprocess.PIPE, env=env).stdout.strip()
 
 
 def api(path, method='GET', body=None, token=None):
@@ -141,15 +140,13 @@ def api(path, method='GET', body=None, token=None):
 
 
 def remote_preflight():
-    # Both repositories are public by user choice; reject missing visibility data.
-    if api(f'repos/{PUBLIC_REPO}').get('private') is not False:
-        raise ValueError('Download repository must be public.')
-    if api(f'repos/{SOURCE_REPO}', token=os.environ['TBOX_SOURCE_TOKEN']).get('private') is not False:
-        raise ValueError('Source repository must be public.')
+    # Source and installers share one public repository; reject missing visibility data.
+    if api(f'repos/{REPOSITORY}').get('private') is not False:
+        raise ValueError('Release repository must be public.')
 
 
 def assert_unused_tag(tag):
-    pages = json.loads(command('gh', 'api', '--paginate', '--slurp', f'repos/{PUBLIC_REPO}/releases?per_page=100'))
+    pages = json.loads(command('gh', 'api', '--paginate', '--slurp', f'repos/{REPOSITORY}/releases?per_page=100'))
     if any(r.get('tag_name') == tag for page in pages for r in page):
         raise ValueError('Public release or draft already exists. Do not overwrite; inspect the failed run or use a new version.')
 
@@ -181,35 +178,42 @@ def record_history(root, tag, manifest):
     # Some personal repositories disallow Actions-created PRs. The committed audit
     # remains durable even then; do not weaken repository settings automatically.
     try:
-        pr = api(f'repos/{SOURCE_REPO}/pulls', 'POST', {
+        pr = api(f'repos/{REPOSITORY}/pulls', 'POST', {
             'title': '[codex] 记录自动发布 ' + tag, 'head': branch, 'base': 'main',
             'body': f'记录 {tag} 两平台安装包的时间与 SHA-256。产物已通过签名、运行及上传完整性检查。仅更新发布历史。'
-        }, token=os.environ['TBOX_SOURCE_TOKEN'])
+        })
         print('Release history PR: ' + pr['html_url'])
     except subprocess.CalledProcessError:
         print(f'::warning::发布历史已提交到 {branch}；仓库禁止 Actions 创建 PR，请从该分支合并记录。')
 
 
 def publish(root, directory, tag, prerelease, *, audit=record_history):
-    version_from_tag(tag)
+    version = version_from_tag(tag)
     assert_unused_tag(tag)
     paths = sorted(directory.iterdir())
     manifest = json.loads((directory / 'release-manifest.json').read_text(encoding='utf-8'))
-    notes = (root / 'docs/releases' / (tag + '.md')).read_text(encoding='utf-8')
-    notes += '\n\n安装与权限说明见附件 INSTALL.md；校验值见 SHA256SUMS；第三方对应源码与构建材料见 Tbox_third-party-sources.tar.gz。\n'
+    notes = f"""## 下载并安装
+
+- **Windows 11 x64**：下载 `Tbox_{version}.0_win-x64.msix`
+- **Apple Silicon Mac**：下载 `Tbox_{version}_osx-arm64.zip`
+
+GitHub 自动显示的 `Source code (zip)` 和 `Source code (tar.gz)` 不是安装包。安装与权限说明见附件 `INSTALL.md`；校验值见 `SHA256SUMS`；第三方对应源码与构建材料见 `Tbox_third-party-sources.tar.gz`。
+
+""" + (root / 'docs/releases' / (tag + '.md')).read_text(encoding='utf-8')
     # GitHub rejects a duplicate tag. Never clobber assets, edit an old release,
     # or automatically adopt a leftover draft from an earlier failed attempt.
-    release = api(f'repos/{PUBLIC_REPO}/releases', 'POST', {
+    release = api(f'repos/{REPOSITORY}/releases', 'POST', {
         'tag_name': tag, 'name': 'Tbox ' + tag, 'body': notes, 'draft': True,
-        'prerelease': prerelease, 'make_latest': 'false'
+        'prerelease': prerelease, 'make_latest': 'false',
+        'target_commitish': os.environ.get('GITHUB_SHA', 'main')
     })
     if release.get('draft') is not True:
         raise ValueError('Expected a draft before uploading.')
-    command('gh', 'release', 'upload', tag, '--repo', PUBLIC_REPO, *map(str, paths))
-    release = api(f"repos/{PUBLIC_REPO}/releases/{release['id']}")
+    command('gh', 'release', 'upload', tag, '--repo', REPOSITORY, *map(str, paths))
+    release = api(f"repos/{REPOSITORY}/releases/{release['id']}")
     validate_assets(release, paths)
     audit(root, tag, manifest)
-    published = api(f"repos/{PUBLIC_REPO}/releases/{release['id']}", 'PATCH', {
+    published = api(f"repos/{REPOSITORY}/releases/{release['id']}", 'PATCH', {
         'draft': False, 'prerelease': prerelease, 'make_latest': 'false' if prerelease else 'true'
     })
     if published.get('draft') is not False or published.get('prerelease') != prerelease:
