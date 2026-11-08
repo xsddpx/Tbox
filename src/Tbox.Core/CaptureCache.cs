@@ -88,17 +88,20 @@ public sealed class CaptureCache
         }
     }
 
-    public string? GetLatestFilePath()
+    public string? GetLatestFilePath() => GetRecentFiles(1).FirstOrDefault()?.FullName;
+
+    public IReadOnlyList<FileInfo> GetRecentFiles(int count)
     {
-        if (!Directory.Exists(DirectoryPath)) return null;
+        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count));
+        if (!Directory.Exists(DirectoryPath)) return [];
 
         return Directory
             .EnumerateFiles(DirectoryPath, "*.png", SearchOption.TopDirectoryOnly)
             .Select(path => new FileInfo(path))
             .OrderByDescending(file => file.LastWriteTimeUtc)
             .ThenByDescending(file => file.Name, StringComparer.Ordinal)
-            .FirstOrDefault()
-            ?.FullName;
+            .Take(count)
+            .ToList();
     }
 
     public int Prune(

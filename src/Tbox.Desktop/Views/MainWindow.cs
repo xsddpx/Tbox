@@ -11,6 +11,7 @@ using Tbox.Desktop.Models;
 
 namespace Tbox.Desktop.Views;
 
+// The settings window. Everyday tools live in the tray panel; this window only holds preferences.
 public sealed class MainWindow : Window
 {
     private readonly DesktopController _controller;
@@ -18,39 +19,32 @@ public sealed class MainWindow : Window
     private readonly TextBlock _cache = Ui.Caption("");
     private readonly TextBlock _folder = Ui.Caption("");
     private readonly TextBlock _startupStatus = Ui.Caption("");
-    private readonly TextBlock _conflicts = Ui.Caption("部分快捷键被占用。可从面板启动工具。");
-    private readonly List<Button> _captureActions = [];
+    private readonly TextBlock _conflicts = Ui.Caption("部分快捷键被占用。可从托盘面板启动工具。");
     private readonly ToggleSwitch _captureToggle = ModuleSwitch("启用截图与贴图");
     private readonly ToggleSwitch _folderToggle = ModuleSwitch("启用文件夹跳转");
     private readonly ToggleSwitch _startupToggle = ModuleSwitch("开机启动");
     private readonly ToggleSwitch _failureToggle = ModuleSwitch("功能失败时通知");
     private readonly ComboBox _theme = new() { ItemsSource = new[] { "跟随系统", "浅色", "深色" }, MinWidth = 120 };
-    private readonly Button _screenPermission;
     private readonly Button _folderPermission;
     private readonly Button _cancelStartup;
-    private readonly Border _capturePermission;
     private readonly Border _notice;
-    private readonly Button _back;
-    private readonly Button _settings;
-    private readonly TextBlock _heading;
+    private readonly Dictionary<SettingsPage, ToggleButton> _tabs = [];
     private readonly ContentControl _body = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
     private readonly Dictionary<SettingsPage, ScrollViewer> _pages = [];
     private bool _updatingSettings;
     private bool _initialSizeApplied;
-    private bool _showScreenPermission;
 
-    private static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
+    internal static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
     internal SettingsPage CurrentPage { get; private set; }
     internal ScrollViewer CurrentPageView => _pages[CurrentPage];
 
     public MainWindow(DesktopController controller)
     {
         _controller = controller;
-        Ui.Configure(this, "Tbox", 560, 460);
+        Ui.Configure(this, "Tbox 设置", 560, 520);
         MinWidth = 360;
         MinHeight = 360;
 
-        _screenPermission = Ui.Button("允许屏幕录制", () => RunCommand(controller.RequestPermission));
         _folderPermission = Ui.Button("允许辅助功能", () => RunCommand(controller.RequestFolderPermission));
         _cancelStartup = Ui.Button("取消开机启动申请", () => controller.Run(() => controller.SetStartupAsync(false)));
         _theme.SelectionChanged += (_, _) =>
@@ -74,11 +68,9 @@ public sealed class MainWindow : Window
             if (!_updatingSettings) controller.Run(() => controller.SetModulesAsync(null, _folderToggle.IsChecked == true));
         };
 
-        _back = IconButton(IconKind.Back, "返回主面板", () => Navigate(SettingsPage.Home));
-        _settings = IconButton(IconKind.Settings, "设置", () => Navigate(SettingsPage.General));
-        _heading = Ui.Text("Tbox", DesignTokens.SectionTitle);
-        _heading.FontWeight = FontWeight.SemiBold;
-        _heading.VerticalAlignment = VerticalAlignment.Center;
+        var heading = Ui.Text("设置", DesignTokens.SectionTitle);
+        heading.FontWeight = FontWeight.SemiBold;
+        heading.VerticalAlignment = VerticalAlignment.Center;
         using var brandAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/StoreLogo.png"));
         var brandBitmap = new Bitmap(brandAsset);
         var brand = new Image
@@ -87,28 +79,30 @@ public sealed class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false
         };
         Closed += (_, _) => brandBitmap.Dispose();
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var (page, label) in new[] { (SettingsPage.General, "常规"), (SettingsPage.Folders, "文件夹跳转") })
+        {
+            var tab = new ToggleButton { Content = label, Padding = new Thickness(12, 4), MinHeight = 30,
+                CornerRadius = new CornerRadius(DesignTokens.ControlRadius) };
+            AutomationProperties.SetName(tab, label);
+            tab.Click += (_, _) => Navigate(page);
+            _tabs[page] = tab; tabs.Children.Add(tab);
+        }
         var header = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions("*,Auto"),
             MaxWidth = 560,
             Margin = new Thickness(16, 12, 16, 4)
         };
-        header.Children.Add(Ui.Row(_back, brand, _heading));
-        Grid.SetColumn(_settings, 1);
-        header.Children.Add(_settings);
+        header.Children.Add(Ui.Row(brand, heading));
+        Grid.SetColumn(tabs, 1);
+        header.Children.Add(tabs);
 
         _notice = Ui.Card(_status);
         _notice.Padding = new Thickness(12, 8);
         _notice.MaxWidth = 560;
         _notice.Margin = new Thickness(16, 0, 16, 12);
         _notice.IsVisible = false;
-        _capturePermission = Ui.Card(new StackPanel
-        {
-            Spacing = 8,
-            Children = { Ui.Caption("截图和录屏需要屏幕录制权限。"), _screenPermission }
-        });
-        _capturePermission.Padding = new Thickness(12);
-        _capturePermission.IsVisible = false;
         BuildPages();
 
         var root = new DockPanel();
@@ -118,7 +112,7 @@ public sealed class MainWindow : Window
         root.Children.Add(_notice);
         root.Children.Add(_body);
         Content = root;
-        Navigate(SettingsPage.Home);
+        Navigate(SettingsPage.General);
         Refresh();
 
         Closing += (_, args) =>
@@ -153,41 +147,12 @@ public sealed class MainWindow : Window
     {
         CurrentPage = page;
         _body.Content = _pages[page];
-        _back.IsVisible = page != SettingsPage.Home;
-        _settings.IsVisible = page != SettingsPage.General;
-        _heading.Text = page switch
-        {
-            SettingsPage.General => "设置",
-            SettingsPage.Folders => "文件夹跳转",
-            SettingsPage.Ocr => "文字识别",
-            _ => "Tbox"
-        };
-        _showScreenPermission = false;
-        _capturePermission.IsVisible = false;
+        foreach (var (key, tab) in _tabs) tab.IsChecked = key == page;
         SetStatus("");
-    }
-
-    internal void ShowCapturePermission()
-    {
-        if (CurrentPage != SettingsPage.Home) Navigate(SettingsPage.Home);
-        SetStatus("");
-        _showScreenPermission = true;
-        Refresh();
     }
 
     private void BuildPages()
     {
-        var capture = ActionRow("开始截图", IconKind.Capture, ShortcutLabels.Capture, () => _controller.Run(_controller.CaptureAsync), primary: true);
-        var pin = ActionRow("剪贴板贴图", IconKind.Pin, ShortcutLabels.Pin, () => _controller.Run(_controller.PinClipboardAsync));
-        var ocr = ActionRow("文字识别", IconKind.Ocr, null, () => Navigate(SettingsPage.Ocr));
-        var folders = ActionRow("文件夹跳转", IconKind.Folder, ShortcutLabels.Folder, () => Navigate(SettingsPage.Folders));
-        var toggle = Ui.Button("显隐贴图", () => RunCommand(_controller.TogglePins), $"显隐贴图 · {ShortcutLabels.Toggle}");
-        var record = Ui.Button("区域录屏", () => _controller.Run(() => _controller.CaptureAsync(selectRecordingRegion: true)));
-        var secondary = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { toggle, record } };
-        Grid.SetColumn(record, 1);
-        _captureActions.AddRange([capture, pin, ocr, toggle, record]);
-        AddPage(SettingsPage.Home, capture, _capturePermission, pin, ocr, folders, secondary);
-
         AddPage(SettingsPage.General,
             Section("常规",
                 new SettingsRow("主题", _theme),
@@ -195,6 +160,7 @@ public sealed class MainWindow : Window
                 new SettingsRow("失败通知", _failureToggle)),
             Section("工具",
                 new SettingsRow("截图与贴图", _captureToggle), _conflicts,
+                Ui.Caption($"截图 {ShortcutLabels.Capture} · 剪贴板贴图 {ShortcutLabels.Pin} · 显隐贴图 {ShortcutLabels.Toggle}"),
                 Ui.Button("检查快捷键", () =>
                 {
                     Refresh();
@@ -216,11 +182,6 @@ public sealed class MainWindow : Window
             Section("在打开或保存面板中跳转",
                 new SettingsRow("启用文件夹跳转", _folderToggle),
                 Ui.Caption($"在系统文件面板中按 {ShortcutLabels.Folder}，跳到最近使用的目录。")));
-
-        var file = ActionRow("选择图片…", IconKind.Folder, null, () => _controller.Run(_controller.OpenImageForOcrAsync), primary: true);
-        var clipboard = ActionRow("识别剪贴板图片", IconKind.Ocr, null, () => _controller.Run(_controller.OcrClipboardAsync));
-        _captureActions.AddRange([file, clipboard]);
-        AddPage(SettingsPage.Ocr, file, clipboard);
     }
 
     private void AddPage(SettingsPage key, params Control[] content)
@@ -244,46 +205,6 @@ public sealed class MainWindow : Window
         var card = Ui.Card(panel);
         card.Padding = new Thickness(16);
         return card;
-    }
-
-    private static Button ActionRow(string title, IconKind icon, string? shortcut, Action action, bool primary = false)
-    {
-        var button = Ui.Button(title, action, shortcut is null ? title : $"{title} · {shortcut}");
-        var text = Ui.Text(title, primary ? DesignTokens.SectionTitle : DesignTokens.Body);
-        text.VerticalAlignment = VerticalAlignment.Center;
-        text.FontWeight = primary ? FontWeight.SemiBold : FontWeight.Normal;
-        var content = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12 };
-        content.Children.Add(new LineIcon(icon, primary) { VerticalAlignment = VerticalAlignment.Center });
-        Grid.SetColumn(text, 1);
-        content.Children.Add(text);
-        Control accessory = shortcut is null ? new LineIcon(IconKind.Chevron) : Ui.Caption(shortcut);
-        accessory.VerticalAlignment = VerticalAlignment.Center;
-        Grid.SetColumn(accessory, 2);
-        content.Children.Add(accessory);
-        button.Content = content;
-        button.MinHeight = primary ? 72 : 52;
-        button.Padding = new Thickness(16, 8);
-        button.HorizontalAlignment = HorizontalAlignment.Stretch;
-        button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
-        void Update()
-        {
-            var colors = DesignTokens.Colors(button.ActualThemeVariant == ThemeVariant.Dark);
-            button.Background = Brush.Parse(primary ? colors.AccentSurface : colors.Surface);
-            button.BorderBrush = Brush.Parse(colors.Border);
-            button.Resources["ButtonBackgroundPointerOver"] = Brush.Parse(colors.Hover);
-            button.Resources["ButtonBackgroundPressed"] = Brush.Parse(colors.AccentSurface);
-        }
-        button.ActualThemeVariantChanged += (_, _) => Update();
-        Update();
-        return button;
-    }
-
-    private static Button IconButton(IconKind icon, string label, Action action)
-    {
-        var button = Ui.Button(label, action, label);
-        button.Content = new LineIcon(icon);
-        button.Padding = new Thickness(8);
-        return button;
     }
 
     private static WrapPanel Actions(params Control[] children)
@@ -330,7 +251,6 @@ public sealed class MainWindow : Window
         _theme.SelectedIndex = _controller.Settings.AppTheme switch { "light" => 1, "dark" => 2, _ => 0 };
         _updatingSettings = false;
 
-        foreach (var action in _captureActions) action.IsEnabled = _controller.Settings.ScreenPasteEnabled;
         _conflicts.IsVisible = _controller.HasHotkeyConflict;
         _startupStatus.Text = _controller.Startup.Message ?? "";
         _startupStatus.IsVisible = _startupStatus.Text.Length > 0;
@@ -339,12 +259,8 @@ public sealed class MainWindow : Window
             ? "启用辅助功能权限后，Tbox 才能读取最近目录并跳转。"
             : string.IsNullOrWhiteSpace(_controller.FolderDirectory) ? "尚未读取目录，将使用用户主目录。" : _controller.FolderDirectory;
         _folderPermission.IsVisible = !_controller.HasFolderPermission;
-        if (_controller.Platform.HasScreenPermission || !_controller.Settings.ScreenPasteEnabled)
-            _showScreenPermission = false;
-        _capturePermission.IsVisible = _showScreenPermission;
-        _screenPermission.Content = _controller.ScreenPermissionRequested ? "打开屏幕录制设置" : "允许屏幕录制";
-        AutomationProperties.SetName(_screenPermission, (string)_screenPermission.Content);
         _cache.Text = _controller.CacheDirectory;
+        if (_controller.Panel is { IsVisible: true } panel) panel.Refresh();
     }
 }
 

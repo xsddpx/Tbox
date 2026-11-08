@@ -8,9 +8,9 @@
     <SupportedOSPlatformVersion Condition="'$(TboxWindows)' == 'true'">10.0.19041.0</SupportedOSPlatformVersion>
     <Platform Condition="'$(TboxWindows)' == 'true' and ('$(Platform)' == '' or '$(Platform)' == 'AnyCPU')">x64</Platform>
     <PlatformTarget Condition="'$(TboxWindows)' == 'true'">$(Platform)</PlatformTarget>
-    <Version>1.1.20</Version>
-    <AssemblyVersion>1.1.20.0</AssemblyVersion>
-    <FileVersion>1.1.20.0</FileVersion>
+    <Version>1.1.21</Version>
+    <AssemblyVersion>1.1.21.0</AssemblyVersion>
+    <FileVersion>1.1.21.0</FileVersion>
     <TboxWindowsFfmpegRoot>$(MSBuildThisFileDirectory)../../TEMP/media-runtime/windows</TboxWindowsFfmpegRoot>
     <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">../Tbox.App/Assets/Tbox.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>

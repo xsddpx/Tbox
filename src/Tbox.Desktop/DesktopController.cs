@@ -39,16 +39,20 @@ public sealed class DesktopController : IDisposable
     private bool _capturing;
     private bool _pinsHidden;
     private bool _screenPermissionRequested;
+    private bool _capturePermissionNeeded;
     public IPlatformServices Platform { get; }
     public CaptureHistory CaptureHistory { get; } = new();
+    // The settings window. It stays hidden until opened from the panel, menu or app reopen.
     public MainWindow Main { get; set; } = null!;
+    public TrayPanel? Panel { get; set; }
     public bool IsQuitting { get; private set; }
     internal bool HasOpenWorkForUpdate => _capturing || _capture is not null || _longCapture is not null || _recording is not null ||
-        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window => window != Main && window != _update && window is not FailureNotificationWindow);
+        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window => window != Main && window != Panel && window != _update && window is not FailureNotificationWindow);
     public void ShowUpdates()
     {
         if (_update is null)
         {
+            ShowSettings();
             _update = new UpdateWindow(this);
             _update.Closed += (_, _) => _update = null;
             _update.Show(Main);
@@ -60,6 +64,10 @@ public sealed class DesktopController : IDisposable
     public string FolderDirectory => _folders.CurrentDirectory;
     public bool HasFolderPermission => _folders.HasPermission;
     public bool ScreenPermissionRequested => _screenPermissionRequested;
+    // Set only after a capture attempt found no permission, so startup never shows an unrequested prompt.
+    public bool CapturePermissionNeeded => _capturePermissionNeeded && !Platform.HasScreenPermission;
+    public int PinCount => _pins.Count;
+    public bool PinsHidden => _pinsHidden;
     public StartupState Startup { get; private set; } = new(false);
     public bool HasHotkeyConflict => _hotkeys.ActiveMask != ((_settings.ScreenPasteEnabled ? 7 : 0) | (_settings.FolderJumpEnabled ? 8 : 0));
     public event Action<int>? ThemeLoaded;
@@ -172,16 +180,28 @@ public sealed class DesktopController : IDisposable
         finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
-    public void ShowMain()
+    // Tray click, app reopen and a second launch all open the panel; settings are one click further.
+    public Func<DesktopPoint?>? PanelAnchor { get; set; }
+    public void ShowPanel()
+    {
+        if (IsQuitting || Panel is null) return;
+        Panel.ShowNearPointer(PanelAnchor?.Invoke());
+    }
+    public void TogglePanel()
+    {
+        if (Panel?.IsVisible == true) Panel.Hide(); else ShowPanel();
+    }
+    public void ShowSettings()
     {
         if (IsQuitting) return;
+        Panel?.Hide();
         Main.Show();
         if (Main.WindowState == WindowState.Minimized) Main.WindowState = WindowState.Normal;
         Main.Activate(); Main.Refresh();
     }
     public void RequestPermission()
     {
-        if (Platform.HasScreenPermission) { Main.Refresh(); return; }
+        if (Platform.HasScreenPermission) { _capturePermissionNeeded = false; Main.Refresh(); return; }
         // This is the only permission-requesting UI action. Repeated clicks open settings;
         // capture hotkeys, activation, diagnostics and retries must never request access.
         if (_screenPermissionRequested) Platform.OpenScreenPermissionSettings();
@@ -194,20 +214,23 @@ public sealed class DesktopController : IDisposable
         Main.Refresh();
     }
 
-    public Task CaptureAsync() => CaptureAsync(selectRecordingRegion: false);
+    public Task CaptureAsync() => CaptureAsync(null);
+    public Task RecordRegionAsync() => CaptureAsync(CaptureAction.Record);
+    public Task LongCaptureAsync() => CaptureAsync(CaptureAction.Long);
 
-    internal async Task CaptureAsync(bool selectRecordingRegion)
+    internal async Task CaptureAsync(CaptureAction? preset)
     {
         if (!_settings.ScreenPasteEnabled || _capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;
         if (!Platform.HasScreenPermission)
         {
-            ShowMain();
-            Main.ShowCapturePermission();
+            // Explain in the panel; only its button may request access.
+            _capturePermissionNeeded = true;
+            ShowPanel();
             return;
         }
         _capturing = true;
         var restore = Main.IsVisible;
-        Main.Hide();
+        Main.Hide(); Panel?.Hide();
         try
         {
             await Task.Delay(150, _stop.Token);
@@ -216,11 +239,11 @@ public sealed class DesktopController : IDisposable
             _capture = new CaptureSession(this, displays, cancelled =>
             {
                 _capture = null;
-                if (restore && cancelled && !IsQuitting) ShowMain();
-            }, selectRecordingRegion);
+                if (restore && cancelled && !IsQuitting) ShowSettings();
+            }, preset);
             _capture.Show();
         }
-        catch { if (restore) ShowMain(); throw; }
+        catch { if (restore) ShowSettings(); throw; }
         finally { _capturing = false; }
     }
 
@@ -252,6 +275,31 @@ public sealed class DesktopController : IDisposable
         Pin(new Picture(picture.Png) { CachePath = picture.CachePath });
     }
 
+    // Recent captures already live in the cache, so pinning one reuses that file instead of saving a copy.
+    public async Task PinFileAsync(string path)
+    {
+        if (!_settings.ScreenPasteEnabled) return;
+        var picture = await LoadCachedAsync(path);
+        picture.CachePath = path;
+        Pin(picture);
+    }
+
+    public async Task CopyFileAsync(string path)
+    {
+        using var picture = await LoadCachedAsync(path);
+        await CopyAsync(picture);
+        if (Panel is not null && !Main.IsVisible) FailureNotificationWindow.ShowInfo(this, "已复制截图。");
+    }
+
+    private async Task<Picture> LoadCachedAsync(string path)
+    {
+        var full = Path.GetFullPath(path);
+        if (!string.Equals(Path.GetDirectoryName(full), CacheDirectory, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("只能打开截图缓存目录中的图片。");
+        try { return new Picture(await File.ReadAllBytesAsync(full, _stop.Token)); }
+        catch (FileNotFoundException) { Panel?.Refresh(); throw new InvalidOperationException("这张截图已被清理或移动。"); }
+    }
+
     internal async Task StartLongCaptureAsync(DesktopPlacement region)
     {
         _capturing = true;
@@ -273,7 +321,7 @@ public sealed class DesktopController : IDisposable
     internal async Task StartRecordingAsync(RecordingArea area)
     {
         if (_recording is not null || _quitRequested) return;
-        _capturing = true; Main.Hide();
+        _capturing = true; Main.Hide(); Panel?.Hide();
         try
         {
             await Task.Delay(150, _stop.Token);
@@ -309,13 +357,23 @@ public sealed class DesktopController : IDisposable
 
     public void TogglePins()
     {
-        if (_pins.Count == 0) { Main.SetStatus("还没有贴图。先截图或复制图片、文字后创建贴图。"); return; }
+        if (_pins.Count == 0) { Notify("还没有贴图。先截图或复制图片、文字后创建贴图。"); return; }
         _pinsHidden = !_pinsHidden;
         foreach (var pin in _pins.ToArray())
         {
             if (_pinsHidden) pin.Hide(); else pin.Show();
         }
     }
+
+    // Status for actions started from the panel or a hotkey: shown in settings when open, otherwise briefly.
+    private void Notify(string message)
+    {
+        Main.SetStatus(message);
+        if (!Main.IsVisible && !IsQuitting && Panel is not null) FailureNotificationWindow.ShowInfo(this, message);
+    }
+
+    // The panel hides as soon as an action starts, so dialogs attach to settings or the open OCR window.
+    private Window DialogOwner => Main.IsVisible ? Main : _ocr is { IsVisible: true } ocr ? ocr : Main;
 
     public async Task OcrClipboardAsync()
     {
@@ -327,7 +385,7 @@ public sealed class DesktopController : IDisposable
     public async Task OpenImageForOcrAsync()
     {
         if (!_settings.ScreenPasteEnabled) return;
-        var paths = await Main.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        var paths = await DialogOwner.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "选择要识别的图片", AllowMultiple = false, FileTypeFilter = [FilePickerFileTypes.ImageAll]
         });
@@ -454,6 +512,7 @@ public sealed class DesktopController : IDisposable
     private static CaptureCache CreateCache(string? path) => new(CaptureCachePathPolicy.Resolve(path,
         Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)));
+    internal void UseCacheDirectoryForTests(string path) => _cache = new CaptureCache(path);
 
     private void PruneCache()
     {

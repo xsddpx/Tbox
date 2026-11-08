@@ -18,13 +18,14 @@ internal sealed class CaptureSession
     private bool _detecting;
     public CaptureDetectionMode DetectionMode { get; private set; }
     public CaptureSessionState State { get; } = new();
-    public bool SelectingRecordingRegion { get; }
+    // Record or Long when the session only selects a region for that mode; null for a normal capture.
+    public CaptureAction? Preset { get; }
 
     public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action<bool> closed,
-        bool selectRecordingRegion = false)
+        CaptureAction? preset = null)
     {
         _controller = controller; _closed = closed;
-        SelectingRecordingRegion = selectRecordingRegion;
+        Preset = preset is CaptureAction.Record or CaptureAction.Long ? preset : null;
         _targets = controller.Platform.CreateCaptureTargets();
         foreach (var display in displays) _windows.Add(new CaptureWindow(this, display));
     }

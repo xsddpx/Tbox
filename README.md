@@ -107,7 +107,7 @@ WinUI 3 项目使用 Visual Studio 构建链，避免 Windows App SDK 的独立 
 & .\tests\Tbox.IntegrationHarness\bin\x64\Release\net8.0-windows10.0.26100.0\win-x64\Tbox.IntegrationHarness.exe --capture-only
 ```
 
-关闭设置窗口后应用会继续驻留系统托盘；双击托盘图标可重新打开设置，通过托盘菜单的“退出”才会完全结束应用。
+Tbox 启动后只驻留系统托盘（Mac 为菜单栏），不弹出窗口。单击托盘图标打开托盘面板：截图、贴图、录屏、长截图、图片识字、显隐贴图和文件夹跳转都在这里，下方是最近 4 张截图，悬停即可贴到屏幕或复制。面板失焦或按 `Esc` 自动收起。右键托盘图标仍有原生菜单。面板右上角齿轮打开设置窗口；通过面板或菜单的“退出”才会完全结束应用。
 
 ## 项目结构
 

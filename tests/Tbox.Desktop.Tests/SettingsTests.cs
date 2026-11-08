@@ -57,40 +57,33 @@ public sealed class SettingsTests
     }
 
     [AvaloniaFact]
-    public void LauncherOpensToolsAndSettingsWithOneClickAndReturnsHome()
+    public void SettingsTabsSwitchPagesAndHoldNoEverydayTools()
     {
         using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
         var window = controller.Main = new MainWindow(controller);
         window.Show();
         try
         {
-            foreach (var (entry, page) in new[]
-            {
-                ("文字识别", SettingsPage.Ocr), ("文件夹跳转", SettingsPage.Folders), ("设置", SettingsPage.General)
-            })
-            {
-                Click(entry);
-                Assert.Equal(page, window.CurrentPage);
-                if (page == SettingsPage.Ocr)
-                {
-                    Find("选择图片…");
-                    Find("识别剪贴板图片");
-                }
-                Click("返回主面板");
-                Assert.Equal(SettingsPage.Home, window.CurrentPage);
-            }
-            Find("区域录屏");
-            Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "已就绪");
+            Assert.Equal(SettingsPage.General, window.CurrentPage);
+            Tab("文件夹跳转").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(SettingsPage.Folders, window.CurrentPage);
+            Assert.True(Tab("文件夹跳转").IsChecked); Assert.False(Tab("常规").IsChecked);
+            Tab("常规").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(SettingsPage.General, window.CurrentPage);
+            window.UpdateLayout();
+            // Capture, pin, OCR and recording entries now live only in the tray panel.
+            foreach (var tool in new[] { "开始截图", "剪贴板贴图", "区域录屏", "选择图片…" })
+                Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => AutomationProperties.GetName(b)?.Split(" · ")[0] == tool);
+            Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => b.IsEffectivelyVisible && Equals(b.Content, "检查更新"));
         }
         finally { controller.Dispose(); window.Close(); }
 
-        Button Find(string label)
+        Avalonia.Controls.Primitives.ToggleButton Tab(string label)
         {
             window.UpdateLayout();
-            return Assert.Single(window.GetVisualDescendants().OfType<Button>(), b =>
-                b.IsEffectivelyVisible && AutomationProperties.GetName(b)?.Split(" · ")[0] == label);
+            return Assert.Single(window.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(), b =>
+                b is not ToggleSwitch && AutomationProperties.GetName(b) == label);
         }
-        void Click(string label) => Find(label).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     }
 
     [Theory]
