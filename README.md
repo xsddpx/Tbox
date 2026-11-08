@@ -153,6 +153,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -
 
 脚本会串行执行 Release 构建、单元测试、真实 Explorer/文件对话框集成测试、打包、签名和验签；成功后才会生成 `artifacts/Tbox_<版本>_x64.msix`，并将时间和 SHA-256 追加到 `docs/release-history.md`。脚本会检测验证期间的历史文件并发修改，并在发布失败时回滚包和历史记录；版本不一致、二进制过期、版本已发布、包已存在或任一验证失败都会终止发布。
 
-## GitHub 自动发布
+## 发布与下载
 
-在源码仓库发布版本后，GitHub Actions 自动构建 Windows MSIX 与 Apple Silicon Mac ZIP，全部校验通过后上传并公开到 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)。签名凭据、版本准备、失败恢复和当前启用状态见 [自动发布说明](docs/automatic-releases.md)。
+2026-11-08 按用户要求关闭源码仓库的 GitHub Actions，自动构建、测试及 Release 发布流程均不再执行。已公开的 Windows MSIX、Apple Silicon Mac ZIP 及应用内更新渠道仍保留在 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)。本地构建与打包脚本继续可用；后续发布仍须完成签名、运行及完整性验收。停用状态和原流程配置见 [发布流程说明](docs/automatic-releases.md)。
