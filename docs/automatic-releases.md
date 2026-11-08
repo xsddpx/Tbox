@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-2026-11-08 用户进一步要求源码、Actions 与安装包统一到一个公开仓库。`xsddpx/Tbox` 继续公开并运行 Actions，Windows MSIX、Mac ZIP、证书、校验清单和安装说明直接附加到同仓库 Release；`xsddpx/Tbox-releases` 不再作为日常下载入口，仅暂时保留既有版本供旧客户端完成一次过渡。使用 GitHub 标准 Linux、Windows 和 macOS 构建机器，没有启用付费 Larger runners。
+2026-11-08 用户进一步要求源码、Actions 与安装包统一到一个公开仓库。`xsddpx/Tbox` 继续公开并运行 Actions，Windows MSIX、Mac ZIP、证书、校验清单和安装说明直接附加到同仓库 Release；1.1.15 的 7 个附件迁入并校验后，旧 `xsddpx/Tbox-releases` 已不存在。使用 GitHub 标准 Linux、Windows 和 macOS 构建机器，没有启用付费 Larger runners。
 
 公开前使用 Gitleaks 8.30.1 扫描全部分支可达的 19 次提交，未发现凭据泄漏；历史路径也未发现私钥或环境凭据文件。签名身份仍保存在 Actions Secrets；旧的跨仓库发布 Secret 不再需要并应删除。普通 PR 使用只读仓库权限且不获得签名或发布 Secrets；签名仅用于维护者发布或显式启用的指定开发分支。公开仓库的工作流、日志及产物可被他人访问，上传内容不得包含凭据或用户数据。
 

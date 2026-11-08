@@ -38,4 +38,4 @@
 
 API 行为按 GitHub 官方文档实现：[Releases](https://docs.github.com/en/rest/releases/releases)、[Release assets](https://docs.github.com/en/rest/releases/assets)。公开资源支持无认证请求，二进制资产响应可能直接返回内容或重定向到下载地址。
 
-旧的 `xsddpx/Tbox-releases` 仅保留历史附件和旧客户端兼容。由于已安装的 1.1.15 二进制写死旧地址，首个包含新地址的公开版本必须向旧渠道镜像一次，确保旧用户能升级；完成过渡后旧仓库归档，不再作为下载入口。
+旧的 `xsddpx/Tbox-releases` 已不存在。由于已安装的 1.1.15 二进制写死旧地址，1.1.15 及更早版本无法自动发现单仓库版本；用户必须从 `xsddpx/Tbox` 手动安装首个新版本一次，此后采用新地址的客户端再恢复应用内更新。
