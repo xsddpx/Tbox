@@ -6,7 +6,7 @@
 
 Windows 与 macOS 使用同一个 `Tbox.Desktop` 界面工程、布局、图标与状态规则。设计令牌集中在 `src/Tbox.Desktop/Views/DesignTokens.cs`，平台适配层不能另写页面或替换产品配色。允许不同的只有系统字体度量、系统窗口按钮、文件选择器及系统快捷键修饰符。
 
-软件品牌使用用户确认的紫晶 T 图标。Windows 与 macOS 共用 `assets/branding/tbox.svg` 及其彩色渲染资源，用于主面板、程序图标和安装包。Mac 菜单栏从同一原稿提取 T 形轮廓，由系统按当前背景着色。
+软件品牌使用用户确认的紫晶工具盒图标：深色底座上的紫色立方体，侧面印白色 T。Windows 与 macOS 共用 `assets/branding/tbox.svg` 及其彩色渲染资源，用于主面板、程序图标和安装包。Mac 菜单栏从同一原稿提取立方体轮廓并镂空 T，由系统按当前背景着色。
 
 `src/Tbox.App` 和 `docs/ui-prototypes/` 是上一版 Windows 的行为对照，不代表 UI 2.0 交付；新的 Windows 安装包使用共用界面。
 
