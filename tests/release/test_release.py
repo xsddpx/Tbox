@@ -192,10 +192,11 @@ class ReleaseTests(unittest.TestCase):
         return calls
 
     def test_publishes_only_after_complete_upload_and_audit(self):
-        calls = self.transaction()
+        with patch.dict(release.os.environ, {'GITHUB_SHA': 'tested-commit'}):
+            calls = self.transaction()
         self.assertEqual(['POST', 'UPLOAD', 'GET', 'AUDIT', 'PATCH'], [c[0] for c in calls])
         self.assertTrue(calls[0][1]['draft'])
-        self.assertEqual('main', calls[0][1]['target_commitish'])
+        self.assertEqual('tested-commit', calls[0][1]['target_commitish'])
         self.assertIn('Tbox_2.3.4.0_win-x64.msix', calls[0][1]['body'])
         self.assertIn('Tbox_2.3.4_osx-arm64.zip', calls[0][1]['body'])
         self.assertIn('Source code (zip)', calls[0][1]['body'])
