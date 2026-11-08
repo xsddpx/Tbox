@@ -75,6 +75,8 @@ python3 -m unittest discover -s tests/release -v
 
 现有双平台 CI 也运行这些测试，提交 `46a8da0` 的 [双平台检查](https://github.com/xsddpx/Tbox/actions/runs/42389041205) 全部通过。临时变量 `TBOX_VERIFY_SIGNING=true` 可在当前迁移分支的推送中启用证书导入、实际签名、验签和指纹核对：Windows 使用独立包身份的 MSIX 夹具，Mac 签名隔离的系统可执行文件副本，不生成 Tbox 安装包，PR 不获得证书；验证完成后关闭该变量。当前代码已合入 main，1.1.15 真实签名、安装/运行、完整附件校验、审计分支记录和公开发布均通过；源提交为 `08bf212`，公开时间为 2026-11-08 03:48:46 +0800。详见 [首发验收记录](releases/v1.1.15-verification.md)。公开环境的旧版应用内升级仍待验收。
 
+单仓库迁移提交通过 [分支双平台检查](https://github.com/xsddpx/Tbox/actions/runs/42441457863) 和 [PR #10 复验](https://github.com/xsddpx/Tbox/actions/runs/42441802777)。[1.1.19 Windows 签名安装验收](https://github.com/xsddpx/Tbox/actions/runs/42442202535) 在一次性 runner 完成签名、安装、OCR、取帧和静音录屏；同一 MSIX 下载到当前 Windows 后签名有效并成功安装，实际识别 2 个显示器，系统声音未测试。SHA-256 为 `87E800F586DED06A9414895C33387291BBE610B57E46F0D585B236D4E4D44868`。该版本未作为新正式 Release 公开。
+
 触发方式依据 [GitHub push 事件](https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#push) 与 [workflow_dispatch](https://docs.github.com/actions/using-workflows/events-that-trigger-workflows#workflow_dispatch)；runner 选择依据 GitHub 托管 runner 文档；上传校验使用 Release assets API 的 `size`、`state`、`digest`。
 
 ## 历史验证记录
