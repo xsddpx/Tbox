@@ -1,7 +1,9 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -26,16 +28,16 @@ public sealed class SettingsTests
         var window = controller.Main = new MainWindow(controller);
         window.Show();
         foreach (var theme in new[] { ThemeVariant.Light, ThemeVariant.Dark })
-        foreach (var width in new[] { 1280, 900, 520, 1280, 520 })
+        foreach (var width in new[] { 1280, 900, 560, 360 })
         {
             window.RequestedThemeVariant = theme;
-            window.Width = width; window.Height = 700; window.ApplyResponsiveLayout(width);
+            window.Width = width; window.Height = 460;
             foreach (var page in Enum.GetValues<SettingsPage>())
             {
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-                Assert.Equal(width >= 1080, window.HasFixedSidebar);
+                Assert.Empty(window.GetVisualDescendants().OfType<SplitView>());
                 Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
-                Assert.True(window.CurrentPageView.Bounds.Width > width - (width >= 1080 ? 250 : 10));
+                Assert.True(window.CurrentPageView.Bounds.Width > width - 10);
                 foreach (var control in window.CurrentPageView.GetVisualDescendants().OfType<Control>()
                     .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or ToggleSwitch or ComboBox))
                 {
@@ -46,12 +48,49 @@ public sealed class SettingsTests
                 if (Environment.GetEnvironmentVariable("TBOX_UI_PREVIEWS") is { Length: > 0 } directory)
                 {
                     Directory.CreateDirectory(directory);
-                    using var preview = new RenderTargetBitmap(new PixelSize(width, 700), new Vector(96, 96));
+                    using var preview = new RenderTargetBitmap(new PixelSize(width, 460), new Vector(96, 96));
                     preview.Render(window); preview.Save(Path.Combine(directory, $"{page}-{theme.Key}-{width}.png"));
                 }
             }
         }
         controller.Dispose(); window.Close();
+    }
+
+    [AvaloniaFact]
+    public void LauncherOpensToolsAndSettingsWithOneClickAndReturnsHome()
+    {
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        var window = controller.Main = new MainWindow(controller);
+        window.Show();
+        try
+        {
+            foreach (var (entry, page) in new[]
+            {
+                ("文字识别", SettingsPage.Ocr), ("文件夹跳转", SettingsPage.Folders), ("设置", SettingsPage.General)
+            })
+            {
+                Click(entry);
+                Assert.Equal(page, window.CurrentPage);
+                if (page == SettingsPage.Ocr)
+                {
+                    Find("选择图片…");
+                    Find("识别剪贴板图片");
+                }
+                Click("返回主面板");
+                Assert.Equal(SettingsPage.Home, window.CurrentPage);
+            }
+            Find("区域录屏");
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "已就绪");
+        }
+        finally { controller.Dispose(); window.Close(); }
+
+        Button Find(string label)
+        {
+            window.UpdateLayout();
+            return Assert.Single(window.GetVisualDescendants().OfType<Button>(), b =>
+                b.IsEffectivelyVisible && AutomationProperties.GetName(b)?.Split(" · ")[0] == label);
+        }
+        void Click(string label) => Find(label).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
     }
 
     [Theory]

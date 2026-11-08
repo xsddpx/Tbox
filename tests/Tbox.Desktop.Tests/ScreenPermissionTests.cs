@@ -1,5 +1,8 @@
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
+using Avalonia.VisualTree;
+using Tbox.Desktop.Models;
 using Tbox.Desktop.Views;
 using Xunit;
 
@@ -19,6 +22,14 @@ public sealed class ScreenPermissionTests
     {
         var platform = new FakePlatform();
         using var controller = CreateController(platform);
+        controller.ShowMain();
+        Assert.False(HasPermissionButton());
+        controller.Main.Navigate(SettingsPage.Ocr);
+        await controller.CaptureAsync(selectRecordingRegion: true);
+        Assert.Equal(SettingsPage.Home, controller.Main.CurrentPage);
+        Assert.True(HasPermissionButton());
+        controller.Main.Navigate(SettingsPage.Ocr);
+        Assert.False(HasPermissionButton());
         for (var attempt = 0; attempt < 5; attempt++)
         {
             controller.ShowMain();
@@ -28,6 +39,13 @@ public sealed class ScreenPermissionTests
         Assert.Equal(0, platform.PermissionSettingsOpens);
         Assert.Equal(0, platform.CaptureRequests);
         controller.Main.Hide();
+
+        bool HasPermissionButton()
+        {
+            controller.Main.UpdateLayout();
+            return controller.Main.GetVisualDescendants().OfType<Button>()
+                .Any(button => button.IsEffectivelyVisible && Equals(button.Content, "允许屏幕录制"));
+        }
     }
 
     [AvaloniaFact]

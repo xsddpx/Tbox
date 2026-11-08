@@ -14,7 +14,7 @@ namespace Tbox.Desktop.Views;
 internal sealed class CaptureWindow : Window
 {
     private readonly CaptureSession _session;
-    private readonly AnnotationToolbar _toolbar;
+    private readonly Border _toolbar;
     private readonly AnnotationTextEditor _text;
     private bool _toolbarHidden;
     private readonly TextBlock _hint = new() { Foreground = Brushes.White, Margin = new Thickness(20, 10), IsHitTestVisible = false };
@@ -29,7 +29,7 @@ internal sealed class CaptureWindow : Window
     public CaptureWindow(CaptureSession session, CapturedDisplay display)
     {
         _session = session; Display = display; Picture = new Picture(display.Png);
-        Title = "Tbox 截图";
+        Title = session.SelectingRecordingRegion ? "Tbox 录屏选区" : "Tbox 截图";
         SystemDecorations = SystemDecorations.None;
         CanResize = false; ShowInTaskbar = false; Topmost = true;
         RequestedThemeVariant = ThemeVariant.Dark;
@@ -38,14 +38,8 @@ internal sealed class CaptureWindow : Window
         var overlay = new Canvas();
         _text = new AnnotationTextEditor(overlay, Editor,
             point => new Point(point.X * Scale.X, point.Y * Scale.Y), () => Scale);
-        _toolbar = new AnnotationToolbar(Editor, _text.Commit) { IsVisible = false };
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↕", "长截图", () => RequestMode(CaptureAction.Long)));
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("●", "区域录屏", () => RequestMode(CaptureAction.Record)));
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⌖", $"固定为贴图 · {ShortcutLabels.Command}T / 鼠标中键", () => session.Finish(this, CaptureAction.Pin)));
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("Aa", "识别文字", () => session.Finish(this, CaptureAction.Ocr)));
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↓", $"保存图片 · {ShortcutLabels.Command}S", () => session.Finish(this, CaptureAction.Save)));
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⧉", $"复制图片 · {ShortcutLabels.Command}C / Enter", () => session.Finish(this, CaptureAction.Copy)));
-        _toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("×", "取消截图 · Esc", session.Cancel));
+        _toolbar = CreateToolbar();
+        _toolbar.IsVisible = false;
         overlay.Children.Add(_toolbar);
         overlay.Children.Add(_hint);
         _modeConfirmation = new Border
@@ -69,6 +63,31 @@ internal sealed class CaptureWindow : Window
         }, RoutingStrategies.Tunnel);
         Closed += (_, _) => Picture.Dispose();
         Opened += (_, _) => Surface.Focus();
+    }
+
+    private Border CreateToolbar()
+    {
+        if (_session.SelectingRecordingRegion)
+        {
+            var confirm = Ui.Button("确认录屏区域", () => _session.Finish(this, CaptureAction.Record), "确认录屏区域 · Enter");
+            confirm.Classes.Add("accent");
+            return new Border
+            {
+                Background = Ui.ToolbarBackground, BorderBrush = Brush.Parse(DesignTokens.TaskBorder),
+                BorderThickness = new Thickness(1), Padding = new Thickness(4), CornerRadius = new CornerRadius(DesignTokens.TaskRadius),
+                Child = Ui.Row(confirm, Ui.Button("取消", _session.Cancel, "取消录屏选区 · Esc"))
+            };
+        }
+
+        var toolbar = new AnnotationToolbar(Editor, _text.Commit);
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↕", "长截图", () => RequestMode(CaptureAction.Long)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("●", "区域录屏", () => RequestMode(CaptureAction.Record)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⌖", $"固定为贴图 · {ShortcutLabels.Command}T / 鼠标中键", () => _session.Finish(this, CaptureAction.Pin)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("Aa", "识别文字", () => _session.Finish(this, CaptureAction.Ocr)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("↓", $"保存图片 · {ShortcutLabels.Command}S", () => _session.Finish(this, CaptureAction.Save)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("⧉", $"复制图片 · {ShortcutLabels.Command}C / Enter", () => _session.Finish(this, CaptureAction.Copy)));
+        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton("×", "取消截图 · Esc", _session.Cancel));
+        return toolbar;
     }
 
     public void Refresh()
@@ -118,7 +137,12 @@ internal sealed class CaptureWindow : Window
             else _session.Cancel();
             args.Handled = true;
         }
-        else if (args.Key == Key.Enter) { _session.Finish(this, CaptureAction.Copy); args.Handled = true; }
+        else if (args.Key == Key.Enter)
+        {
+            _session.Finish(this, _session.SelectingRecordingRegion ? CaptureAction.Record : CaptureAction.Copy);
+            args.Handled = true;
+        }
+        else if (_session.SelectingRecordingRegion) return;
         else if ((args.KeyModifiers & (KeyModifiers.Meta | KeyModifiers.Control)) != 0)
         {
             if (args.Key == Key.C) _session.Finish(this, CaptureAction.Copy);
@@ -174,7 +198,8 @@ internal sealed class CaptureSurface : Control
         if ((Selection ?? DetectedSelection) is not { Width: > 0, Height: > 0 } selection)
         {
             context.FillRectangle(shade, size);
-            var text = new FormattedText("拖动选择截图区域  ·  Esc 取消", CultureInfo.CurrentUICulture,
+            var instruction = _session.SelectingRecordingRegion ? "拖动选择录屏区域  ·  Esc 取消" : "拖动选择截图区域  ·  Esc 取消";
+            var text = new FormattedText(instruction, CultureInfo.CurrentUICulture,
                 FlowDirection.LeftToRight, Typeface.Default, 16, Brushes.White);
             context.DrawText(text, new Point(Math.Max(24, (Bounds.Width - text.Width) / 2), 40));
             return;
@@ -204,7 +229,8 @@ internal sealed class CaptureSurface : Control
     {
         base.OnPointerPressed(e);
         var properties = e.GetCurrentPoint(this).Properties;
-        if (properties.IsMiddleButtonPressed) { _session.Finish(_window, CaptureAction.Pin); return; }
+        if (properties.IsMiddleButtonPressed && !_session.SelectingRecordingRegion)
+        { _session.Finish(_window, CaptureAction.Pin); return; }
         if (!properties.IsLeftButtonPressed) return;
         Focus(); _window.Activate();
         _start = Clamp(e.GetPosition(this));
