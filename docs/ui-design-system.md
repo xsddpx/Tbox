@@ -6,7 +6,7 @@
 
 Windows 与 macOS 使用同一个 `Tbox.Desktop` 界面工程、布局、图标与状态规则。设计令牌集中在 `src/Tbox.Desktop/Views/DesignTokens.cs`，平台适配层不能另写页面或替换产品配色。允许不同的只有系统字体度量、系统窗口按钮、文件选择器及系统快捷键修饰符。
 
-软件品牌图标使用 `assets/branding/tbox.svg`：三个白色直角方块的倒品字构图，透明背景，不添加渐变、阴影或底板。应用图标、Windows 安装图块及托盘统一来自这一原稿；Mac 菜单栏使用模板模式，由系统依据菜单栏背景着色。此品牌图标与界面内表示动作的线性图标职责不同。
+软件品牌使用用户确认的紫晶 T 图标。Windows 与 macOS 共用 `assets/branding/tbox.svg` 及其彩色渲染资源，用于主面板、程序图标和安装包。Mac 菜单栏从同一原稿提取 T 形轮廓，由系统按当前背景着色。
 
 `src/Tbox.App` 和 `docs/ui-prototypes/` 是上一版 Windows 的行为对照，不代表 UI 2.0 交付；新的 Windows 安装包使用共用界面。
 
@@ -58,7 +58,7 @@ OCR 使用主题化编辑工作区。宽度至少 720 时默认显示左侧原�
 
 ## 7. 验收
 
-1.1.17 共用控件渲染预览见[主面板](ui-prototypes/screenshots/shared-compact-panel.png)和[OCR 工作区](ui-prototypes/screenshots/shared-ocr-workspace.png)。OCR 图使用测试文档和识别结果。
+共用控件渲染预览见[主面板](ui-prototypes/screenshots/shared-compact-panel.png)和[OCR 工作区](ui-prototypes/screenshots/shared-ocr-workspace.png)。OCR 图使用测试文档和识别结果。
 
 - 两平台必须构建并实际运行同一界面代码；系统窗口装饰不同不算设计分叉。
 - 界面没有搜索。轻量面板布局测试覆盖浅色、深色和 1280、900、560、360 宽度。OCR 验收覆盖宽窄重排、显隐原图、保留编辑文本和复用原图。
