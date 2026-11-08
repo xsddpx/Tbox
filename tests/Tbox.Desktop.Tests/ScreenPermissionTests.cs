@@ -1,8 +1,8 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
-using Tbox.Desktop.Models;
 using Tbox.Desktop.Views;
 using Xunit;
 
@@ -14,6 +14,7 @@ public sealed class ScreenPermissionTests
     {
         var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
         controller.Main = new MainWindow(controller);
+        controller.Panel = new TrayPanel(controller);
         return controller;
     }
 
@@ -22,29 +23,37 @@ public sealed class ScreenPermissionTests
     {
         var platform = new FakePlatform();
         using var controller = CreateController(platform);
-        controller.ShowMain();
-        Assert.False(HasPermissionButton());
-        controller.Main.Navigate(SettingsPage.Ocr);
-        await controller.CaptureAsync(selectRecordingRegion: true);
-        Assert.Equal(SettingsPage.Home, controller.Main.CurrentPage);
-        Assert.True(HasPermissionButton());
-        controller.Main.Navigate(SettingsPage.Ocr);
-        Assert.False(HasPermissionButton());
-        for (var attempt = 0; attempt < 5; attempt++)
+        var panel = controller.Panel!;
+        try
         {
-            controller.ShowMain();
-            await controller.CaptureAsync();
+            // Opening the panel alone must not show an unrequested permission prompt.
+            controller.ShowPanel();
+            Assert.False(HasPermissionButton());
+            panel.Hide();
+            await controller.CaptureAsync(CaptureAction.Record);
+            Assert.True(panel.IsVisible);
+            Assert.True(HasPermissionButton());
+            for (var attempt = 0; attempt < 5; attempt++)
+            {
+                controller.ShowPanel();
+                await controller.CaptureAsync();
+                await controller.LongCaptureAsync();
+            }
+            Assert.Equal(0, platform.PermissionRequests);
+            Assert.Equal(0, platform.PermissionSettingsOpens);
+            Assert.Equal(0, platform.CaptureRequests);
+
+            platform.HasScreenPermission = true;
+            panel.Refresh();
+            Assert.False(HasPermissionButton());
         }
-        Assert.Equal(0, platform.PermissionRequests);
-        Assert.Equal(0, platform.PermissionSettingsOpens);
-        Assert.Equal(0, platform.CaptureRequests);
-        controller.Main.Hide();
+        finally { panel.Close(); controller.Main.Close(); }
 
         bool HasPermissionButton()
         {
-            controller.Main.UpdateLayout();
-            return controller.Main.GetVisualDescendants().OfType<Button>()
-                .Any(button => button.IsEffectivelyVisible && Equals(button.Content, "允许屏幕录制"));
+            panel.UpdateLayout();
+            return panel.GetVisualDescendants().OfType<Button>()
+                .Any(button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "允许屏幕录制");
         }
     }
 

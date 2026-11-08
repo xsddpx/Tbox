@@ -35,15 +35,21 @@ internal static class SmokeTest
                 }
                 captureVerified = displayCount > 0;
             }
-            var client = controller.Main.ClientSize;
-            using var preview = new RenderTargetBitmap(new PixelSize((int)Math.Ceiling(client.Width), (int)Math.Ceiling(client.Height)), new Vector(96, 96));
-            preview.Render(controller.Main);
-            preview.Save(Path.Combine(directory, "main-window.png"));
+            // The installed app starts in the tray, so verification opens both surfaces explicitly.
+            controller.ShowSettings();
+            await Task.Delay(300);
+            Render(controller.Main, Path.Combine(directory, "main-window.png"));
+            controller.Main.Hide();
+            controller.ShowPanel();
+            await Task.Delay(300);
+            var panel = controller.Panel ?? throw new InvalidOperationException("托盘面板未创建。");
+            Render(panel, Path.Combine(directory, "tray-panel.png"));
             var recording = args.Contains("--verify-recording")
-                ? await RecordingSmokeTest.RunAsync(controller.Platform, controller.Main, directory) : null;
+                ? await RecordingSmokeTest.RunAsync(controller.Platform, panel, directory) : null;
+            panel.Hide();
             await WriteResultAsync(directory, JsonSerializer.Serialize(new
             {
-                success = true, nativeOcr = true, pixelCrop = true, uiRendered = true,
+                success = true, nativeOcr = true, pixelCrop = true, uiRendered = true, trayPanelRendered = true,
                 screenPermission = controller.Platform.HasScreenPermission, captureVerified, displayCount, recognizedText = ocr.Text,
                 recording
             }, new JsonSerializerOptions { WriteIndented = true }));
@@ -54,6 +60,15 @@ internal static class SmokeTest
             Environment.ExitCode = 1;
         }
         finally { controller.Quit(); }
+    }
+
+    private static void Render(Avalonia.Controls.Window window, string path)
+    {
+        var client = window.ClientSize;
+        if (client.Width < 1 || client.Height < 1) throw new InvalidOperationException($"{window.Title} 没有可见内容。");
+        using var preview = new RenderTargetBitmap(new PixelSize((int)Math.Ceiling(client.Width), (int)Math.Ceiling(client.Height)), new Vector(96, 96));
+        preview.Render(window);
+        preview.Save(path);
     }
 
     private static async Task WriteResultAsync(string directory, string json)

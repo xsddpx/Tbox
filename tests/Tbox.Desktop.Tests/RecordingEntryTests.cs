@@ -31,7 +31,7 @@ public sealed class RecordingEntryTests
         main.Show();
         try
         {
-            await controller.CaptureAsync(selectRecordingRegion: true);
+            await controller.RecordRegionAsync();
             Assert.False(main.IsVisible);
             var selection = Assert.Single(lifetime.Windows.OfType<CaptureWindow>());
             selection.UpdateLayout();
@@ -44,7 +44,7 @@ public sealed class RecordingEntryTests
                 b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "确认录屏区域 · Enter");
             selection.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
             Assert.Empty(lifetime.Windows.OfType<CaptureWindow>());
-            Assert.True(main.IsVisible);
+            Assert.True(main.IsVisible); // Cancelling restores the settings window it was started from.
         }
         finally { controller.Dispose(); main.Close(); }
     }

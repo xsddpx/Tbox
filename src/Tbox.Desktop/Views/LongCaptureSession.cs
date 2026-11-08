@@ -31,7 +31,7 @@ internal sealed class LongCaptureSession
     public LongCaptureSession(DesktopController controller, DesktopPlacement region, Action closed)
     {
         _controller = controller; _region = region; _closed = closed;
-        _border = Floating("Tbox 长截图区域", new SelectionOutline(Brush.Parse("#F8C53A")));
+        _border = Floating("Tbox 长截图区域", new SelectionOutline(Ui.LongYellow));
         _border.Background = Brushes.Transparent; _border.ShowActivated = false;
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         buttons.Children.Add(_size);

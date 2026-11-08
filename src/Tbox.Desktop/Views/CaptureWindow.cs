@@ -29,7 +29,7 @@ internal sealed class CaptureWindow : Window
     public CaptureWindow(CaptureSession session, CapturedDisplay display)
     {
         _session = session; Display = display; Picture = new Picture(display.Png);
-        Title = session.SelectingRecordingRegion ? "Tbox 录屏选区" : "Tbox 截图";
+        Title = session.Preset switch { CaptureAction.Record => "Tbox 录屏选区", CaptureAction.Long => "Tbox 长截图选区", _ => "Tbox 截图" };
         SystemDecorations = SystemDecorations.None;
         CanResize = false; ShowInTaskbar = false; Topmost = true;
         RequestedThemeVariant = ThemeVariant.Dark;
@@ -67,15 +67,16 @@ internal sealed class CaptureWindow : Window
 
     private Border CreateToolbar()
     {
-        if (_session.SelectingRecordingRegion)
+        if (_session.Preset is { } preset)
         {
-            var confirm = Ui.Button("确认录屏区域", () => _session.Finish(this, CaptureAction.Record), "确认录屏区域 · Enter");
+            var name = preset == CaptureAction.Record ? "录屏" : "长截图";
+            var confirm = Ui.Button($"确认{name}区域", () => _session.Finish(this, preset), $"确认{name}区域 · Enter");
             confirm.Classes.Add("accent");
             return new Border
             {
                 Background = Ui.ToolbarBackground, BorderBrush = Brush.Parse(DesignTokens.TaskBorder),
                 BorderThickness = new Thickness(1), Padding = new Thickness(4), CornerRadius = new CornerRadius(DesignTokens.TaskRadius),
-                Child = Ui.Row(confirm, Ui.Button("取消", _session.Cancel, "取消录屏选区 · Esc"))
+                Child = Ui.Row(confirm, Ui.Button("取消", _session.Cancel, $"取消{name}选区 · Esc"))
             };
         }
 
@@ -139,10 +140,10 @@ internal sealed class CaptureWindow : Window
         }
         else if (args.Key == Key.Enter)
         {
-            _session.Finish(this, _session.SelectingRecordingRegion ? CaptureAction.Record : CaptureAction.Copy);
+            _session.Finish(this, _session.Preset ?? CaptureAction.Copy);
             args.Handled = true;
         }
-        else if (_session.SelectingRecordingRegion) return;
+        else if (_session.Preset is not null) return;
         else if ((args.KeyModifiers & (KeyModifiers.Meta | KeyModifiers.Control)) != 0)
         {
             if (args.Key == Key.C) _session.Finish(this, CaptureAction.Copy);
@@ -198,7 +199,12 @@ internal sealed class CaptureSurface : Control
         if ((Selection ?? DetectedSelection) is not { Width: > 0, Height: > 0 } selection)
         {
             context.FillRectangle(shade, size);
-            var instruction = _session.SelectingRecordingRegion ? "拖动选择录屏区域  ·  Esc 取消" : "拖动选择截图区域  ·  Esc 取消";
+            var instruction = _session.Preset switch
+            {
+                CaptureAction.Record => "拖动选择录屏区域  ·  Esc 取消",
+                CaptureAction.Long => "拖动选择长截图区域  ·  Esc 取消",
+                _ => "拖动选择截图区域  ·  Esc 取消"
+            };
             var text = new FormattedText(instruction, CultureInfo.CurrentUICulture,
                 FlowDirection.LeftToRight, Typeface.Default, 16, Brushes.White);
             context.DrawText(text, new Point(Math.Max(24, (Bounds.Width - text.Width) / 2), 40));
@@ -215,7 +221,7 @@ internal sealed class CaptureSurface : Control
         context.FillRectangle(shade, new Rect(0, r.Bottom, Bounds.Width, Math.Max(0, Bounds.Height - r.Bottom)));
         context.FillRectangle(shade, new Rect(0, r.Top, r.Left, r.Height));
         context.FillRectangle(shade, new Rect(r.Right, r.Top, Math.Max(0, Bounds.Width - r.Right), r.Height));
-        SelectionOutline.Draw(context, r, Ui.Blue, Selection is not null);
+        SelectionOutline.Draw(context, r, Ui.ModeBrush(_session.Preset), Selection is not null);
         var region = CaptureRegionPolicy.MapToPixels(Bounds.Width, Bounds.Height, r.X, r.Y, r.Width, r.Height,
             _window.Picture.Bitmap.PixelSize.Width, _window.Picture.Bitmap.PixelSize.Height);
         var label = new FormattedText($"{region.Width} × {region.Height}", CultureInfo.InvariantCulture,
@@ -229,7 +235,7 @@ internal sealed class CaptureSurface : Control
     {
         base.OnPointerPressed(e);
         var properties = e.GetCurrentPoint(this).Properties;
-        if (properties.IsMiddleButtonPressed && !_session.SelectingRecordingRegion)
+        if (properties.IsMiddleButtonPressed && _session.Preset is null)
         { _session.Finish(_window, CaptureAction.Pin); return; }
         if (!properties.IsLeftButtonPressed) return;
         Focus(); _window.Activate();

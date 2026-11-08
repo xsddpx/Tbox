@@ -10,6 +10,13 @@ namespace Tbox.Desktop.Views;
 internal static class Ui
 {
     public static readonly IBrush Blue = Brush.Parse("#0078D4");
+    public static readonly IBrush LongYellow = Brush.Parse("#F8C53A");
+    public static readonly IBrush RecordRed = Brush.Parse("#F55353");
+    // Capture blue, long-capture yellow and recording red identify the selection mode only.
+    public static IBrush ModeBrush(CaptureAction? preset) => preset switch
+    {
+        CaptureAction.Record => RecordRed, CaptureAction.Long => LongYellow, _ => Blue
+    };
     public static readonly IBrush ToolbarBackground = Brush.Parse(DesignTokens.TaskBackground);
     public static TextBlock Text(string text, double size = 14) => new()
     {
@@ -27,7 +34,7 @@ internal static class Ui
     public static StackPanel Row(params Control[] items)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        foreach (var item in items) row.Children.Add(item);
+        foreach (var item in items) { item.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(item); }
         return row;
     }
     public static Border Card(Control content)
@@ -67,5 +74,12 @@ internal static class Ui
         var block = Text(text, DesignTokens.Caption);
         void Update() => block.Foreground = Brush.Parse(DesignTokens.Colors(block.ActualThemeVariant == ThemeVariant.Dark).SecondaryText);
         block.ActualThemeVariantChanged += (_, _) => Update(); Update(); return block;
+    }
+
+    // Applies theme colors now and again whenever the control's effective theme changes.
+    public static T Themed<T>(T control, Action<T, ThemeColors> apply) where T : Control
+    {
+        void Update() => apply(control, DesignTokens.Colors(control.ActualThemeVariant == ThemeVariant.Dark));
+        control.ActualThemeVariantChanged += (_, _) => Update(); Update(); return control;
     }
 }

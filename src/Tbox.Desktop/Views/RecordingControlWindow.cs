@@ -32,9 +32,9 @@ internal sealed class RecordingControlWindow : Window
         _controller = controller; _area = area;
         _operation = new RecordingOperation((audio, fps) => controller.Platform.CreateRecorder(area, audio, fps));
         Title = "Tbox 录屏控制"; ConfigureFloating(this);
-        _border = new Window { Title = "Tbox 录屏区域", Content = new SelectionOutline(Brush.Parse("#F55353")), ShowActivated = false };
+        _border = new Window { Title = "Tbox 录屏区域", Content = new SelectionOutline(Ui.RecordRed), ShowActivated = false };
         ConfigureFloating(_border);
-        _dot.Foreground = Brush.Parse("#F55353"); _dot.VerticalAlignment = _clock.VerticalAlignment = VerticalAlignment.Center;
+        _dot.Foreground = Ui.RecordRed; _dot.VerticalAlignment = _clock.VerticalAlignment = VerticalAlignment.Center;
         _start = AnnotationToolbar.IconButton("●", "开始录制", () => controller.Run(StartAsync));
         _pause = AnnotationToolbar.IconButton("Ⅱ", "暂停 / 继续", TogglePause);
         _stop = AnnotationToolbar.IconButton("■", "停止并预览", () => controller.Run(StopAsync));
@@ -104,7 +104,7 @@ internal sealed class RecordingControlWindow : Window
             if (!_closing) _timer.Start();
         }
         catch (OperationCanceledException) when (_closing) { }
-        catch (Exception error) { if (!_closing) { _controller.Main.SetStatus(error.Message); await CancelAsync(); _controller.ShowMain(); } }
+        catch (Exception error) { if (!_closing) { _controller.Main.SetStatus(error.Message); await CancelAsync(); _controller.ShowPanel(); } }
         finally { _busy = false; Refresh(); }
     }
 
@@ -130,7 +130,7 @@ internal sealed class RecordingControlWindow : Window
             catch { workspace.Dispose(); throw; }
         }
         catch (OperationCanceledException) when (_closing) { }
-        catch (Exception error) { _controller.Main.SetStatus(error.Message); await CancelAsync(); _controller.ShowMain(); }
+        catch (Exception error) { _controller.Main.SetStatus(error.Message); await CancelAsync(); _controller.ShowPanel(); }
         finally { _busy = false; }
     }
 

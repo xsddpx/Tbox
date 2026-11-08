@@ -8,13 +8,15 @@ namespace Tbox.Desktop.Views;
 internal static class DesignTokens
 {
     public const double PageTitle = 28, SectionTitle = 16, Body = 14, Caption = 12;
-    public const double CardRadius = 12, ControlRadius = 8, TaskRadius = 8;
+    public const double CardRadius = 12, ControlRadius = 8, TaskRadius = 8, PanelRadius = 14;
     public const double ControlHeight = 36;
-    public const string Accent = "#5265DB";
+    // Amethyst from the approved app icon; the dark variant is lightened to keep AA contrast.
+    public const string Accent = "#6D4AE8";
     public const string TaskBackground = "#20242D", TaskBorder = "#4B5363";
+    public const string Recording = "#E5484D", Ready = "#1F9D61";
     public static ThemeColors Colors(bool dark) => dark
-        ? new("#15181E", "#20242D", "#1A1E26", "#303746", "#394252", "#F0F3F8", "#AFB8C8", "#2B3455", "#A5B2FF")
-        : new("#F5F7FA", "#FFFFFF", "#EEF1F6", "#E7ECF4", "#DFE5EF", "#202838", "#5E6A7D", "#EDF0FF", Accent);
+        ? new("#131318", "#1D1D24", "#18181E", "#2A2A33", "#30303A", "#F2F2F6", "#A6A9B6", "#2C2645", "#B4A0FF", "#F2B65A")
+        : new("#F6F6F9", "#FFFFFF", "#F1F1F6", "#EBEBF2", "#E3E3EC", "#17181F", "#5E6270", "#F0ECFF", Accent, "#9A6A12");
     public static FluentTheme CreateTheme()
     {
         var theme = new FluentTheme();
@@ -34,4 +36,4 @@ internal static class DesignTokens
 }
 
 internal sealed record ThemeColors(string Background, string Surface, string SecondarySurface, string Hover,
-    string Border, string Text, string SecondaryText, string AccentSurface, string Accent);
+    string Border, string Text, string SecondaryText, string AccentSurface, string Accent, string Warning);
