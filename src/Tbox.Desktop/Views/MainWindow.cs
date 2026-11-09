@@ -36,7 +36,7 @@ public sealed class MainWindow : Window
     private readonly Border _captureOff = Ui.Note("截图与贴图已关闭，快捷键已释放。打开右上角开关即可恢复。");
     private readonly Control _captureTools;
     private readonly Button _captureButton;
-    private readonly SettingsLine _hotkeys;
+    private readonly Dictionary<HotkeyAction, ShortcutRow> _shortcuts = [];
     private readonly SettingsLine _cache;
     private readonly Grid _recent = new() { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 6, 0, 0) };
     private readonly TextBlock _recentEmpty = Ui.Description("截图后会显示在这里。");
@@ -73,7 +73,8 @@ public sealed class MainWindow : Window
             OperatingSystem.IsMacOS() ? "在“系统设置 › 隐私与安全性”中允许 Tbox 后即可截图" : "在系统设置中允许 Tbox 截取屏幕后即可截图", _capturePermissionButton);
         _captureButton = Ui.Primary("截图", () => controller.Run(controller.CaptureAsync), $"截图 · {ShortcutLabels.Capture}");
         _captureButton.MinHeight = 36; _captureButton.Padding = new Thickness(14, 0, 10, 0);
-        _hotkeys = new SettingsLine("快捷键", $"截图 {ShortcutLabels.Capture} · 贴图 {ShortcutLabels.Pin} · 显隐贴图 {ShortcutLabels.Toggle}");
+        foreach (var action in ShortcutPolicy.Actions) _shortcuts[action] = new ShortcutRow(controller, action);
+        controller.ShortcutsChanged += RefreshShortcutLabels;
         _cache = new SettingsLine("保存位置", "", Ui.Button("更改…", () => controller.Run(controller.ChooseCacheAsync), "更改保存位置"));
         _captureTools = CaptureTools();
         var folderButton = Ui.Primary("去授权", controller.RequestFolderPermission, "允许辅助功能");
@@ -86,6 +87,7 @@ public sealed class MainWindow : Window
         _update.AvailabilityChanged += RefreshDots;
         Wire();
         BuildPages();
+        RefreshShortcutLabels();
 
         var statusIcon = new LineIcon(IconKind.Info, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) };
         _status = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10), Margin = new Thickness(26, 0, 26, 16),
@@ -163,9 +165,7 @@ public sealed class MainWindow : Window
         SetCaptureButton(primary: !needsPermission);
         _captureOff.IsVisible = !capture;
         _captureTools.IsEnabled = capture; _captureTools.Opacity = capture ? 1 : .45;
-        var conflict = capture && _controller.HasHotkeyConflict;
-        _hotkeys.SetDescription(conflict ? "快捷键被其他应用占用，可在本页启动工具" : $"截图 {ShortcutLabels.Capture} · 贴图 {ShortcutLabels.Pin} · 显隐贴图 {ShortcutLabels.Toggle}", conflict);
-        _hotkeys.Trailing = !capture ? Ui.Status("已关闭", DesignTokens.Hint) : conflict ? Ui.Status("冲突", DesignTokens.Error) : Ui.Status("可用", DesignTokens.Ready);
+        foreach (var row in _shortcuts.Values) row.Refresh();
         _cache.SetDescription(_controller.CacheDirectory);
 
         // 文件夹跳转
@@ -190,9 +190,11 @@ public sealed class MainWindow : Window
     private void RefreshDots()
     {
         var capture = _controller.Settings.ScreenPasteEnabled;
-        _nav[MainPage.Capture].Dot = capture && _controller.HasHotkeyConflict ? DesignTokens.Recording
+        _nav[MainPage.Capture].Dot = capture && _controller.HasConflictIn(capture: true) ? DesignTokens.Recording
             : capture && _controller.CapturePermissionNeeded ? DesignTokens.AttentionDot : null;
-        _nav[MainPage.Folders].Dot = _controller.Settings.FolderJumpEnabled && !_controller.HasFolderPermission ? DesignTokens.AttentionDot : null;
+        var folders = _controller.Settings.FolderJumpEnabled;
+        _nav[MainPage.Folders].Dot = folders && _controller.HasConflictIn(capture: false) ? DesignTokens.Recording
+            : folders && !_controller.HasFolderPermission ? DesignTokens.AttentionDot : null;
         _nav[MainPage.About].Dot = _update.UpdateAvailable ? DesignTokens.AttentionDot : null;
     }
 
@@ -229,14 +231,13 @@ public sealed class MainWindow : Window
         _recentEmpty.Margin = new Thickness(0, 6, 0, 0);
         AddPage(MainPage.Capture, PageHeader(IconKind.Capture, "截图", "截图后可标注、贴图、识别文字", _captureToggle),
             Spaced(_capturePermission, 14), Spaced(_captureOff, 16), _captureTools,
-            Ui.GroupHeader("设置"), Ui.Rows(_hotkeys, _cache),
+            Ui.GroupHeader("快捷键"), Ui.Rows(_shortcuts[HotkeyAction.Capture], _shortcuts[HotkeyAction.Pin], _shortcuts[HotkeyAction.Toggle]),
+            Ui.GroupHeader("设置"), _cache,
             Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty);
 
-        var keys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        foreach (var key in KeyCaps(ShortcutLabels.Folder)) keys.Children.Add(Ui.Key(key));
         AddPage(MainPage.Folders, PageHeader(IconKind.Jump, "文件夹跳转", "打开或保存文件时，一键跳到正在用的文件夹", _folderToggle),
             Spaced(_folderPermission, 14), Spaced(_folderOff, 16), _folderHero,
-            Ui.GroupHeader("状态"), Ui.Rows(new SettingsLine("快捷键", "只在打开 / 保存对话框里生效", keys), _folderTarget));
+            Ui.GroupHeader("状态"), Ui.Rows(_shortcuts[HotkeyAction.Folder], _folderTarget));
 
         AddPage(MainPage.General, PageHeader(IconKind.Sliders, "通用", "启动与提示", null),
             Spaced(Ui.GroupHeader("启动"), 8), _startup,
@@ -299,7 +300,7 @@ public sealed class MainWindow : Window
         SurfaceButton? ocr = null;
         var cards = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 12, 0, 0), Children =
         {
-            Feature("贴出剪贴板", IconKind.Pin, ToolTone.Amber, ShortcutLabels.Pin, () => _controller.Run(_controller.PinClipboardAsync)),
+            (_pinFeature = Feature("贴出剪贴板", IconKind.Pin, ToolTone.Amber, ShortcutLabels.Pin, () => _controller.Run(_controller.PinClipboardAsync))),
             Ui.Column(Feature("长截图", IconKind.Long, ToolTone.Blue, null, () => _controller.Run(_controller.LongCaptureAsync)), 1),
             Ui.Column(Feature("录屏", IconKind.Record, ToolTone.Red, null, () => _controller.Run(_controller.RecordRegionAsync)), 2),
             Ui.Column(ocr = Feature("识别文字", IconKind.Ocr, ToolTone.Green, null, () => ocrMenu.ShowAt(ocr!)), 3)
@@ -314,6 +315,14 @@ public sealed class MainWindow : Window
         {
             new TextBlock { Text = "截图", VerticalAlignment = VerticalAlignment.Center }, Ui.Key(ShortcutLabels.Capture, onAccent: primary)
         } };
+    }
+
+    private static void SetFeatureShortcut(SurfaceButton button, string title, string shortcut)
+    {
+        var tip = $"{title} · {shortcut}";
+        AutomationProperties.SetName(button, tip); ToolTip.SetTip(button, tip);
+        if (button.Content is Border { Child: Grid layout } && layout.Children.OfType<Border>().FirstOrDefault(b => b.Child is TextBlock) is { Child: TextBlock key })
+            key.Text = shortcut;
     }
 
     private static SurfaceButton Feature(string title, IconKind icon, ToolTone tone, string? shortcut, Action action)
@@ -337,7 +346,7 @@ public sealed class MainWindow : Window
         var mac = OperatingSystem.IsMacOS();
         var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
         {
-            new TextBlock { Text = $"按 {string.Join(" + ", KeyCaps(ShortcutLabels.Folder))}", FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong },
+            _folderTitle,
             Spaced(Ui.Description($"在任意软件的打开 / 保存对话框里，直接跳到{(mac ? "访达" : "资源管理器")}里最近打开的文件夹。"), 2)
         } };
         var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children = { text, Ui.Column(FolderIllustration(), 1) } });
@@ -374,7 +383,7 @@ public sealed class MainWindow : Window
         return Scene(canvas);
     }
 
-    private static Control FolderIllustration()
+    private Control FolderIllustration()
     {
         var path = OperatingSystem.IsMacOS() ? "~/Projects/Tbox/docs" : @"D:\Projects\Tbox\docs";
         var canvas = new Canvas { Children =
@@ -388,17 +397,33 @@ public sealed class MainWindow : Window
         for (var column = 0; column < 4; column++)
             canvas.Children.Add(Box(22 + column * 28, 38 + row * 20, 18, 14, (row + column) % 3 == 0 ? "#C9D3E6" : "#FFD27A"));
         var caps = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, [Canvas.LeftProperty] = 96, [Canvas.TopProperty] = 58 };
-        foreach (var key in KeyCaps(ShortcutLabels.Folder))
-            caps.Children.Add(new Border { Height = 17, MinWidth = 17, Padding = new Thickness(4, 0), CornerRadius = new CornerRadius(4), Background = Brushes.White,
-                BoxShadow = BoxShadows.Parse("0 1 0 0 #33000000, 0 0 0 1 #14000000"),
-                Child = new TextBlock { Text = key, FontSize = 9, FontWeight = FontWeight.Bold, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center } });
+        _folderCaps.Add(caps);
         canvas.Children.Add(caps);
         return Scene(canvas);
     }
 
-    // "Ctrl+G" → Ctrl, G; macOS symbols such as "⌃G" get one cap per key.
-    internal static string[] KeyCaps(string label) =>
-        label.Contains('+') ? label.Split('+') : label.Select(c => c.ToString()).ToArray();
+    // Shortcut text shown outside the shortcut rows; rebuilt when a shortcut changes.
+    private readonly List<StackPanel> _folderCaps = [];
+    private readonly TextBlock _folderTitle = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong };
+    private SurfaceButton? _pinFeature;
+
+    private void RefreshShortcutLabels()
+    {
+        SetCaptureButton(_captureButton.Classes.Contains("accent"));
+        ToolTip.SetTip(_captureButton, $"截图 · {ShortcutLabels.Capture}"); AutomationProperties.SetName(_captureButton, $"截图 · {ShortcutLabels.Capture}");
+        if (_pinFeature is not null) SetFeatureShortcut(_pinFeature, "贴出剪贴板", ShortcutLabels.Pin);
+        var folder = ShortcutLabels.Caps(HotkeyAction.Folder);
+        _folderTitle.Text = $"按 {string.Join(" + ", folder)}";
+        foreach (var caps in _folderCaps)
+        {
+            caps.Children.Clear();
+            foreach (var key in folder)
+                caps.Children.Add(new Border { Height = 17, MinWidth = 17, Padding = new Thickness(4, 0), CornerRadius = new CornerRadius(4), Background = Brushes.White,
+                    BoxShadow = BoxShadows.Parse("0 1 0 0 #33000000, 0 0 0 1 #14000000"),
+                    Child = new TextBlock { Text = key, FontSize = 9, FontWeight = FontWeight.Bold, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center } });
+        }
+        foreach (var row in _shortcuts.Values) row.Refresh();
+    }
 
     private void RefreshRecent()
     {
@@ -546,7 +571,7 @@ public sealed class MainWindow : Window
 }
 
 // A 46 px settings row: name, one-line description and a trailing control or status.
-internal sealed class SettingsLine : Grid
+internal class SettingsLine : Grid
 {
     private readonly TextBlock _description = Ui.Description("");
     private Control? _trailing;
@@ -573,6 +598,7 @@ internal sealed class SettingsLine : Grid
             value.VerticalAlignment = VerticalAlignment.Center; SetColumn(value, 1); Children.Add(value);
         }
     }
+    public string Description => _description.Text ?? "";
     public void SetDescription(string text, bool error = false)
     {
         _description.Text = text; _description.IsVisible = text.Length > 0;

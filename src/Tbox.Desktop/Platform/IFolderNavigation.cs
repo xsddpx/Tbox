@@ -9,5 +9,6 @@ public interface IFolderNavigation : IDisposable
     bool RequestPermission();
     void Start();
     void Stop();
-    Task<FolderNavigationResult> JumpAsync(CancellationToken cancellationToken);
+    // The shortcut that triggered the jump; its keys are released before the dialog is driven.
+    Task<FolderNavigationResult> JumpAsync(Tbox.Core.Shortcut shortcut, CancellationToken cancellationToken);
 }

@@ -3,7 +3,9 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Themes.Fluent;
@@ -147,10 +149,91 @@ public sealed class MainWindowTests
         Assert.Contains(main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "截图后会显示在这里。");
     }
 
-    [Theory]
-    [InlineData("Ctrl+G", new[] { "Ctrl", "G" })]
-    [InlineData("⌃G", new[] { "⌃", "G" })]
-    public void ShortcutsUseOneKeyCapPerKey(string label, string[] caps) => Assert.Equal(caps, MainWindow.KeyCaps(label));
+    [AvaloniaFact]
+    public async Task RecordingAShortcutPausesTheHotkeySavesItAndUpdatesEveryLabel()
+    {
+        var platform = new FakePlatform { HasScreenPermission = true };
+        using var scope = new Scope(platform);
+        var controller = scope.Controller; var main = controller.Main;
+        await controller.InitializeAsync([]);
+        controller.ShowMain(); Layout(main);
+        var row = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>(), r => Name(r.Recorder) == "修改截图快捷键");
+        Assert.Equal(["F6"], Caps(row));
+        var changed = 0; controller.ShortcutsChanged += () => changed++;
+
+        // While recording the old key is free, so pressing F6 does not start a capture.
+        row.Recorder.Start();
+        Assert.False(platform.Hotkeys.ContainsKey(HotkeyAction.Capture));
+        Assert.Equal("按 Esc 取消", row.Description);
+        Layout(main); TaskToolbarTests.Preview(main, "main-shortcut-recording");
+        row.Recorder.Stop();
+        Assert.Equal(new Shortcut(false, false, false, false, "F6"), platform.Hotkeys[HotkeyAction.Capture]);
+
+        // A combination already used by another Tbox shortcut is refused and the old one stays.
+        await Press(row, Key.F7);
+        Assert.Equal("已被“贴出剪贴板”使用。", row.Description);
+        Assert.Equal(["F6"], Caps(row));
+
+        // One held by another application is refused too.
+        platform.TakenShortcuts.Add(new Shortcut(false, true, false, false, "S"));
+        await Press(row, Key.S, KeyModifiers.Alt);
+        Assert.Equal("Alt+S 已被其他应用占用，请换一个组合。", row.Description);
+        Assert.Equal(new Shortcut(false, false, false, false, "F6"), platform.Hotkeys[HotkeyAction.Capture]);
+
+        await Press(row, Key.A, KeyModifiers.Control | KeyModifiers.Shift);
+        var chosen = new Shortcut(true, false, true, false, "A");
+        Assert.Equal(chosen, platform.Hotkeys[HotkeyAction.Capture]);
+        Assert.Equal(chosen, controller.Settings.Hotkeys!.Capture);
+        Assert.Equal(["Ctrl", "Shift", "A"], Caps(row));
+        Assert.Equal("截图 · Ctrl+Shift+A", Name(Find(main, "截图")));
+        Assert.Equal(1, changed);
+
+        // "恢复默认" appears only for a changed shortcut and clears the saved override.
+        var reset = Assert.Single(row.GetVisualDescendants().OfType<Button>(), b => Name(b) == "恢复截图默认快捷键");
+        Assert.True(reset.IsVisible);
+        await row.Recorder.ResetAsync(); Layout(main);
+        Assert.Null(controller.Settings.Hotkeys);
+        Assert.Equal(new Shortcut(false, false, false, false, "F6"), platform.Hotkeys[HotkeyAction.Capture]);
+        Assert.False(reset.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task AShortcutHeldElsewhereIsReportedOnItsOwnRowAndTheOthersStillWork()
+    {
+        var platform = new FakePlatform { HasScreenPermission = true };
+        platform.TakenShortcuts.Add(new Shortcut(false, false, false, false, "F7"));
+        using var scope = new Scope(platform);
+        var controller = scope.Controller; var main = controller.Main;
+        await controller.InitializeAsync([]);
+        controller.ShowMain(); Layout(main);
+        Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Capture)); Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Folder));
+        var rows = main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>().ToDictionary(r => Name(r.Recorder)!);
+        Assert.Equal("被其他应用占用，请换一个组合", rows["修改贴出剪贴板快捷键"].Description);
+        Assert.Equal("框选区域后标注、贴图或识别文字", rows["修改截图快捷键"].Description);
+        Assert.Equal(Color.Parse(DesignTokens.Recording), Dot(main, "截图"));
+        Assert.Null(Dot(main, "文件夹跳转"));
+        Layout(main); TaskToolbarTests.Preview(main, "main-shortcut-conflict");
+
+        // The module switch is no longer blocked by the conflict.
+        await controller.SetModulesAsync(false, null);
+        Assert.False(controller.Settings.ScreenPasteEnabled);
+        Assert.Equal([HotkeyAction.Folder], platform.Hotkeys.Keys);
+        Assert.Null(Dot(main, "截图"));
+    }
+
+    private static string? Name(Control control) => AutomationProperties.GetName(control);
+
+    private static string[] Caps(ShortcutRow row) =>
+        row.Recorder.GetLogicalDescendants().OfType<TextBlock>().Where(t => t.FindLogicalAncestorOfType<Border>() is { Height: 20 }).Select(t => t.Text!).ToArray();
+
+    // Records one combination and waits for the save, which finishes off the UI thread.
+    private static async Task Press(ShortcutRow row, Key key, KeyModifiers modifiers = KeyModifiers.None)
+    {
+        row.Recorder.Start();
+        row.Recorder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key, KeyModifiers = modifiers });
+        for (var wait = 0; row.Recorder.IsRecording && wait < 200; wait++) { Dispatcher.UIThread.RunJobs(); await Task.Delay(10); }
+        Assert.False(row.Recorder.IsRecording);
+    }
 
     [Theory]
     [InlineData("2026-11-08 12:08", "12:08")]

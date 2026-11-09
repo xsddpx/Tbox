@@ -12,17 +12,18 @@ internal sealed class WindowsFolderNavigation : IFolderNavigation
     public bool RequestPermission() => true;
     public void Start() => _tracker.Start();
     public void Stop() => _tracker.Stop();
-    public async Task<FolderNavigationResult> JumpAsync(CancellationToken cancellationToken)
+    public async Task<FolderNavigationResult> JumpAsync(Tbox.Core.Shortcut shortcut, CancellationToken cancellationToken)
     {
         if (!await _navigation.WaitAsync(0, cancellationToken)) return new(false, "文件夹跳转正在进行。");
         var window = NativeMethods.GetForegroundWindow();
+        // The dialog must not see the hotkey: wait until Ctrl, Alt, Shift, Win and the shortcut's key are up.
+        int[] held = [0x11, 0x12, 0x10, 0x5B, 0x5C, Tbox.Core.ShortcutPolicy.WindowsKeyCode(shortcut.Key) ?? 0x47];
         try
         {
             return await Task.Run(() =>
             {
                 var deadline = Environment.TickCount64 + 300;
-                while (Environment.TickCount64 < deadline &&
-                    ((NativeMethods.GetAsyncKeyState(NativeMethods.VkControl) & 0x8000) != 0 || (NativeMethods.GetAsyncKeyState(NativeMethods.VkG) & 0x8000) != 0))
+                while (Environment.TickCount64 < deadline && held.Any(key => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0))
                 { cancellationToken.ThrowIfCancellationRequested(); Thread.Sleep(5); }
                 cancellationToken.ThrowIfCancellationRequested();
                 var result = FileDialogNavigator.Navigate(window, _tracker.RefreshCurrentFolder());

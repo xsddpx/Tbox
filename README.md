@@ -24,7 +24,7 @@ bash scripts/install-macos.sh
 
 升级验证需先正常打开已安装的 Tbox，再执行 `~/Applications/Tbox.app/Contents/MacOS/Tbox.Desktop --permission-probe`；它查询正在运行的应用进程，只报告权限及取帧尺寸，不保存屏幕图像。本机已通过 1.1.1 → 1.1.2 → 1.1.3 两次覆盖升级验证，屏幕授权及实际取帧均保留，见 [验证记录](docs/macos-permission-upgrade-verification.md)。1.1.13 已识别本机辅助功能授权，Mac 实际文件面板导航仍待复验。1.1.15 公开包已验证签名与当前安装身份一致；本机锁屏，应用内升级及升级后权限验证待解锁完成。
 
-Mac 全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴图、`Control+Shift+3` 全部贴图显隐。图片复制、保存和固定使用 `Command+C/S/T`，`Esc` 取消截图或关闭贴图。第一次截图需要在系统设置中允许 Tbox 屏幕录制。缺少权限时截图只显示应用内提示；只有点击授权按钮才请求一次，再次点击打开系统设置。已有图片的识别和剪贴板贴图无需屏幕录制权限。
+Mac 默认全局快捷键为 `Control+Shift+1` 截图、`Control+Shift+2` 剪贴板贴图、`Control+Shift+3` 全部贴图显隐，均可在主窗口修改。图片复制、保存和固定使用 `Command+C/S/T`，`Esc` 取消截图或关闭贴图。第一次截图需要在系统设置中允许 Tbox 屏幕录制。缺少权限时截图只显示应用内提示；只有点击授权按钮才请求一次，再次点击打开系统设置。已有图片的识别和剪贴板贴图无需屏幕录制权限。
 
 共用工程已接入 Windows 截图、系统 OCR、窗口/元素检测和 F6/F7/F8，Mac 可执行 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标。Windows 自动使用此目标；系统 OCR 仍需 MSIX 应用身份。1.1.15 的 Windows MSIX 已在托管 Windows 环境完成签名、安装、OCR、取帧、录屏及三格式导出检查；旧用户设备升级、系统声音和全部桌面交互仍待验收。
 
@@ -107,7 +107,7 @@ WinUI 3 项目使用 Visual Studio 构建链，避免 Windows App SDK 的独立 
 & .\tests\Tbox.IntegrationHarness\bin\x64\Release\net8.0-windows10.0.26100.0\win-x64\Tbox.IntegrationHarness.exe --capture-only
 ```
 
-Tbox 启动后只驻留系统托盘（Mac 为菜单栏），不弹出窗口。单击托盘图标打开主窗口：左侧侧栏切换截图、文件夹跳转、通用和关于；截图页集中截图、贴出剪贴板、长截图、录屏、识别文字和最近 4 张截图，单击缩略图打开图片预览。开始任何工具时主窗口自动隐藏；关闭主窗口也只是隐藏，快捷键照常可用。右键托盘图标的原生菜单提供“打开 Tbox”和“退出”；只有“退出”才会完全结束应用。
+Tbox 启动后只驻留系统托盘（Mac 为菜单栏），不弹出窗口。单击托盘图标打开主窗口：左侧侧栏切换截图、文件夹跳转、通用和关于；截图页集中截图、贴出剪贴板、长截图、录屏、识别文字和最近 4 张截图，单击缩略图打开图片预览。开始任何工具时主窗口自动隐藏；关闭主窗口也只是隐藏，快捷键照常可用。右键托盘图标的原生菜单提供“打开 Tbox”和“退出”；只有“退出”才会完全结束应用。 截图页和文件夹跳转页的快捷键行可单击键帽后按下新组合修改，`Esc` 取消；被其他应用占用或与其他 Tbox 快捷键重复时保留原快捷键并在该行说明原因，修改过的项可“恢复默认”。
 
 ## 项目结构
 

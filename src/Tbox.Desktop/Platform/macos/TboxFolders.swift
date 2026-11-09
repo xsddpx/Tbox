@@ -158,7 +158,7 @@ private func panelKey(_ key: CGKeyCode, flags: CGEventFlags, process: pid_t) {
 }
 
 @_cdecl("tbox_folder_jump")
-public func folderJump(_ destination: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+public func folderJump(_ destination: UnsafePointer<CChar>?, _ hotkeyCode: Int32) -> UnsafeMutablePointer<CChar>? {
     guard AXIsProcessTrusted() else { return response(["success": false, "message": "文件夹跳转需要在系统设置中允许 Tbox 辅助功能权限。"] ) }
     guard let destination = destination else { return response(["success": false, "message": "目标文件夹无效。"] ) }
     let path = String(cString: destination)
@@ -169,8 +169,10 @@ public func folderJump(_ destination: UnsafePointer<CChar>?) -> UnsafeMutablePoi
     guard let target = focusedStandardPanel() else {
         return response(["success": false, "message": "无法确认当前系统文件面板，未执行跳转。", "diagnostic": panelFailureDiagnostic()] )
     }
+    // The panel must not see the hotkey: wait until every modifier and the shortcut's key are up.
     let releaseDeadline = Date().addingTimeInterval(0.3)
-    while Date() < releaseDeadline && (CGEventSource.keyState(.hidSystemState, key: CGKeyCode(kVK_Control)) || CGEventSource.keyState(.hidSystemState, key: CGKeyCode(kVK_ANSI_G))) {
+    let modifiers: CGEventFlags = [.maskControl, .maskShift, .maskAlternate, .maskCommand]
+    while Date() < releaseDeadline && (!CGEventSource.flagsState(.hidSystemState).intersection(modifiers).isEmpty || CGEventSource.keyState(.hidSystemState, key: CGKeyCode(hotkeyCode))) {
         Thread.sleep(forTimeInterval: 0.005)
     }
     guard stillFocused(target) else { return response(["success": false, "message": "文件面板已切换，跳转已取消。"] ) }

@@ -12,7 +12,7 @@
 - `Tbox.Desktop`：Avalonia 11.3.22 管理的跨平台界面、输入交互、截图会话、贴图窗口、结果窗、菜单、剪贴板、文件选择器和图像渲染。平台代码不得复制这些工作流。
 - `Platform/IPlatformServices.cs`：截图原始像素、识别、系统快捷键及特殊桌面窗口行为的边界。图像使用 PNG；桌面位置使用左上原点的系统桌面单位（Mac 为点、Windows 为物理像素），适配层提供 DIP 换算，输出图像始终使用原始像素坐标。
 - `Platform/macos`：macOS 自身提供的 ScreenCaptureKit、Vision、全局快捷键以及跨 Space 浮窗适配。桥接库与主应用同进程，不单独保存整屏图像或识别文字。
-- `Platform/windows`：Win32 原始像素捕获、窗口位置与 F6/F7/F8；系统 OCR 使用 Windows.Media.Ocr，仍要求 MSIX 包身份和已安装语言。共用工程在 Windows 自动选择 Windows TFM，也可在 Mac 以 `-p:TboxWindows=true` 编译检查。
+- `Platform/windows`：Win32 原始像素捕获、窗口位置与全局快捷键（默认 F6/F7/F8/Ctrl+G）；系统 OCR 使用 Windows.Media.Ocr，仍要求 MSIX 包身份和已安装语言。共用工程在 Windows 自动选择 Windows TFM，也可在 Mac 以 `-p:TboxWindows=true` 编译检查。
 - `tests/Tbox.Core.Tests`、`tests/Tbox.Desktop.Tests`：两平台共用规则和实际渲染测试；系统权限及真实桌面集成另做本机验证。
 
 采用 Avalonia 是为了延续 C# 核心并共用桌面交互，不引入第二套 SwiftUI 或 WinUI 业务界面。已有 .NET 8 和 SDK 9 构建基线暂不同时升级，框架升级应作为独立变更。
@@ -29,7 +29,7 @@
 | 录屏 | 状态机、时间、参数、导出工作流 | 屏幕与系统音频捕获、编码器 |
 | 文件夹跳转 | 最近可信目录、校验、失败反馈 | Finder / Explorer 与各自标准文件对话框 |
 
-评估过 SharpHook：它可跨平台处理全局键盘事件，但 macOS 需要辅助功能权限。现阶段只需注册三个全局快捷键，用小范围系统注册接口即可；不为统一依赖额外监听全部键盘事件。未来快捷键录制器仍应复用共用模型。
+评估过 SharpHook：它可跨平台处理全局键盘事件，但 macOS 需要辅助功能权限。全局快捷键仍用小范围系统注册接口（Windows `RegisterHotKey`、Mac Carbon `RegisterEventHotKey`），不额外监听全部键盘事件。组合键模型、默认值、校验与原生键码在 `Tbox.Core/ShortcutPolicy.cs`；`IPlatformServices.RegisterHotkey/UnregisterHotkey` 按动作逐项注册，录制器只在主窗口内读取按键。
 
 ## 权限与发布
 

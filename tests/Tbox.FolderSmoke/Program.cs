@@ -79,7 +79,7 @@ internal static class Program
                 }
                 host.Activate();
                 Focus(host.Handle);
-                var unsupported = await navigation.JumpAsync(CancellationToken.None);
+                var unsupported = await navigation.JumpAsync(Tbox.Core.ShortcutPolicy.Default(Tbox.Core.HotkeyAction.Folder, false), CancellationToken.None);
                 if (unsupported.Success || protectedText.Text != "UNCHANGED")
                     throw new InvalidOperationException("An unsupported window was changed or accepted.");
                 navigation.Stop();
@@ -124,7 +124,7 @@ internal static class Program
             await UntilAsync(() => HasFileName(dialog), "The dialog file-name editor was not ready.");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var clock = Stopwatch.StartNew();
-            var result = await navigation.JumpAsync(timeout.Token);
+            var result = await navigation.JumpAsync(Tbox.Core.ShortcutPolicy.Default(Tbox.Core.HotkeyAction.Folder, false), timeout.Token);
             if (!result.Success) throw new InvalidOperationException(result.Message);
             if (!SamePath(navigation.CurrentDirectory, target)) throw new InvalidOperationException("Tracker returned a different parent directory.");
             // Same basename in two different parents makes a loose address-bar
