@@ -25,6 +25,7 @@ public interface IPlatformServices : IDisposable
     DesktopPlacement GetWindowPlacement(nint handle);
     DesktopPlacement GetWorkArea(nint handle);
     double DesktopUnitsPerDip(nint handle);
+    double GetDisplayTopSafeInset(uint displayId) => 0;
     DesktopPoint GetPointerPosition();
     ICaptureTargetSource CreateCaptureTargets();
     void PrepareCaptureOverlay(nint handle, bool clickThrough);

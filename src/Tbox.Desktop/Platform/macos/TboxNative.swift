@@ -261,3 +261,10 @@ public func workArea(_ pointer: UnsafeRawPointer?) -> UnsafeMutablePointer<CChar
     let frame = screen.visibleFrame
     return response(["left": frame.minX, "top": primaryHeight() - frame.maxY, "width": frame.width, "height": frame.height])
 }
+
+@_cdecl("tbox_display_top_safe_inset")
+public func displayTopSafeInset(_ displayID: UInt32) -> Double {
+    let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")
+    let screen = NSScreen.screens.first { ($0.deviceDescription[screenNumber] as? NSNumber)?.uint32Value == displayID }
+    return Double(screen?.safeAreaInsets.top ?? 0)
+}

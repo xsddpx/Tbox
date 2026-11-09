@@ -64,6 +64,7 @@ public sealed class MacPlatformServices : IPlatformServices
     public DesktopPlacement GetWindowPlacement(nint handle) => ReadJson<DesktopPlacement>(NativeWindowPlacement(handle));
     public DesktopPlacement GetWorkArea(nint handle) => ReadJson<DesktopPlacement>(NativeWorkArea(handle));
     public double DesktopUnitsPerDip(nint handle) => 1;
+    public double GetDisplayTopSafeInset(uint displayId) => NativeDisplayTopSafeInset(displayId);
     public DesktopPoint GetPointerPosition() => ReadJson<DesktopPoint>(NativePointerPosition());
     public ICaptureTargetSource CreateCaptureTargets() => new MacCaptureTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) => NativeCaptureOverlay(handle, clickThrough ? 1 : 0);
@@ -110,6 +111,7 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_move_to_pointer")] private static extern void NativeMoveToPointer(nint handle);
     [DllImport(Library, EntryPoint = "tbox_window_placement")] private static extern nint NativeWindowPlacement(nint handle);
     [DllImport(Library, EntryPoint = "tbox_work_area")] private static extern nint NativeWorkArea(nint handle);
+    [DllImport(Library, EntryPoint = "tbox_display_top_safe_inset")] private static extern double NativeDisplayTopSafeInset(uint displayId);
     [DllImport(Library, EntryPoint = "tbox_pointer_position")] private static extern nint NativePointerPosition();
     [DllImport(Library, EntryPoint = "tbox_free")] private static extern void NativeFree(nint pointer);
 }

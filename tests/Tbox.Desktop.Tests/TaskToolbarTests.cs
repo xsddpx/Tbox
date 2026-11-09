@@ -21,6 +21,22 @@ namespace Tbox.Desktop.Tests;
 // Task toolbars (spec ⑤): one dark style, icon-only groups split by dividers, the mode colour on the selection.
 public sealed class TaskToolbarTests
 {
+    [AvaloniaTheory]
+    [InlineData(null, 0, "拖动框选，单击选窗口")]
+    [InlineData(null, 37, "拖动框选，单击选窗口")]
+    [InlineData(CaptureAction.Long, 37, "拖动框选长截图区域")]
+    [InlineData(CaptureAction.Record, 37, "拖动框选录屏区域")]
+    public async Task CaptureHintStaysBelowTheDisplayTopInset(CaptureAction? preset, int inset, string label)
+    {
+        using var scope = await CaptureScope.StartAsync(preset, inset);
+        var window = scope.Window;
+        var text = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == label);
+        var hint = Assert.IsType<Border>(text.FindAncestorOfType<Border>());
+        var position = hint.TranslatePoint(default, window)!.Value;
+        Assert.Equal(inset + 18, position.Y);
+        Assert.InRange(Math.Abs(window.Bounds.Width / 2 - position.X - hint.Bounds.Width / 2), 0, 0.5);
+    }
+
     [AvaloniaFact]
     public async Task CaptureToolbarHasToolsOnTheFirstRowAndModesOutputsAndCancelOnTheSecond()
     {
@@ -146,14 +162,19 @@ public sealed class TaskToolbarTests
         private CaptureScope(ClassicDesktopStyleApplicationLifetime lifetime, DesktopController controller, Picture frame, CaptureWindow window)
         { _lifetime = lifetime; _controller = controller; _frame = frame; Window = window; }
 
-        public static async Task<CaptureScope> StartAsync(CaptureAction? preset)
+        public static async Task<CaptureScope> StartAsync(CaptureAction? preset, double topSafeInset = 0)
         {
             if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
             var frame = Desktop(1200, 720);
             var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
                 .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
-            var platform = new FakePlatform { HasScreenPermission = true, Displays = [new CapturedDisplay(1, 0, 0, 1200, 720, frame.Png)] };
+            var platform = new FakePlatform
+            {
+                HasScreenPermission = true,
+                Displays = [new CapturedDisplay(1, 0, 0, 1200, 720, frame.Png)],
+                DisplayTopSafeInset = topSafeInset
+            };
             var controller = new DesktopController(platform, lifetime);
             controller.Main = new MainWindow(controller);
             await (preset switch { CaptureAction.Record => controller.RecordRegionAsync(), CaptureAction.Long => controller.LongCaptureAsync(), _ => controller.CaptureAsync() });

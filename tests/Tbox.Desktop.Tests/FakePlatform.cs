@@ -34,6 +34,8 @@ internal sealed class FakePlatform : IPlatformServices
     public DesktopPlacement GetWindowPlacement(nint handle) => new(0, 0, 800, 600);
     public DesktopPlacement GetWorkArea(nint handle) => new(0, 0, 1600, 1000);
     public double DesktopUnitsPerDip(nint handle) => 1;
+    public double DisplayTopSafeInset { get; set; }
+    public double GetDisplayTopSafeInset(uint displayId) => DisplayTopSafeInset;
     public DesktopPoint GetPointerPosition() => new(100, 100);
     public ICaptureTargetSource CreateCaptureTargets() => new EmptyTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
