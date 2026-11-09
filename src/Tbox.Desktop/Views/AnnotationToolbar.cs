@@ -9,19 +9,16 @@ using Tbox.Desktop.Models;
 
 namespace Tbox.Desktop.Views;
 
-// Annotation toolbar (spec ⑤): tools | colour, stroke size | undo, redo, then the host's own groups in Actions.
-// The capture overlay puts its mode and output groups on a second row; pins append them to this row.
+// The first row shared by capture and pin editing: tools | colour, stroke size | undo, redo.
 public sealed class AnnotationToolbar : Border
 {
     // Colours from spec ⑤, in swatch order.
     public static readonly uint[] Palette = [0xFFE5484D, 0xFFF5B400, 0xFF1F9D61, 0xFF3D7BFF, 0xFF6D4AE8, 0xFF1A1B22, 0xFFFFFFFF];
-    internal static readonly AnnotationTool[] CaptureTools =
+    private static readonly AnnotationTool[] Tools =
     [
         AnnotationTool.Rectangle, AnnotationTool.Ellipse, AnnotationTool.Arrow, AnnotationTool.Line, AnnotationTool.Pen,
         AnnotationTool.Highlighter, AnnotationTool.Mosaic, AnnotationTool.Text, AnnotationTool.Number, AnnotationTool.Eraser
     ];
-    internal static readonly AnnotationTool[] PinTools =
-        [AnnotationTool.Rectangle, AnnotationTool.Arrow, AnnotationTool.Pen, AnnotationTool.Text, AnnotationTool.Mosaic];
     private static readonly Dictionary<AnnotationTool, (IconKind Icon, string Name)> Specs = new()
     {
         [AnnotationTool.Rectangle] = (IconKind.Rectangle, "矩形"), [AnnotationTool.Ellipse] = (IconKind.Ellipse, "椭圆"),
@@ -34,14 +31,12 @@ public sealed class AnnotationToolbar : Border
     private readonly Dictionary<AnnotationTool, Button> _tools = [];
     private readonly Button _undo;
     private readonly Button _redo;
-    public StackPanel Actions { get; } = new() { Orientation = Orientation.Horizontal, Spacing = 2 };
-
-    public AnnotationToolbar(AnnotationEditor editor, Action prepare, IReadOnlyList<AnnotationTool>? tools = null, bool sizes = true)
+    public AnnotationToolbar(AnnotationEditor editor, Action prepare)
     {
         Background = Ui.ToolbarBackground; Padding = new Thickness(4); CornerRadius = new CornerRadius(DesignTokens.TaskRadius);
         BorderBrush = Ui.ToolbarBorder; BorderThickness = new Thickness(1);
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-        foreach (var tool in tools ?? CaptureTools)
+        foreach (var tool in Tools)
         {
             var (icon, name) = Specs[tool];
             var button = IconButton(icon, name, () => { prepare(); editor.Select(editor.Tool == tool ? null : tool); });
@@ -49,20 +44,12 @@ public sealed class AnnotationToolbar : Border
         }
         row.Children.Add(Ui.ToolbarDivider());
         row.Children.Add(ColorButton(editor));
-        if (sizes)
-        {
-            row.Children.Add(IconButton(IconKind.Minus, "减小粗细 · 1", () => editor.ChangeSize(-1)));
-            row.Children.Add(IconButton(IconKind.Plus, "增大粗细 · 2", () => editor.ChangeSize(1)));
-        }
+        row.Children.Add(IconButton(IconKind.Minus, "减小粗细 · 1", () => editor.ChangeSize(-1)));
+        row.Children.Add(IconButton(IconKind.Plus, "增大粗细 · 2", () => editor.ChangeSize(1)));
         row.Children.Add(Ui.ToolbarDivider());
         _undo = IconButton(IconKind.Undo, $"撤销 · {ShortcutLabels.Command}Z", editor.Undo); row.Children.Add(_undo);
         _redo = IconButton(IconKind.Redo, $"重做 · {ShortcutLabels.Command}{(OperatingSystem.IsMacOS() ? "⇧Z" : "Y")}", editor.Redo); row.Children.Add(_redo);
-        row.Children.Add(Actions); Child = row;
-        Actions.Children.CollectionChanged += (_, _) =>
-        {
-            // The host's first group is separated from undo / redo like every other group.
-            if (Actions.Children.Count > 0 && Actions.Children[0] is not Border { Width: 1 }) Actions.Children.Insert(0, Ui.ToolbarDivider());
-        };
+        Child = row;
         editor.Changed += Refresh;
         Refresh();
         void Refresh()
