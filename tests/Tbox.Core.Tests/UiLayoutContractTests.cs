@@ -385,7 +385,7 @@ public sealed class UiLayoutContractTests
         Assert.Contains("recordingToolbar", prototype, StringComparison.Ordinal);
         Assert.Contains("ocrSample", prototype, StringComparison.Ordinal);
         Assert.Contains("recordingReviewSample", prototype, StringComparison.Ordinal);
-        Assert.Contains("28 / 36", specification, StringComparison.Ordinal);
+        Assert.Contains("页面标题 20", specification, StringComparison.Ordinal);
         Assert.Contains("30×32", specification, StringComparison.Ordinal);
         Assert.Contains("WCAG AA", specification, StringComparison.Ordinal);
 
