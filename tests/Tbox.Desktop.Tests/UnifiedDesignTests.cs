@@ -17,43 +17,87 @@ using Xunit;
 
 namespace Tbox.Desktop.Tests;
 
-// Every window shares the tray panel's design language: one header, one control style and line icons.
+// Result windows follow the main window's structure (spec ④); task toolbars share one dark surface (spec ⑤).
 public sealed class UnifiedDesignTests
 {
     [AvaloniaFact]
-    public void ResultWindowsShareTheBrandHeaderAndThemedControlsInBothThemes()
+    public void ResultWindowsShareTheLightFrameAndPutThePrimaryActionLast()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
         using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
         controller.Main = new MainWindow(controller);
         using var picture = DesktopController.RenderText("Tbox");
-        var windows = new (string Name, Window Window)[]
+        var windows = new (string Name, Window Window, string? Primary)[]
         {
-            ("ocr", new OcrWindow(controller)),
-            ("preview", new ImageResultWindow(controller, new Picture(picture.Png), false)),
-            ("confirm", new ConfirmWindow("录屏尚未保存，是否放弃？", "放弃录屏"))
+            ("ocr", new OcrWindow(controller), "复制全部"),
+            ("preview", new ImageResultWindow(controller, new Picture(picture.Png), false), "复制")
         };
         try
         {
-            foreach (var theme in new[] { ThemeVariant.Light, ThemeVariant.Dark })
-            foreach (var (name, window) in windows)
+            foreach (var (name, window, primary) in windows)
             {
-                window.RequestedThemeVariant = theme; window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-                var colors = DesignTokens.Colors(theme == ThemeVariant.Dark);
-                Assert.Equal(Color.Parse(colors.Background), ((ISolidColorBrush)window.Background!).Color);
-                if (name != "confirm")
-                    Assert.Contains(window.GetVisualDescendants().OfType<Image>(), i => i.Width == 26 && !i.IsHitTestVisible);
+                window.RequestedThemeVariant = ThemeVariant.Light; window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+                Assert.Equal(Color.Parse("#F4F3F8"), ((ISolidColorBrush)window.Background!).Color);
+                // 16 px app mark in the title strip, 40 px tool icon in the header.
+                Assert.Contains(window.GetVisualDescendants().OfType<Image>(), i => i.Width == 16);
+                Assert.Contains(window.GetVisualDescendants().OfType<Border>(), b => b.Width == 40 && b.Child is LineIcon);
                 var buttons = window.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible && b.GetType() == typeof(Button)).ToArray();
-                Assert.NotEmpty(buttons);
                 Assert.All(buttons, b => Assert.Equal(DesignTokens.ControlRadius, b.CornerRadius.TopLeft));
-                // A window offers at most one filled amethyst action, so the main step is always obvious.
-                Assert.True(buttons.Count(b => b.Classes.Contains("accent")) <= 1, name);
+                var accent = Assert.Single(buttons, b => b.Classes.Contains("accent"));
+                Assert.Equal(primary, AutomationProperties.GetName(accent));
+                // The primary button is the rightmost one in the bottom bar.
+                var right = accent.TranslatePoint(new Point(accent.Bounds.Width, 0), window)!.Value.X;
+                Assert.All(buttons.Where(b => b != accent && b.TranslatePoint(default, window)!.Value.Y >= accent.TranslatePoint(default, window)!.Value.Y - 1),
+                    b => Assert.True(b.TranslatePoint(default, window)!.Value.X < right, AutomationProperties.GetName(b)));
                 Assert.All(window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text)),
                     t => Assert.DoesNotMatch(@"^[□○╱⌁↗①✎▰▦◇●−+↶↷↕⌖↓⧉×✓⛶▶Ⅱ■]$", t.Text!));
-                Preview(window, $"{name}-{theme.Key}");
+                Preview(window, name);
             }
         }
-        finally { foreach (var (_, window) in windows) window.Close(); controller.Main.Close(); }
+        finally { foreach (var (_, window, _) in windows) window.Close(); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void ConfirmDialogAsksAQuestionAndPaintsDestructiveActionsRed()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        var dialog = new ConfirmWindow("录屏尚未保存，是否放弃？", "放弃录屏", "放弃后本次录制的内容会被删除，无法恢复。", destructive: true);
+        dialog.Show(); dialog.UpdateLayout();
+        try
+        {
+            var buttons = dialog.GetVisualDescendants().OfType<Button>().ToArray();
+            Assert.Equal(["返回", "放弃录屏"], buttons.Select(b => AutomationProperties.GetName(b)));
+            Assert.DoesNotContain(buttons, b => b.Classes.Contains("accent"));
+            Assert.Equal(Color.Parse("#D9363E"), ((ISolidColorBrush)buttons[1].Resources["ButtonBackground"]!).Color);
+            Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "放弃后本次录制的内容会被删除，无法恢复。");
+            Preview(dialog, "confirm");
+        }
+        finally { dialog.Close(); }
+        var safe = new ConfirmWindow("现在打开安装程序？", "打开安装程序");
+        safe.Show();
+        try { Assert.Single(safe.GetVisualDescendants().OfType<Button>(), b => b.Classes.Contains("accent")); }
+        finally { safe.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void OnlyAFailureNoticeOffersToOpenTbox()
+    {
+        var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
+            .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
+        using var controller = new DesktopController(new FakePlatform(), lifetime);
+        controller.Main = new MainWindow(controller);
+        bool OffersOpen() => lifetime.Windows.OfType<FailureNotificationWindow>().Single().GetVisualDescendants().OfType<Button>()
+            .Any(b => AutomationProperties.GetName(b) == "打开 Tbox");
+        try
+        {
+            FailureNotificationWindow.ShowFailure(controller, "F6 被其他应用占用，请在主窗口查看原因。");
+            Assert.True(FailureNotificationWindow.IsShowing); Assert.True(OffersOpen());
+            Preview(lifetime.Windows.OfType<FailureNotificationWindow>().Single(), "notice-failure");
+            FailureNotificationWindow.ShowInfo(controller, "已复制截图。");
+            Assert.True(FailureNotificationWindow.IsShowing); Assert.False(OffersOpen());
+        }
+        finally { FailureNotificationWindow.Dismiss(); controller.Main.Close(); lifetime.Dispose(); }
     }
 
     [AvaloniaFact]

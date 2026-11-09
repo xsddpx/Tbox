@@ -261,6 +261,97 @@ internal static class Ui
     }
     public static T Column<T>(T control, int column) where T : Control { Grid.SetColumn(control, column); return control; }
 
+    // Result windows (spec ④) share the main window's structure: tinted window → header → white sheet → bottom bar.
+    public static Grid ResultHeader(IconKind icon, ToolTone tone, string title, TextBlock subtitle, Control? trailing = null)
+    {
+        subtitle.FontSize = DesignTokens.Caption; subtitle.LineHeight = 16;
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new TextBlock { Text = title, FontSize = DesignTokens.SectionTitle, LineHeight = 22, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#1A1B22") },
+            subtitle
+        } };
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 4, 20, 14),
+            Children = { IconChip(icon, tone, 40, 20), Column(titles, 1) } };
+        if (trailing is not null) { trailing.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(Column(trailing, 2)); }
+        return header;
+    }
+    public static Border Sheet(Control content) => new()
+    {
+        Child = content, Background = Brushes.White, CornerRadius = new CornerRadius(DesignTokens.PanelRadius), Margin = new Thickness(12, 0, 12, 0),
+        ClipToBounds = true, BoxShadow = BoxShadows.Parse("0 0 0 1 #0D101220, 0 10 30 0 #0F101220")
+    };
+    // Bottom bar: status on the left, buttons on the right with the primary one last.
+    public static Grid ResultBar(Control status, params Control[] actions)
+    {
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        foreach (var action in actions) { action.VerticalAlignment = VerticalAlignment.Center; buttons.Children.Add(action); }
+        status.VerticalAlignment = VerticalAlignment.Center;
+        return new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 12, 20, 14),
+            Children = { status, Column(buttons, 1) } };
+    }
+    // The window's own top strip: 16 px mark and title, sitting under the system caption buttons.
+    public static Grid TitleStrip(string title, Bitmap brand) => new()
+    {
+        Height = 34, IsHitTestVisible = false, Children =
+        {
+            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(OperatingSystem.IsMacOS() ? 78 : 14, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, Children =
+                {
+                    new Image { Source = brand, Width = 16, Height = 16 },
+                    new TextBlock { Text = title, FontSize = 12, Foreground = Brush.Parse("#3B3D49"), VerticalAlignment = VerticalAlignment.Center }
+                } }
+        }
+    };
+    public static Bitmap Brand()
+    {
+        using var asset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/StoreLogo.png"));
+        return new Bitmap(asset);
+    }
+    // Extends a result window under the title bar so the strip, header and sheet sit on one tinted surface.
+    public static void ExtendIntoTitleBar(Window window)
+    {
+        window.ExtendClientAreaToDecorationsHint = true; window.ExtendClientAreaTitleBarHeightHint = 34;
+    }
+
+    // 2–4 mutually exclusive choices (spec ②). The selected segment is a raised white chip.
+    public static Border Segmented(IReadOnlyList<string> options, int selected, Action<int> changed, out Func<int> current, out Action<bool> enable)
+    {
+        var buttons = new List<Button>();
+        var chips = new List<Border>();
+        var index = selected;
+        void Paint()
+        {
+            for (var i = 0; i < buttons.Count; i++)
+            {
+                var on = i == index;
+                chips[i].Background = on ? Brushes.White : Brushes.Transparent;
+                chips[i].BoxShadow = on ? BoxShadows.Parse("0 1 2 0 #1A101220, 0 0 0 1 #0A101220") : default;
+                buttons[i].FontWeight = on ? FontWeight.SemiBold : FontWeight.Normal;
+                buttons[i].Foreground = Brush.Parse(on ? "#1A1B22" : "#5F6270");
+                buttons[i].Resources["ButtonBackgroundPointerOver"] = on ? Brushes.Transparent : new SolidColorBrush(Colors.White, .6);
+            }
+        }
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        for (var i = 0; i < options.Count; i++)
+        {
+            var position = i;
+            var button = new Button { Content = options[i], Height = 26, MinHeight = 26, Padding = new Thickness(12, 0), FontSize = 13,
+                CornerRadius = new CornerRadius(7), BorderThickness = default, Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(button, options[i]);
+            button.Resources["ButtonBackgroundPressed"] = Brushes.Transparent;
+            foreach (var state in new[] { "PointerOver", "Pressed" }) button.Resources["ButtonForeground" + state] = Brush.Parse("#1A1B22");
+            button.Click += (_, _) => { if (index == position) return; index = position; Paint(); changed(position); };
+            var chip = new Border { CornerRadius = new CornerRadius(7), Child = button };
+            buttons.Add(button); chips.Add(chip); row.Children.Add(chip);
+        }
+        Paint();
+        current = () => index;
+        var surface = new Border { Padding = new Thickness(3), CornerRadius = new CornerRadius(9), Background = Brush.Parse("#F0EFF5"), Child = row,
+            VerticalAlignment = VerticalAlignment.Center };
+        enable = on => { surface.IsEnabled = on; surface.Opacity = on ? 1 : .5; };
+        return surface;
+    }
+
     // Soft violet banner holding a page's main entry (spec ③).
     public static Border Hero(Control content, double minHeight = 112) => new()
     {

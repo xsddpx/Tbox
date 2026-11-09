@@ -1,10 +1,9 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
-using Avalonia.Styling;
 using Avalonia.Threading;
 using LibVLCSharp.Avalonia;
 using LibVLCSharp.Shared;
@@ -23,11 +22,15 @@ internal sealed class RecordingReviewWindow : Window
     private readonly TimeSpan _duration;
     private readonly VideoView _video = new();
     private readonly Slider _position = new() { Minimum = 0, MinWidth = 100, VerticalAlignment = VerticalAlignment.Center };
-    private readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Value = 100, Width = 80 };
-    private readonly TextBlock _time = new() { Text = "00:00 / 00:00", FontSize = 12, Foreground = Ui.ToolbarText, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _status = new() { FontSize = 12, Foreground = Brush.Parse("#A6A9B6"), TextWrapping = TextWrapping.Wrap };
-    private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 4, IsVisible = false };
-    private readonly ComboBox _format = new() { ItemsSource = new[] { "GIF - 图像，兼容性高，质量较低", "WEBP - 图像，质量好，兼容性适中", "MP4 - 视频，体积小，质量好" }, SelectedIndex = 2, MinWidth = 300 };
+    private readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Value = 100, Width = 80, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _time = new() { Text = "00:00 / 00:00", FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _status = Ui.Description("");
+    private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 6, MinHeight = 6, Width = 140, CornerRadius = new CornerRadius(3), IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
+    // Format choice is a segmented control (spec ④); MP4 first because it is the default.
+    private static readonly RecordingExportFormat[] Formats = [RecordingExportFormat.Mp4, RecordingExportFormat.Gif, RecordingExportFormat.WebP];
+    private static readonly string[] FormatHints = ["视频，体积小，质量好", "图像，兼容性高，质量较低", "图像，质量好，兼容性适中"];
+    private readonly Func<int> _formatIndex;
+    private readonly Action<bool> _enableFormat;
     private readonly Button _play, _save, _cancelExport, _rerecord;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(200) };
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -45,29 +48,47 @@ internal sealed class RecordingReviewWindow : Window
     public RecordingReviewWindow(DesktopController controller, RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
     {
         _controller = controller; _workspace = workspace; _area = area; _output = output; _duration = duration;
-        Ui.Configure(this, $"Tbox 录屏 · {area.PixelWidth} × {area.PixelHeight} · {FormatTime(duration)} · {(output.HasSystemAudio ? "系统声音已启用" : "静音")}", 960, 720);
-        RequestedThemeVariant = ThemeVariant.Dark; Background = Ui.ToolbarBackground; MinWidth = 700; MinHeight = 450;
-        _play = Ui.ToolbarButton(IconKind.Play, "播放 / 暂停 · Space", () => controller.Run(TogglePlaybackAsync));
-        _save = Ui.Primary("保存", () => controller.Run(SaveAsync), "保存录屏 · Command / Ctrl + S");
+        Ui.Configure(this, "录屏 · Tbox", 900, 660);
+        MinWidth = 700; MinHeight = 480;
+        Ui.ExtendIntoTitleBar(this);
+        var brand = Ui.Brand();
+        // Only the video canvas stays dark; the frame is the light result-window frame.
+        _play = Ui.IconButton(IconKind.Play, "播放 / 暂停 · Space", () => controller.Run(TogglePlaybackAsync));
+        _play.Background = Brushes.White; _play.BorderBrush = Brush.Parse("#1F101220"); _play.BorderThickness = new Thickness(1);
+        _save = Ui.Primary("保存…", () => controller.Run(SaveAsync), "保存录屏 · Command / Ctrl + S");
         _cancelExport = Ui.Button("取消导出", () => _exportCancellation?.Cancel()); _cancelExport.IsVisible = false;
         _rerecord = Ui.Button("重新录制", () => controller.Run(async () =>
         {
             if (await RequestCloseAsync()) await controller.StartRecordingAsync(area);
         }));
         _position.Maximum = Math.Max(1, duration.TotalMilliseconds);
-        foreach (var name in new[] { "SliderTrackValueFill", "SliderTrackValueFillPointerOver", "SliderTrackValueFillPressed",
-            "SliderThumbBackground", "SliderThumbBackgroundPointerOver", "SliderThumbBackgroundPressed" })
+        foreach (var name in new[] { "SliderTrackValueFill", "SliderTrackValueFillPointerOver", "SliderTrackValueFillPressed" })
             _position.Resources[name] = Ui.RecordRed;
-        var playback = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 12 };
-        playback.Children.Add(_play); playback.Children.Add(_position); Grid.SetColumn(_position, 1);
-        playback.Children.Add(_time); Grid.SetColumn(_time, 2); playback.Children.Add(_volume); Grid.SetColumn(_volume, 3);
-        var exports = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 12 };
-        exports.Children.Add(_format); exports.Children.Add(_cancelExport); Grid.SetColumn(_cancelExport, 1);
-        exports.Children.Add(_rerecord); Grid.SetColumn(_rerecord, 2); exports.Children.Add(_save); Grid.SetColumn(_save, 3);
-        var footer = new StackPanel { Margin = new Thickness(16, 12, 16, 16), Spacing = 12, Children = { playback, exports, _progress, _status } };
-        DockPanel.SetDock(footer, Dock.Bottom);
-        var canvas = new Border { Background = Brushes.Black, Child = _video };
-        Content = new DockPanel { Children = { footer, canvas } };
+        foreach (var slider in new[] { _position, _volume })
+            foreach (var state in new[] { "", "PointerOver", "Pressed" })
+            {
+                slider.Resources["SliderThumbBackground" + state] = Brushes.White;
+                slider.Resources["SliderTrackFill" + state] = Brush.Parse("#E6E4EE");
+            }
+        var speaker = new LineIcon(output.HasSystemAudio ? IconKind.Speaker : IconKind.Mute, brush: Brush.Parse("#5F6270")) { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center };
+        var playback = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 12, 20, 4), Children =
+        {
+            _play, Ui.Column(_position, 1), Ui.Column(_time, 2), Ui.Column(speaker, 3), Ui.Column(_volume, 4)
+        } };
+        var hint = Ui.Description(FormatHints[0]); hint.FontSize = DesignTokens.Caption; hint.VerticalAlignment = VerticalAlignment.Center;
+        var format = Ui.Segmented(["MP4", "GIF", "WebP"], 0, index => hint.Text = FormatHints[index], out _formatIndex, out _enableFormat);
+        _status.FontSize = DesignTokens.Caption;
+        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { format, hint, _progress, _status } };
+        _status.VerticalAlignment = VerticalAlignment.Center; _status.TextWrapping = TextWrapping.NoWrap; _status.TextTrimming = TextTrimming.CharacterEllipsis;
+        var bar = Ui.ResultBar(left, _cancelExport, _save);
+
+        var size = $"{area.PixelWidth} × {area.PixelHeight} · {FormatTime(duration)} · {(output.HasSystemAudio ? "系统声音" : "静音")}";
+        var header = Ui.ResultHeader(IconKind.Record, ToolTone.Red, "录屏预览", Ui.Description(size), _rerecord);
+        var strip = Ui.TitleStrip("录屏 · Tbox", brand);
+        var canvas = new Border { Background = Brush.Parse("#111217"), CornerRadius = new CornerRadius(12), Margin = new Thickness(12, 0), ClipToBounds = true, Child = _video };
+        DockPanel.SetDock(strip, Dock.Top); DockPanel.SetDock(header, Dock.Top); DockPanel.SetDock(bar, Dock.Bottom); DockPanel.SetDock(playback, Dock.Bottom);
+        Content = new DockPanel { Children = { strip, header, bar, playback, canvas } };
+        Closed += (_, _) => brand.Dispose();
         _play.IsEnabled = false;
         Opened += (_, _) => _initialization = InitializePlaybackAsync();
         _timer.Tick += (_, _) => UpdatePlayback();
@@ -118,7 +139,7 @@ internal sealed class RecordingReviewWindow : Window
         var total = player.Length > 0 ? player.Length : _duration.TotalMilliseconds;
         _updating = true; _position.Maximum = Math.Max(1, total); _position.Value = Math.Max(0, player.Time); _updating = false;
         _time.Text = $"{FormatTime(TimeSpan.FromMilliseconds(Math.Max(0, player.Time)))} / {FormatTime(TimeSpan.FromMilliseconds(total))}";
-        _play.Content = new LineIcon(player.IsPlaying ? IconKind.Pause : IconKind.Play, brush: Ui.ToolbarText) { Width = 18, Height = 18 };
+        _play.Content = new LineIcon(player.IsPlaying ? IconKind.Pause : IconKind.Play, brush: Brush.Parse("#1A1B22")) { Width = 18, Height = 18 };
     }
 
     private async Task SaveAsync()
@@ -131,7 +152,7 @@ internal sealed class RecordingReviewWindow : Window
     private async Task SaveCoreAsync()
     {
         _saving = true; _exportCancellation = new CancellationTokenSource();
-        var format = _format.SelectedIndex switch { 0 => RecordingExportFormat.Gif, 1 => RecordingExportFormat.WebP, _ => RecordingExportFormat.Mp4 };
+        var format = Formats[_formatIndex()];
         var profile = RecordingExportProfiles.Get(format);
         try
         {
@@ -143,7 +164,7 @@ internal sealed class RecordingReviewWindow : Window
             });
             if (file is null) return;
             if (file.TryGetLocalPath() is not { } path) throw new InvalidOperationException("请选择本机可写入的文件位置。");
-            _save.IsEnabled = false; _format.IsEnabled = false; _rerecord.IsEnabled = false;
+            _save.IsEnabled = false; _enableFormat(false); _rerecord.IsEnabled = false;
             _cancelExport.IsVisible = true; _progress.IsVisible = true; _progress.Value = 0;
             _status.Text = format == RecordingExportFormat.Mp4 ? "正在保存…" : "正在转换图像…";
             var exported = await RecordingExporter.ExportAsync(_output.FilePath, _workspace.ExportPath(format), format, _duration,
@@ -156,7 +177,7 @@ internal sealed class RecordingReviewWindow : Window
         finally
         {
             _saving = false; _exportCancellation.Dispose(); _exportCancellation = null;
-            _save.IsEnabled = true; _format.IsEnabled = true; _rerecord.IsEnabled = true;
+            _save.IsEnabled = true; _enableFormat(true); _rerecord.IsEnabled = true;
             _cancelExport.IsVisible = false; _progress.IsVisible = false;
         }
     }
@@ -173,7 +194,7 @@ internal sealed class RecordingReviewWindow : Window
     {
         if (_closing) { await _released.Task; return true; }
         if (_saving) { _exportCancellation?.Cancel(); await _saveTask; if (_closing) { await _released.Task; return true; } }
-        if (!_saved && !await new ConfirmWindow("录屏尚未保存，是否放弃？", "放弃录屏").ShowDialog<bool>(this)) return false;
+        if (!_saved && !await new ConfirmWindow("录屏尚未保存，是否放弃？", "放弃录屏", "放弃后本次录制的内容会被删除，无法恢复。", destructive: true).ShowDialog<bool>(this)) return false;
         if (_closing) { await _released.Task; return true; }
         _closing = true; _timer.Stop();
         try

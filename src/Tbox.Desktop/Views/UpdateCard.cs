@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Layout;
@@ -130,8 +130,10 @@ internal sealed class UpdateCard : StackPanel
     private async Task InstallAsync(CancellationToken token)
     {
         if (_controller.HasOpenWorkForUpdate) throw new InvalidOperationException("请先完成截图、录屏并关闭贴图及结果窗口，再安装更新。");
-        var message = OperatingSystem.IsMacOS() ? "即将安装新版本并重启 Tbox。已有设置和缓存将保留。" : "即将打开 Windows 安装程序。请确认升级，完成后重新打开 Tbox。";
-        if (!await new ConfirmWindow(message, "继续安装").ShowDialog<bool>(Owner)) return;
+        var confirm = OperatingSystem.IsMacOS()
+            ? new ConfirmWindow("现在安装并重启 Tbox？", "安装并重启", "已有设置和缓存会保留。")
+            : new ConfirmWindow("现在打开安装程序？", "打开安装程序", "在 Windows 安装程序中确认升级，完成后重新打开 Tbox。");
+        if (!await confirm.ShowDialog<bool>(Owner)) return;
         token.ThrowIfCancellationRequested();
         Detail("正在验证安装包与应用身份…"); _progress.IsVisible = true; _progress.IsIndeterminate = true;
         using var prepared = await UpdateInstaller.PrepareAsync(_file!, _release!, token);
