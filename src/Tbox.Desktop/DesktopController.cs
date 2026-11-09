@@ -24,6 +24,7 @@ public sealed class DesktopController : IDisposable
     private readonly IFolderNavigation _folders;
     private readonly IStartupRegistration _startup;
     private readonly HotkeyConfiguration _hotkeys;
+    private bool _recordingShortcut;
     private readonly SemaphoreSlim _moduleChanges = new(1);
     private readonly List<PinnedWindow> _pins = [];
     private CaptureSession? _capture;
@@ -88,6 +89,7 @@ public sealed class DesktopController : IDisposable
         if (!args.Contains("--smoke-test"))
         {
             ApplyHotkeys(_settings);
+            ShortcutsChanged?.Invoke();
             if (_settings.FolderJumpEnabled) _folders.Start();
             if (HasHotkeyConflict) Main.SetStatus("部分快捷键被其他应用占用，可在主窗口修改或直接启动工具。");
             Main.Refresh();
@@ -120,6 +122,7 @@ public sealed class DesktopController : IDisposable
 
     private void OnHotkey(HotkeyAction action) => Dispatcher.UIThread.Post(() =>
     {
+        if (_recordingShortcut) return;
         if (action == HotkeyAction.Capture) Run(CaptureAsync);
         if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
         if (action == HotkeyAction.Toggle) TogglePins();
@@ -127,13 +130,30 @@ public sealed class DesktopController : IDisposable
     });
 
     // Every shortcut whose module is on, at its saved or default combination.
-    private void ApplyHotkeys(AppSettings settings) => _hotkeys.Apply(ShortcutPolicy.Actions
-        .Where(action => action == HotkeyAction.Folder ? settings.FolderJumpEnabled : settings.ScreenPasteEnabled)
-        .Select(action => new HotkeyBinding(action, ShortcutPolicy.Effective(settings.Hotkeys, action, OperatingSystem.IsMacOS()))));
+    private void ApplyHotkeys(AppSettings settings)
+    {
+        if (_recordingShortcut) return;
+        _hotkeys.Apply(ShortcutPolicy.Actions
+            .Where(action => action == HotkeyAction.Folder ? settings.FolderJumpEnabled : settings.ScreenPasteEnabled)
+            .Select(action => new HotkeyBinding(action, ShortcutPolicy.Effective(settings.Hotkeys, action, OperatingSystem.IsMacOS()))));
+    }
 
-    // Frees one shortcut while the main window records a new combination, so pressing the current keys does not fire it.
-    public void PauseHotkey(HotkeyAction action) => _hotkeys.Release(action);
-    public void ResumeHotkeys() { ApplyHotkeys(_settings); Main.Refresh(); }
+    // Let the recorder receive combinations that Tbox would otherwise handle globally.
+    internal bool TryPauseHotkeys()
+    {
+        if (_recordingShortcut) return false;
+        _recordingShortcut = true;
+        _hotkeys.Apply([]);
+        return true;
+    }
+
+    internal void ResumeHotkeys()
+    {
+        _recordingShortcut = false;
+        if (IsQuitting) return;
+        ApplyHotkeys(_settings);
+        Main.Refresh();
+    }
 
     // Saves a new combination (null = platform default). Returns the reason when it cannot be used; the old shortcut stays.
     public async Task<string?> SetShortcutAsync(HotkeyAction action, Shortcut? shortcut)
@@ -141,15 +161,18 @@ public sealed class DesktopController : IDisposable
         var mac = OperatingSystem.IsMacOS();
         var target = shortcut ?? ShortcutPolicy.Default(action, mac);
         if (ShortcutPolicy.Validate(target, mac) is { } invalid) return invalid;
-        var taken = ShortcutPolicy.Actions.Where(other => other != action && ShortcutFor(other) == target).ToArray();
-        if (taken.Length > 0) return $"已被“{ShortcutPolicy.Name(taken[0])}”使用。";
         await _moduleChanges.WaitAsync(_stop.Token);
         try
         {
+            foreach (var other in ShortcutPolicy.Actions)
+                if (other != action && ShortcutFor(other) == target)
+                    return $"已被“{ShortcutPolicy.Name(other)}”使用。";
+
             var previous = _settings;
             var enabled = action == HotkeyAction.Folder ? previous.FolderJumpEnabled : previous.ScreenPasteEnabled;
-            if (enabled && !_hotkeys.TryChange(action, target, ShortcutFor(action)))
+            if (!_hotkeys.TryChange(action, target, enabled && !_recordingShortcut ? ShortcutFor(action) : null))
                 return $"{target.Display(mac)} 已被其他应用占用，请换一个组合。";
+            if (!enabled) _hotkeys.Release(action);
             // Store only the overrides; a default choice clears the entry so platform defaults keep applying.
             var saved = (previous.Hotkeys ?? new HotkeyBindings()).With(action, target == ShortcutPolicy.Default(action, mac) ? null : target);
             var updated = previous with { Hotkeys = saved == new HotkeyBindings() ? null : saved };

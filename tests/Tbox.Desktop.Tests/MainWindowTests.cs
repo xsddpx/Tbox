@@ -150,42 +150,54 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public async Task RecordingAShortcutPausesTheHotkeySavesItAndUpdatesEveryLabel()
+    public async Task RecordingAShortcutPausesTboxHotkeysSavesItAndUpdatesLabels()
     {
         var platform = new FakePlatform { HasScreenPermission = true };
         using var scope = new Scope(platform);
         var controller = scope.Controller; var main = controller.Main;
-        await controller.InitializeAsync([]);
+        await scope.InitializeAsync();
         controller.ShowMain(); Layout(main);
         var row = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>(), r => Name(r.Recorder) == "修改截图快捷键");
-        Assert.Equal(["F6"], Caps(row));
+        var mac = OperatingSystem.IsMacOS();
+        var captureDefault = ShortcutPolicy.Default(HotkeyAction.Capture, mac);
+        Assert.Equal(captureDefault.Caps(mac), Caps(row));
         var changed = 0; controller.ShortcutsChanged += () => changed++;
 
-        // While recording the old key is free, so pressing F6 does not start a capture.
+        // All of Tbox's combinations reach the recorder during editing.
         row.Recorder.Start();
-        Assert.False(platform.Hotkeys.ContainsKey(HotkeyAction.Capture));
+        Assert.Empty(platform.Hotkeys);
+        platform.HotkeyHandler!(HotkeyAction.Capture);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, platform.CaptureRequests);
         Assert.Equal("按 Esc 取消", row.Description);
         Layout(main); TaskToolbarTests.Preview(main, "main-shortcut-recording");
-        row.Recorder.Stop();
-        Assert.Equal(new Shortcut(false, false, false, false, "F6"), platform.Hotkeys[HotkeyAction.Capture]);
+        row.Recorder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Assert.False(row.Recorder.IsRecording);
+        Assert.Equal(4, platform.Hotkeys.Count);
+        Assert.Equal(captureDefault, platform.Hotkeys[HotkeyAction.Capture]);
 
         // A combination already used by another Tbox shortcut is refused and the old one stays.
-        await Press(row, Key.F7);
+        await Press(row, mac ? Key.D2 : Key.F7, mac ? KeyModifiers.Control | KeyModifiers.Shift : KeyModifiers.None);
         Assert.Equal("已被“贴出剪贴板”使用。", row.Description);
-        Assert.Equal(["F6"], Caps(row));
+        Assert.Equal(captureDefault.Caps(mac), Caps(row));
 
         // One held by another application is refused too.
-        platform.TakenShortcuts.Add(new Shortcut(false, true, false, false, "S"));
+        var taken = new Shortcut(false, true, false, false, "S");
+        platform.TakenShortcuts.Add(taken);
         await Press(row, Key.S, KeyModifiers.Alt);
-        Assert.Equal("Alt+S 已被其他应用占用，请换一个组合。", row.Description);
-        Assert.Equal(new Shortcut(false, false, false, false, "F6"), platform.Hotkeys[HotkeyAction.Capture]);
+        Assert.Equal($"{taken.Display(mac)} 已被其他应用占用，请换一个组合。", row.Description);
+        Assert.Equal(captureDefault, platform.Hotkeys[HotkeyAction.Capture]);
+
+        await Press(row, Key.NumPad5, KeyModifiers.Control);
+        Assert.Contains("不支持这个按键", row.Description);
+        Assert.Equal(captureDefault, platform.Hotkeys[HotkeyAction.Capture]);
 
         await Press(row, Key.A, KeyModifiers.Control | KeyModifiers.Shift);
         var chosen = new Shortcut(true, false, true, false, "A");
         Assert.Equal(chosen, platform.Hotkeys[HotkeyAction.Capture]);
         Assert.Equal(chosen, controller.Settings.Hotkeys!.Capture);
-        Assert.Equal(["Ctrl", "Shift", "A"], Caps(row));
-        Assert.Equal("截图 · Ctrl+Shift+A", Name(Find(main, "截图")));
+        Assert.Equal(chosen.Caps(mac), Caps(row));
+        Assert.Equal($"截图 · {chosen.Display(mac)}", Name(Find(main, "截图")));
         Assert.Equal(1, changed);
 
         // "恢复默认" appears only for a changed shortcut and clears the saved override.
@@ -193,18 +205,37 @@ public sealed class MainWindowTests
         Assert.True(reset.IsVisible);
         await row.Recorder.ResetAsync(); Layout(main);
         Assert.Null(controller.Settings.Hotkeys);
-        Assert.Equal(new Shortcut(false, false, false, false, "F6"), platform.Hotkeys[HotkeyAction.Capture]);
+        Assert.Equal(captureDefault, platform.Hotkeys[HotkeyAction.Capture]);
         Assert.False(reset.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task StartingWithSavedShortcutsRefreshesTheMenuAndButtonLabels()
+    {
+        var platform = new FakePlatform { HasScreenPermission = true };
+        using var scope = new Scope(platform);
+        var controller = scope.Controller;
+        var saved = new Shortcut(true, true, false, false, "K");
+        string? menuLabel = null;
+        controller.ShortcutsChanged += () => menuLabel = ShortcutLabels.Capture;
+
+        await scope.InitializeAsync(new HotkeyBindings(Capture: saved));
+        controller.ShowMain(); Layout(controller.Main);
+
+        var display = saved.Display(OperatingSystem.IsMacOS());
+        Assert.Equal(saved, platform.Hotkeys[HotkeyAction.Capture]);
+        Assert.Equal(display, menuLabel);
+        Assert.Equal($"截图 · {display}", Name(Find(controller.Main, "截图")));
     }
 
     [AvaloniaFact]
     public async Task AShortcutHeldElsewhereIsReportedOnItsOwnRowAndTheOthersStillWork()
     {
         var platform = new FakePlatform { HasScreenPermission = true };
-        platform.TakenShortcuts.Add(new Shortcut(false, false, false, false, "F7"));
+        platform.TakenShortcuts.Add(ShortcutPolicy.Default(HotkeyAction.Pin, OperatingSystem.IsMacOS()));
         using var scope = new Scope(platform);
         var controller = scope.Controller; var main = controller.Main;
-        await controller.InitializeAsync([]);
+        await scope.InitializeAsync();
         controller.ShowMain(); Layout(main);
         Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Capture)); Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Folder));
         var rows = main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>().ToDictionary(r => Name(r.Recorder)!);
@@ -281,6 +312,15 @@ public sealed class MainWindowTests
             Controller = new DesktopController(platform, Lifetime, Path.Combine(_settings, "settings.json"));
             Controller.UseCacheDirectoryForTests(directory ?? Path.Combine(_settings, "cache"));
             Controller.Main = new MainWindow(Controller);
+        }
+        public async Task InitializeAsync(HotkeyBindings? hotkeys = null)
+        {
+            await new JsonSettingsStore(Path.Combine(_settings, "settings.json")).SaveAsync(new AppSettings
+            {
+                ScreenCaptureCacheDirectory = Path.Combine(_settings, "cache"),
+                Hotkeys = hotkeys
+            });
+            await Controller.InitializeAsync([]);
         }
         public void Dispose()
         {

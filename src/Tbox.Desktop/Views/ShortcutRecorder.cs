@@ -9,7 +9,7 @@ using Tbox.Core;
 namespace Tbox.Desktop.Views;
 
 // A settings-row control for one global shortcut: key caps when idle; click to record a new combination.
-// While recording the current hotkey is released so pressing it does not start the tool. Esc cancels.
+// While recording, Tbox hotkeys are released so they can be checked for duplicates. Esc cancels.
 internal sealed class ShortcutRecorder : Button
 {
     private readonly DesktopController _controller;
@@ -52,14 +52,14 @@ internal sealed class ShortcutRecorder : Button
 
     public void Start()
     {
-        if (IsRecording) return;
-        IsRecording = true; _controller.PauseHotkey(_action);
+        if (_saving || IsRecording || !_controller.TryPauseHotkeys()) return;
+        IsRecording = true;
         Focus(); Refresh(); RecordingChanged?.Invoke();
     }
 
     public void Stop()
     {
-        if (!IsRecording) return;
+        if (_saving || !IsRecording) return;
         IsRecording = false; _controller.ResumeHotkeys(); Refresh(); RecordingChanged?.Invoke();
     }
 
@@ -67,9 +67,16 @@ internal sealed class ShortcutRecorder : Button
     {
         if (!IsRecording) { base.OnKeyDown(e); return; }
         e.Handled = true;
+        if (_saving) return;
         if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None) { Stop(); return; }
-        // Modifiers alone wait for the main key.
-        if (KeyName(e.Key) is not { } key) return;
+        if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
+            or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin) return;
+        if (KeyName(e.Key) is not { } key)
+        {
+            Stop();
+            Finished?.Invoke("不支持这个按键，请使用字母、主键区数字或 F1–F12。");
+            return;
+        }
         var shortcut = new Shortcut((e.KeyModifiers & KeyModifiers.Control) != 0, (e.KeyModifiers & KeyModifiers.Alt) != 0,
             (e.KeyModifiers & KeyModifiers.Shift) != 0, (e.KeyModifiers & KeyModifiers.Meta) != 0, key);
         _ = SaveAsync(shortcut);
@@ -77,12 +84,18 @@ internal sealed class ShortcutRecorder : Button
 
     private async Task SaveAsync(Shortcut? shortcut)
     {
+        if (_saving) return;
         _saving = true;
         string? error;
         try { error = await _controller.SetShortcutAsync(_action, shortcut); }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { error = "无法保存设置：" + exception.Message; }
-        finally { _saving = false; }
-        IsRecording = false; _controller.ResumeHotkeys(); Refresh();
+        catch (OperationCanceledException) { return; }
+        finally
+        {
+            _saving = false;
+            if (IsRecording) Stop();
+        }
+        Refresh();
         Finished?.Invoke(error);
     }
 
@@ -92,7 +105,6 @@ internal sealed class ShortcutRecorder : Button
     {
         >= Key.A and <= Key.Z => ((char)('A' + (key - Key.A))).ToString(),
         >= Key.D0 and <= Key.D9 => ((char)('0' + (key - Key.D0))).ToString(),
-        >= Key.NumPad0 and <= Key.NumPad9 => ((char)('0' + (key - Key.NumPad0))).ToString(),
         >= Key.F1 and <= Key.F12 => $"F{1 + (key - Key.F1)}",
         Key.PrintScreen => "PrintScreen",
         _ => null

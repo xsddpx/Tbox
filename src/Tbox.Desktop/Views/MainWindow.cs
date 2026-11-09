@@ -3,10 +3,13 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.VisualTree;
 using Tbox.Core;
 using Tbox.Desktop.Models;
 
@@ -105,8 +108,17 @@ public sealed class MainWindow : Window
         Navigate(MainPage.Capture);
         Refresh();
 
+        AddHandler(PointerPressedEvent, (_, args) =>
+        {
+            var source = args.Source as Visual;
+            foreach (var row in _shortcuts.Values)
+                if (source != row.Recorder && source?.GetVisualAncestors().Contains(row.Recorder) != true)
+                    row.Recorder.Stop();
+        }, RoutingStrategies.Tunnel);
+        Deactivated += (_, _) => StopRecordingShortcut();
         Closing += (_, args) =>
         {
+            StopRecordingShortcut();
             if (!controller.IsQuitting && args.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined)
             {
                 args.Cancel = true;
@@ -135,10 +147,16 @@ public sealed class MainWindow : Window
 
     internal void Navigate(MainPage page)
     {
+        StopRecordingShortcut();
         CurrentPage = page;
         _body.Content = _pages[page];
         foreach (var (key, item) in _nav) item.Selected = key == page;
         SetStatus("");
+    }
+
+    private void StopRecordingShortcut()
+    {
+        foreach (var row in _shortcuts.Values) row.Recorder.Stop();
     }
 
     public void SetStatus(string message)
