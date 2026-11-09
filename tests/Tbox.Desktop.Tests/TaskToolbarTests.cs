@@ -35,6 +35,7 @@ public sealed class TaskToolbarTests
         var position = hint.TranslatePoint(default, window)!.Value;
         Assert.Equal(inset + 18, position.Y);
         Assert.InRange(Math.Abs(window.Bounds.Width / 2 - position.X - hint.Bounds.Width / 2), 0, 0.5);
+        if (preset is null && inset > 0) Preview(window, "task-capture-safe-area");
     }
 
     [AvaloniaFact]
@@ -86,13 +87,54 @@ public sealed class TaskToolbarTests
     }
 
     [AvaloniaFact]
-    public void PinToolbarIsTheShortEditingSet()
+    public void PinToolbarRequiresSelectionAndSpaceAndShowsTheFullEditingSet()
     {
-        using var picture = DesktopController.RenderText("pin");
-        var editor = new AnnotationEditor();
-        var toolbar = new AnnotationToolbar(editor, () => { }, AnnotationToolbar.PinTools, sizes: false);
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", () => { }));
-        Assert.Equal(["矩形", "箭头", "画笔", "文字", "马赛克", "|", "颜色", "|", "撤销", "重做", "|", "识别文字"], Names(toolbar));
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
+            .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
+        using var controller = new DesktopController(new FakePlatform(), lifetime);
+        var pin = new PinnedWindow(controller, DesktopController.RenderText("Tbox pin")) { ShowActivated = false };
+        pin.Show(); Layout(pin);
+        try
+        {
+            var point = new Point(12, 12);
+            pin.MouseMove(point, RawInputModifiers.None);
+            Assert.False(pin.IsSelected);
+            pin.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Space });
+            Assert.False(pin.CanAnnotate);
+
+            pin.Activate();
+            pin.MouseDown(point, MouseButton.Left, RawInputModifiers.None);
+            pin.MouseUp(point, MouseButton.Left, RawInputModifiers.None);
+            Assert.True(pin.IsSelected);
+            pin.MouseMove(new Point(18, 12), RawInputModifiers.None);
+            Assert.False(pin.CanAnnotate);
+            pin.KeyPress(Key.Space, RawInputModifiers.Shift, PhysicalKey.Space, null);
+            Assert.False(pin.CanAnnotate);
+            pin.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.Space, null);
+            Assert.True(pin.CanAnnotate);
+
+            var window = Assert.Single(lifetime.Windows, w => w.Title == "Tbox 贴图工具条");
+            Layout(window);
+            var rows = Assert.IsType<StackPanel>(window.Content).Children;
+            Assert.Equal(["矩形", "椭圆", "箭头", "直线", "画笔", "高亮", "马赛克", "文字", "序号", "橡皮擦", "|", "颜色", "减小粗细", "增大粗细", "|", "撤销", "重做"], Names(rows[0]));
+            Assert.Equal(["识别文字", "保存", "复制图片", "|", "完成"], Names(rows[1]));
+            Assert.True(rows[1].Bounds.Y > rows[0].Bounds.Y);
+            Assert.All(rows, row => Assert.True(row.Bounds.Right <= window.ClientSize.Width));
+            var ellipse = rows[0].GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "椭圆");
+            Click(ellipse);
+            Assert.Equal(AnnotationTool.Ellipse, pin.Editor.Tool);
+            Click(ellipse);
+            Preview(window, "task-pin-toolbar");
+
+            pin.MouseMove(new Point(-10, -10), RawInputModifiers.None);
+            Assert.True(pin.CanAnnotate);
+            pin.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.Space, null);
+            Assert.False(pin.CanAnnotate);
+            Assert.True(pin.IsVisible);
+        }
+        finally { pin.Close(); }
     }
 
     [AvaloniaFact]

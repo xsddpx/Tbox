@@ -129,7 +129,6 @@ public sealed class UnifiedDesignTests
     {
         var editor = new AnnotationEditor();
         var toolbar = new AnnotationToolbar(editor, () => { });
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Copy, "复制图片", () => { }));
         var window = new Window { Content = toolbar, SizeToContent = SizeToContent.WidthAndHeight, RequestedThemeVariant = ThemeVariant.Dark };
         window.Show(); window.UpdateLayout();
         try

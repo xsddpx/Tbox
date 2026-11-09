@@ -5,7 +5,7 @@
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   IgnorableNamespaces="uap uap5 rescap">
   <!-- Retain the original family and App ID so this is an upgrade, not a second app. -->
-  <Identity Name="Tbox" Publisher="CN=Tbox Development" Version="1.1.28.0" ProcessorArchitecture="x64" />
+  <Identity Name="Tbox" Publisher="CN=Tbox Development" Version="1.1.29.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>Tbox</DisplayName>
     <PublisherDisplayName>Tbox</PublisherDisplayName>
