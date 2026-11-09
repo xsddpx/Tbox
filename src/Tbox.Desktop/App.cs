@@ -42,16 +42,18 @@ public sealed class App : Application
             void OnActivated(object? sender, ActivatedEventArgs args) => RestoreOnReopen(_controller, args);
             if (activation is not null) activation.Activated += OnActivated;
             // A primary click opens the main window; secondary click keeps a native menu with the quick actions and quit.
-            (string? Title, Action Action)[] menu =
+            // Titles are functions because the shortcuts in them can be changed in the main window.
+            (Func<string>? Title, Action Action)[] menu =
             [
-                ("打开 Tbox", _controller.ShowMain), (null, () => { }),
-                ($"区域截图   {ShortcutLabels.Capture}", () => _controller.Run(_controller.CaptureAsync)),
-                ($"剪贴板贴图   {ShortcutLabels.Pin}", () => _controller.Run(_controller.PinClipboardAsync)),
-                ($"隐藏 / 显示贴图   {ShortcutLabels.Toggle}", _controller.TogglePins), (null, () => { }),
-                ("退出 Tbox", _controller.Quit)
+                (() => "打开 Tbox", _controller.ShowMain), (null, () => { }),
+                (() => $"区域截图   {ShortcutLabels.Capture}", () => _controller.Run(_controller.CaptureAsync)),
+                (() => $"剪贴板贴图   {ShortcutLabels.Pin}", () => _controller.Run(_controller.PinClipboardAsync)),
+                (() => $"隐藏 / 显示贴图   {ShortcutLabels.Toggle}", _controller.TogglePins), (null, () => { }),
+                (() => "退出 Tbox", _controller.Quit)
             ];
             if (OperatingSystem.IsMacOS()) CreateStatusItem(_controller, menu);
             else CreateTrayIcon(_controller, menu);
+            _controller.ShortcutsChanged += () => RetitleMenu(menu);
             lifetime.Exit += (_, _) =>
             {
                 if (activation is not null) activation.Activated -= OnActivated;
@@ -76,13 +78,13 @@ public sealed class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    private void CreateTrayIcon(DesktopController controller, (string? Title, Action Action)[] entries)
+    private void CreateTrayIcon(DesktopController controller, (Func<string>? Title, Action Action)[] entries)
     {
         var menu = new NativeMenu();
         foreach (var (title, action) in entries)
         {
             if (title is null) { menu.Add(new NativeMenuItemSeparator()); continue; }
-            var item = new NativeMenuItem(title);
+            var item = new NativeMenuItem(title());
             item.Click += (_, _) => action();
             menu.Add(item);
         }
@@ -92,13 +94,24 @@ public sealed class App : Application
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
     }
 
-    private void CreateStatusItem(DesktopController controller, (string? Title, Action Action)[] entries)
+    private void RetitleMenu((Func<string>? Title, Action Action)[] entries)
+    {
+        var titles = entries.Where(entry => entry.Title is not null).Select(entry => entry.Title!()).ToArray();
+        if (_tray?.Menu is { } menu)
+        {
+            var items = menu.Items.OfType<NativeMenuItem>().ToArray();
+            for (var index = 0; index < items.Length && index < titles.Length; index++) items[index].Header = titles[index];
+        }
+        for (var index = 0; _statusItem is not null && index < titles.Length; index++) _statusItem.Retitle(index + 1, titles[index]);
+    }
+
+    private void CreateStatusItem(DesktopController controller, (Func<string>? Title, Action Action)[] entries)
     {
         using var asset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/MenuBarIcon.png"));
         using var png = new MemoryStream(); asset.CopyTo(png);
         var actions = entries.Where(entry => entry.Title is not null).Select(entry => entry.Action).ToArray();
         // The approved monochrome silhouette is drawn as a template image with the system menu bar tint.
-        _statusItem = new MacStatusItem(png.ToArray(), "Tbox", entries.Select(entry => entry.Title).ToArray(),
+        _statusItem = new MacStatusItem(png.ToArray(), "Tbox", entries.Select(entry => entry.Title?.Invoke()).ToArray(),
             () => Dispatcher.UIThread.Post(controller.ShowMain),
             command => Dispatcher.UIThread.Post(() => { if (command <= actions.Length) actions[command - 1](); }));
     }

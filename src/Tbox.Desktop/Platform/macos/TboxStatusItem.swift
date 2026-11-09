@@ -58,6 +58,13 @@ public func statusItemCreate(_ png: UnsafeRawPointer?, _ length: Int32, _ toolti
     return 1
 }
 
+// Retitles menu choice `tag` (1...n), e.g. after a shortcut changes.
+@_cdecl("tbox_status_item_retitle")
+public func statusItemRetitle(_ tag: Int32, _ title: UnsafePointer<CChar>?) {
+    guard let title = title, let entry = statusMenu?.item(withTag: Int(tag)) else { return }
+    entry.title = String(cString: title)
+}
+
 @_cdecl("tbox_status_item_remove")
 public func statusItemRemove() {
     if let item = statusItem { NSStatusBar.system.removeStatusItem(item) }

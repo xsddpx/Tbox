@@ -129,11 +129,13 @@ public sealed class WindowsPlatformServices : IPlatformServices
         finally { _recognitionLock.Release(); }
     }
 
-    public bool RegisterHotkeys(Action<int> onHotkey, int mask = 7)
+    public bool RegisterHotkey(HotkeyBinding binding, Action<HotkeyAction> onPressed)
     {
-        _hotkeys?.Dispose(); _hotkeys = new WindowsHotkeys(onHotkey);
-        return _hotkeys.Register(mask);
+        _hotkeys ??= new WindowsHotkeys(onPressed);
+        _hotkeys.Unregister(binding.Action);
+        return _hotkeys.Register(binding);
     }
+    public void UnregisterHotkey(HotkeyAction action) => _hotkeys?.Unregister(action);
 
     public void PlaceWindow(nint handle, DesktopPlacement p, bool overlay)
     {

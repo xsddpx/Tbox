@@ -1,19 +1,20 @@
 #if WINDOWS
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Tbox.Core;
 
 namespace Tbox.Desktop.Platform;
 
 internal sealed class WindowsHotkeys : IDisposable
 {
-    private readonly Action<int> _callback;
+    private readonly Action<HotkeyAction> _callback;
     private readonly WindowProc _windowProc;
     private readonly string _className = $"Tbox.Desktop.Hotkeys.{Guid.NewGuid():N}";
     private readonly nint _module = GetModuleHandle(null);
     private nint _window;
     private bool _disposed;
 
-    public WindowsHotkeys(Action<int> callback)
+    public WindowsHotkeys(Action<HotkeyAction> callback)
     {
         _callback = callback; _windowProc = Dispatch;
         var definition = new WindowClass { Size = (uint)Marshal.SizeOf<WindowClass>(), Instance = _module,
@@ -26,25 +27,24 @@ internal sealed class WindowsHotkeys : IDisposable
         }
     }
 
-    public bool Register(int mask)
+    // Registers one shortcut under its action id; false when the system or another application holds it.
+    // RegisterHotKey keeps an older combination under the same id, so the caller unregisters first.
+    public bool Register(HotkeyBinding binding)
     {
-        for (var id = 1; id <= 4; id++)
-        {
-            if ((mask & (1 << (id - 1))) == 0) continue;
-            // Preserve existing Windows shortcuts F6/F7/F8. MOD_NOREPEAT prevents key-repeat.
-            if (RegisterHotKey(_window, id, id == 4 ? 0x4002u : 0x4000u, id == 4 ? 0x47u : (uint)(0x74 + id))) continue;
-            for (var previous = 1; previous < id; previous++) UnregisterHotKey(_window, previous);
-            return false;
-        }
-        return true;
+        var shortcut = binding.Shortcut;
+        // MOD_ALT 1, MOD_CONTROL 2, MOD_SHIFT 4, MOD_WIN 8; MOD_NOREPEAT prevents key-repeat.
+        var modifiers = 0x4000u | (shortcut.Alt ? 1u : 0) | (shortcut.Control ? 2u : 0) | (shortcut.Shift ? 4u : 0) | (shortcut.Meta ? 8u : 0);
+        return ShortcutPolicy.WindowsKeyCode(shortcut.Key) is { } key && RegisterHotKey(_window, (int)binding.Action, modifiers, (uint)key);
     }
+
+    public void Unregister(HotkeyAction action) => UnregisterHotKey(_window, (int)action);
 
     private nint Dispatch(nint window, uint message, nint wParam, nint lParam)
     {
         if (message == 0x0312)
         {
             // Never let managed exceptions cross an unmanaged window-procedure boundary.
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => _callback((int)wParam)); return 0;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => _callback((HotkeyAction)(int)wParam)); return 0;
         }
         return DefWindowProc(window, message, wParam, lParam);
     }
@@ -53,7 +53,7 @@ internal sealed class WindowsHotkeys : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        for (var id = 1; id <= 4; id++) UnregisterHotKey(_window, id);
+        foreach (var action in ShortcutPolicy.Actions) UnregisterHotKey(_window, (int)action);
         DestroyWindow(_window); _window = 0; UnregisterClass(_className, _module);
     }
 

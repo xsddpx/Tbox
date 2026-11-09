@@ -24,6 +24,7 @@ public sealed class DesktopController : IDisposable
     private readonly IFolderNavigation _folders;
     private readonly IStartupRegistration _startup;
     private readonly HotkeyConfiguration _hotkeys;
+    private bool _recordingShortcut;
     private readonly SemaphoreSlim _moduleChanges = new(1);
     private readonly List<PinnedWindow> _pins = [];
     private CaptureSession? _capture;
@@ -55,14 +56,23 @@ public sealed class DesktopController : IDisposable
     public int PinCount => _pins.Count;
     public bool PinsHidden => _pinsHidden;
     public StartupState Startup { get; private set; } = new(false);
-    public bool HasHotkeyConflict => _hotkeys.Applied && _hotkeys.ActiveMask != ((_settings.ScreenPasteEnabled ? 7 : 0) | (_settings.FolderJumpEnabled ? 8 : 0));
+    public bool HasHotkeyConflict => HasConflictIn(capture: true) || HasConflictIn(capture: false);
+    // Capture, pin and toggle belong to the capture page; folder jump to its own page.
+    public bool HasConflictIn(bool capture) => _hotkeys.Conflicts.Any(action => (action != HotkeyAction.Folder) == capture);
+    public bool HasHotkeyConflictFor(HotkeyAction action) => _hotkeys.Conflicts.Contains(action);
+    public Shortcut ShortcutFor(HotkeyAction action) => ShortcutPolicy.Effective(_settings.Hotkeys, action, OperatingSystem.IsMacOS());
+    public bool IsDefaultShortcut(HotkeyAction action) => ShortcutFor(action) == ShortcutPolicy.Default(action, OperatingSystem.IsMacOS());
+    // Raised after a shortcut changes so labels (tray menu, buttons, hints) can follow.
+    public event Action? ShortcutsChanged;
 
     public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime, string? settingsPath = null)
     {
         Platform = platform; _lifetime = lifetime;
         _folders = platform.CreateFolderNavigation();
         _startup = platform.CreateStartupRegistration();
-        _hotkeys = new HotkeyConfiguration(mask => platform.RegisterHotkeys(OnHotkey, mask));
+        _hotkeys = new HotkeyConfiguration(binding => platform.RegisterHotkey(binding, OnHotkey), platform.UnregisterHotkey);
+        // Tooltips and labels across the windows read the shortcuts from this controller's settings.
+        ShortcutLabels.Bindings = () => _settings.Hotkeys;
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         _settingsPath = settingsPath ?? Path.Combine(local, "Tbox", "desktop-settings.json");
         _legacySettingsPath = settingsPath is null && OperatingSystem.IsWindows() ? Path.Combine(local, "Tbox", "settings.json") : null;
@@ -78,9 +88,10 @@ public sealed class DesktopController : IDisposable
         _cache = CreateCache(_settings.ScreenCaptureCacheDirectory);
         if (!args.Contains("--smoke-test"))
         {
-            var hotkeys = _hotkeys.TryChange(_settings.ScreenPasteEnabled, _settings.FolderJumpEnabled);
+            ApplyHotkeys(_settings);
+            ShortcutsChanged?.Invoke();
             if (_settings.FolderJumpEnabled) _folders.Start();
-            if (!hotkeys) Main.SetStatus("快捷键被占用。可在主窗口或托盘菜单启动工具。");
+            if (HasHotkeyConflict) Main.SetStatus("部分快捷键被其他应用占用，可在主窗口修改或直接启动工具。");
             Main.Refresh();
             await RefreshStartupAsync();
             var location = await Task.Run(() => CacheLocation.Prepare(_cache.DirectoryPath,
@@ -109,19 +120,75 @@ public sealed class DesktopController : IDisposable
         }
     }
 
-    private void OnHotkey(int id) => Dispatcher.UIThread.Post(() =>
+    private void OnHotkey(HotkeyAction action) => Dispatcher.UIThread.Post(() =>
     {
-        if (id == 1) Run(CaptureAsync);
-        if (id == 2) Run(PinClipboardAsync);
-        if (id == 3) TogglePins();
-        if (id == 4) Run(JumpFolderAsync);
+        if (_recordingShortcut) return;
+        if (action == HotkeyAction.Capture) Run(CaptureAsync);
+        if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
+        if (action == HotkeyAction.Toggle) TogglePins();
+        if (action == HotkeyAction.Folder) Run(JumpFolderAsync);
     });
+
+    // Every shortcut whose module is on, at its saved or default combination.
+    private void ApplyHotkeys(AppSettings settings)
+    {
+        if (_recordingShortcut) return;
+        _hotkeys.Apply(ShortcutPolicy.Actions
+            .Where(action => action == HotkeyAction.Folder ? settings.FolderJumpEnabled : settings.ScreenPasteEnabled)
+            .Select(action => new HotkeyBinding(action, ShortcutPolicy.Effective(settings.Hotkeys, action, OperatingSystem.IsMacOS()))));
+    }
+
+    // Let the recorder receive combinations that Tbox would otherwise handle globally.
+    internal bool TryPauseHotkeys()
+    {
+        if (_recordingShortcut) return false;
+        _recordingShortcut = true;
+        _hotkeys.Apply([]);
+        return true;
+    }
+
+    internal void ResumeHotkeys()
+    {
+        _recordingShortcut = false;
+        if (IsQuitting) return;
+        ApplyHotkeys(_settings);
+        Main.Refresh();
+    }
+
+    // Saves a new combination (null = platform default). Returns the reason when it cannot be used; the old shortcut stays.
+    public async Task<string?> SetShortcutAsync(HotkeyAction action, Shortcut? shortcut)
+    {
+        var mac = OperatingSystem.IsMacOS();
+        var target = shortcut ?? ShortcutPolicy.Default(action, mac);
+        if (ShortcutPolicy.Validate(target, mac) is { } invalid) return invalid;
+        await _moduleChanges.WaitAsync(_stop.Token);
+        try
+        {
+            foreach (var other in ShortcutPolicy.Actions)
+                if (other != action && ShortcutFor(other) == target)
+                    return $"已被“{ShortcutPolicy.Name(other)}”使用。";
+
+            var previous = _settings;
+            var enabled = action == HotkeyAction.Folder ? previous.FolderJumpEnabled : previous.ScreenPasteEnabled;
+            if (!_hotkeys.TryChange(action, target, enabled && !_recordingShortcut ? ShortcutFor(action) : null))
+                return $"{target.Display(mac)} 已被其他应用占用，请换一个组合。";
+            if (!enabled) _hotkeys.Release(action);
+            // Store only the overrides; a default choice clears the entry so platform defaults keep applying.
+            var saved = (previous.Hotkeys ?? new HotkeyBindings()).With(action, target == ShortcutPolicy.Default(action, mac) ? null : target);
+            var updated = previous with { Hotkeys = saved == new HotkeyBindings() ? null : saved };
+            try { await _settingsStore.SaveAsync(updated, _stop.Token); _settings = updated; }
+            catch { ApplyHotkeys(previous); throw; }
+            ShortcutsChanged?.Invoke();
+            return null;
+        }
+        finally { _moduleChanges.Release(); Main.Refresh(); }
+    }
 
     public void RequestFolderPermission() { _folders.RequestPermission(); Main.Refresh(); }
     public async Task JumpFolderAsync()
     {
         if (!_settings.FolderJumpEnabled) return;
-        var result = await _folders.JumpAsync(_stop.Token);
+        var result = await _folders.JumpAsync(ShortcutFor(HotkeyAction.Folder), _stop.Token);
         Main.SetStatus(result.Success ? "文件对话框已跳转。" : result.Message ?? "文件夹跳转未完成。");
         Main.Refresh();
     }
@@ -138,18 +205,18 @@ public sealed class DesktopController : IDisposable
                 foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
                 if (_recording is { } recording) await recording.CancelAsync();
             }
-            if (!_hotkeys.TryChange(capture, folders))
-            { Main.SetStatus("快捷键被其他应用占用，模块设置未更改。"); return; }
+            // A shortcut another application holds no longer blocks the module switch; the page shows the conflict instead.
             var previous = _settings;
             try
             {
-                if (folders) _folders.Start(); else _folders.Stop();
                 var updated = _settings with { ScreenPasteEnabled = capture, FolderJumpEnabled = folders };
+                ApplyHotkeys(updated);
+                if (folders) _folders.Start(); else _folders.Stop();
                 await _settingsStore.SaveAsync(updated, _stop.Token); _settings = updated;
             }
             catch
             {
-                _hotkeys.TryChange(previous.ScreenPasteEnabled, previous.FolderJumpEnabled);
+                ApplyHotkeys(previous);
                 if (previous.FolderJumpEnabled) _folders.Start(); else _folders.Stop();
                 throw;
             }

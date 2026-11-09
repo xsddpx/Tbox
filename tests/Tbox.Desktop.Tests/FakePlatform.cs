@@ -18,7 +18,17 @@ internal sealed class FakePlatform : IPlatformServices
     public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => throw new NotSupportedException();
     public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) =>
         Task.FromResult(OcrResult ?? throw new NotSupportedException());
-    public bool RegisterHotkeys(Action<int> onHotkey, int mask = 7) => true;
+    // Shortcuts listed here behave as if another application holds them.
+    public HashSet<Shortcut> TakenShortcuts { get; } = [];
+    public Dictionary<HotkeyAction, Shortcut> Hotkeys { get; } = [];
+    public Action<HotkeyAction>? HotkeyHandler { get; private set; }
+    public bool RegisterHotkey(HotkeyBinding binding, Action<HotkeyAction> onPressed)
+    {
+        HotkeyHandler = onPressed; Hotkeys.Remove(binding.Action);
+        if (TakenShortcuts.Contains(binding.Shortcut)) return false;
+        Hotkeys[binding.Action] = binding.Shortcut; return true;
+    }
+    public void UnregisterHotkey(HotkeyAction action) => Hotkeys.Remove(action);
     public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) { }
     public void MoveToPointer(nint handle) { }
     public DesktopPlacement GetWindowPlacement(nint handle) => new(0, 0, 800, 600);
@@ -50,7 +60,7 @@ internal sealed class FakePlatform : IPlatformServices
         public bool RequestPermission() => true;
         public void Start() { }
         public void Stop() { }
-        public Task<FolderNavigationResult> JumpAsync(CancellationToken cancellationToken) => Task.FromResult(new FolderNavigationResult(true));
+        public Task<FolderNavigationResult> JumpAsync(Shortcut shortcut, CancellationToken cancellationToken) => Task.FromResult(new FolderNavigationResult(true));
         public void Dispose() { }
     }
 }

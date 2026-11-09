@@ -26,4 +26,6 @@ public sealed record AppSettings
     public bool ShowFailureNotifications { get; init; } = true;
     public string AppTheme { get; init; } = "system";
     public HotkeySettings FolderJumpHotkey { get; init; } = new();
+    // Shared desktop app: global shortcuts chosen in the main window; unset entries use the platform defaults.
+    public HotkeyBindings? Hotkeys { get; init; }
 }

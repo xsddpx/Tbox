@@ -16,7 +16,10 @@ public interface IPlatformServices : IDisposable
     Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken);
     Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
     Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken);
-    bool RegisterHotkeys(Action<int> onHotkey, int mask = 7);
+    // Global hotkeys, one per action. Registering an action replaces its previous shortcut;
+    // false means the system or another application already holds the combination.
+    bool RegisterHotkey(Tbox.Core.HotkeyBinding binding, Action<Tbox.Core.HotkeyAction> onPressed);
+    void UnregisterHotkey(Tbox.Core.HotkeyAction action);
     void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay);
     void MoveToPointer(nint handle);
     DesktopPlacement GetWindowPlacement(nint handle);

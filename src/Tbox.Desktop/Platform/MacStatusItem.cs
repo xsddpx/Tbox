@@ -35,11 +35,14 @@ internal sealed class MacStatusItem : IDisposable
     }
 
     public void Dispose() => NativeRemove();
+    // Menu choices are numbered from 1, as in Dispatch.
+    public void Retitle(int command, string title) => NativeRetitle(command, title);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void StatusCallback(int command);
     [DllImport(Library, EntryPoint = "tbox_status_item_create")]
     private static extern int NativeCreate(byte[] png, int length, [MarshalAs(UnmanagedType.LPUTF8Str)] string tooltip,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string titles, StatusCallback callback);
     [DllImport(Library, EntryPoint = "tbox_status_item_remove")] private static extern void NativeRemove();
+    [DllImport(Library, EntryPoint = "tbox_status_item_retitle")] private static extern void NativeRetitle(int command, [MarshalAs(UnmanagedType.LPUTF8Str)] string title);
     [DllImport(Library, EntryPoint = "tbox_status_item_anchor")] private static extern nint NativeAnchor();
 }
