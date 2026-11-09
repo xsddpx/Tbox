@@ -51,10 +51,12 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 
 ## 每次发布
 
-1. 同步提升 `Tbox.Desktop.csproj` 的 Version/AssemblyVersion/FileVersion、Mac `Info.plist`、Windows `Package.appxmanifest`。使用从未本地或 CI 打包过的新版本，不能重新打包 1.1.8。
+每次交付一个已合并并通过验收的新版本，在同一轮完成 GitHub 正式发布。合并 PR、本机打包或本机覆盖安装属于交付步骤。确认 `releases/latest` 指向本次版本，且两平台安装包可匿名下载并校验通过后，再报告公开交付完成。仅供本地开发、预览或测试的版本按明确约定保留在本地。
+
+1. 同步提升 `Tbox.Desktop.csproj` 的 Version/AssemblyVersion/FileVersion、Mac `Info.plist`、Windows `Package.appxmanifest`。使用从未本地或 CI 打包过的新版本，例如本机 1.1.32 已打包，正式发布须使用新的 1.1.33。
 2. 完成功能、安装、升级及第三方依赖分发验收。添加 `docs/releases/vX.Y.Z.md` 的中文版本说明，写清已验证范围与限制。将变更合入 main。
 3. 推送对应版本标签触发发布，例如 `git tag vX.Y.Z && git push origin vX.Y.Z`；也可在 Actions 的 “Publish desktop installers” 中输入标签显式运行。不要先在 Releases 页面手工公开只有 Source code 的 Release。预发布通过手动任务勾选；标签仍使用三段版本。
-4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，`xsddpx/Tbox` 的同一 Release 包含两个安装包、Windows 公钥证书、第三方源码归档、说明和校验清单。
+4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，`xsddpx/Tbox` 的同一 Release 包含两个安装包、Windows 公钥证书、第三方源码归档、说明和校验清单。使用未登录请求访问 [最新版](https://github.com/xsddpx/Tbox/releases/latest)，确认版本、两份安装包和校验文件均可访问，再分别下载并核对大小与 SHA-256。失败时继续保留上一正式版并说明原因。
 5. 合并自动生成的发布记录 PR（或提示中的记录分支），再验收真实在线更新。不要通过移动旧标签、覆盖旧包或删除已有正式 Release 来处理问题。
 
 打包与上传耗用已有 Actions 配额；本次没有变更计费或开通付费 runner。
