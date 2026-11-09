@@ -95,4 +95,15 @@ public static class PinToolbarPlacementPolicy
                 : Math.Clamp(below, workArea.Y, workArea.Y + workArea.Height - toolbarHeight);
         return new PinWindowBounds(x, y, toolbarWidth, toolbarHeight);
     }
+
+    // Task toolbars (spec ⑤): 12 px below the selection, otherwise above it, otherwise inside its bottom edge.
+    public static PinWindowBounds PlaceTaskToolbar(PinWindowBounds selection, PinWindowBounds workArea, int toolbarWidth, int toolbarHeight, int gap = 12)
+    {
+        var placed = PlaceAdjacent(selection, workArea, toolbarWidth, toolbarHeight, gap);
+        var below = selection.Y + selection.Height + gap;
+        var above = selection.Y - placed.Height - gap;
+        if (placed.Y == below || placed.Y == above) return placed;
+        var inside = Math.Clamp(selection.Y + selection.Height - placed.Height - gap, workArea.Y, workArea.Y + workArea.Height - placed.Height);
+        return placed with { Y = inside };
+    }
 }

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Media;
@@ -18,6 +18,8 @@ internal static class DesignTokens
     // Task surfaces (capture toolbars, recording controls, playback) stay dark over any content.
     public const string TaskBackground = "#1D1D24", TaskBorder = "#3A3A46", TaskHover = "#2E2E39", TaskText = "#F2F2F6";
     public const string Recording = "#E5484D", Ready = "#1F9D61";
+    // Selection colour tells the mode (spec ⑤): capture blue, long-capture yellow, recording red.
+    public const string CaptureBlue = "#3D7BFF", LongYellow = "#E8A13A", TaskSecondaryText = "#A6A9B6";
     // Light-only page colors from spec ①: group titles, row hairlines, statuses and the yellow attention state.
     public const string Hint = "#8C8F9B", Hairline = "#F1F0F5", Error = "#D9363E", Attention = "#B7791F", AttentionDot = "#E8A13A";
     public static ThemeColors Colors(bool dark) => dark
@@ -45,6 +47,12 @@ internal static class DesignTokens
         theme.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(1);
         // Later styles in the theme win over Fluent's own; check boxes keep a square-ish box under the 8 px control radius.
         theme.Add(new Style(x => x.OfType<CheckBox>()) { Setters = { new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4)) } });
+        // Task popovers (the colour picker) draw their own dark surface, so the presenter itself is bare.
+        theme.Add(new Style(x => x.OfType<FlyoutPresenter>().Class("task")) { Setters =
+        {
+            new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent), new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(0)),
+            new Setter(TemplatedControl.PaddingProperty, new Thickness(0)), new Setter(Avalonia.Layout.Layoutable.MinWidthProperty, 0d), new Setter(Avalonia.Layout.Layoutable.MinHeightProperty, 0d)
+        } });
         return theme;
     }
 

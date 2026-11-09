@@ -404,6 +404,16 @@ public sealed class SettingsTests
         Assert.True(above.Y + above.Height <= 800);
     }
 
+    [Fact]
+    public void TaskToolbarSitsTwelveBelowThenAboveThenInsideTheSelection()
+    {
+        var work = new PinWindowBounds(0, 0, 1920, 1040);
+        Assert.Equal(612, PinToolbarPlacementPolicy.PlaceTaskToolbar(new PinWindowBounds(200, 100, 800, 500), work, 520, 44).Y);
+        Assert.Equal(744, PinToolbarPlacementPolicy.PlaceTaskToolbar(new PinWindowBounds(200, 800, 800, 220), work, 520, 44).Y);
+        // A full-height selection leaves no room outside, so the toolbar moves inside its bottom edge.
+        Assert.Equal(1040 - 44 - 12, PinToolbarPlacementPolicy.PlaceTaskToolbar(new PinWindowBounds(0, 0, 1920, 1040), work, 520, 44).Y);
+    }
+
     [Theory]
     [InlineData(96u, 620)]
     [InlineData(120u, 775)]

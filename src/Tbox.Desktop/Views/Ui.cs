@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -13,8 +13,8 @@ namespace Tbox.Desktop.Views;
 // Shared building blocks so the tray panel, settings, OCR, update and task windows read as one product.
 internal static class Ui
 {
-    public static readonly IBrush Blue = Brush.Parse("#0078D4");
-    public static readonly IBrush LongYellow = Brush.Parse("#F8C53A");
+    public static readonly IBrush Blue = Brush.Parse(DesignTokens.CaptureBlue);
+    public static readonly IBrush LongYellow = Brush.Parse(DesignTokens.LongYellow);
     public static readonly IBrush RecordRed = Brush.Parse(DesignTokens.Recording);
     // Capture blue, long-capture yellow and recording red identify the selection mode only.
     public static IBrush ModeBrush(CaptureAction? preset) => preset switch
@@ -78,6 +78,7 @@ internal static class Ui
     {
         var button = TaskButton(tooltip, action);
         button.Content = new LineIcon(icon, brush: brush ?? ToolbarText) { Width = 18, Height = 18 };
+        if (brush is not null) button.Classes.Add("tinted");
         return button;
     }
     public static Button ToolbarButton(string glyph, string tooltip, Action action)
@@ -111,6 +112,86 @@ internal static class Ui
     {
         Width = 1, Height = 20, Margin = new Thickness(4, 0), Background = ToolbarBorder, VerticalAlignment = VerticalAlignment.Center
     };
+    // One task toolbar (spec ⑤): groups of items separated by 1 px dividers, no labels between them.
+    public static Border Toolbar(params Control[][] groups)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        foreach (var group in groups.Where(g => g.Length > 0))
+        {
+            if (row.Children.Count > 0) row.Children.Add(ToolbarDivider());
+            foreach (var item in group) { item.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(item); }
+        }
+        return ToolbarSurface(row);
+    }
+    // The only text a toolbar shows: size, timer, frame rate and "开始录制".
+    public static TextBlock ToolbarLabel(string text, bool strong = true) => new()
+    {
+        Text = text, FontSize = strong ? 12 : 13, FontWeight = strong ? FontWeight.SemiBold : FontWeight.Normal,
+        Foreground = Brush.Parse(DesignTokens.TaskSecondaryText), Margin = new Thickness(8, 0), VerticalAlignment = VerticalAlignment.Center
+    };
+    // Tick a toolbar icon white while its item is selected (filled amethyst).
+    public static void SetToolbarSelected(Button button, bool selected)
+    {
+        button.Classes.Set("selected", selected);
+        button.Background = selected ? Brush.Parse(DesignTokens.Accent) : Brushes.Transparent;
+        button.Resources["ButtonBackgroundPointerOver"] = selected ? Brush.Parse(DesignTokens.Accent) : Brush.Parse(DesignTokens.TaskHover);
+        if (button.Content is LineIcon icon && !button.Classes.Contains("tinted")) icon.Stroke = selected ? Brushes.White : ToolbarText;
+    }
+    // Dark segmented choice used by the recording frame rate.
+    public static Border ToolbarSegmented(IReadOnlyList<string> options, int selected, out Func<int> current, out Action<bool> enable)
+    {
+        var buttons = new List<Button>();
+        var index = selected;
+        void Paint()
+        {
+            for (var i = 0; i < buttons.Count; i++)
+            {
+                var on = i == index;
+                buttons[i].Background = on ? Brush.Parse("#454552") : Brushes.Transparent;
+                buttons[i].Foreground = on ? Brushes.White : Brush.Parse(DesignTokens.TaskSecondaryText);
+                buttons[i].Resources["ButtonBackgroundPointerOver"] = on ? Brush.Parse("#454552") : Brush.Parse("#3A3A46");
+            }
+        }
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        for (var i = 0; i < options.Count; i++)
+        {
+            var position = i;
+            var button = new Button { Content = options[i], Height = 24, MinHeight = 24, MinWidth = 30, Padding = new Thickness(8, 0), FontSize = 12,
+                CornerRadius = new CornerRadius(6), BorderThickness = default, HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(button, $"{options[i]} 帧每秒");
+            ToolTip.SetTip(button, $"{options[i]} 帧每秒");
+            foreach (var state in new[] { "PointerOver", "Pressed" }) button.Resources["ButtonForeground" + state] = Brushes.White;
+            button.Resources["ButtonBackgroundPressed"] = Brush.Parse("#454552");
+            button.Resources["ButtonBackgroundDisabled"] = Brushes.Transparent;
+            button.Click += (_, _) => { index = position; Paint(); };
+            buttons.Add(button); row.Children.Add(button);
+        }
+        Paint();
+        current = () => index;
+        var surface = new Border { Padding = new Thickness(3), CornerRadius = new CornerRadius(8), Background = Brush.Parse(DesignTokens.TaskHover), Child = row,
+            VerticalAlignment = VerticalAlignment.Center };
+        enable = on => { surface.IsEnabled = on; surface.Opacity = on ? 1 : .5; };
+        return surface;
+    }
+    // Filled red "开始录制" — the one place a toolbar uses recording red as a fill.
+    public static Button RecordButton(string tooltip, Action action)
+    {
+        var button = Button("开始录制", action, tooltip);
+        button.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children =
+        {
+            new LineIcon(IconKind.Record, brush: Brushes.White) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = "开始录制", FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center }
+        } };
+        button.Height = 30; button.MinHeight = 30; button.Padding = new Thickness(12, 0); button.Margin = new Thickness(2, 0);
+        foreach (var (state, color) in new[] { ("", DesignTokens.Recording), ("PointerOver", "#D63C41"), ("Pressed", "#BF3439"), ("Disabled", DesignTokens.Recording) })
+        {
+            button.Resources["ButtonBackground" + state] = Brush.Parse(color);
+            button.Resources["ButtonBorderBrush" + state] = Brush.Parse(color);
+            button.Resources["ButtonForeground" + state] = Brushes.White;
+        }
+        return button;
+    }
 
     public static StackPanel Row(params Control[] items)
     {
