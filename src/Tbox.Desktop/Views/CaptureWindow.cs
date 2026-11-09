@@ -18,7 +18,6 @@ internal sealed class CaptureWindow : Window
     private readonly Border _toolbar;
     private readonly AnnotationTextEditor _text;
     private bool _toolbarHidden;
-    private readonly Border _hint;
     private readonly StackPanel _hintKeys = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
     private readonly TextBlock _hintText = new() { Foreground = Brushes.White, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
     private readonly Border _modeConfirmation;
@@ -29,7 +28,7 @@ internal sealed class CaptureWindow : Window
     public CaptureSurface Surface { get; }
     public AnnotationEditor Editor { get; } = new();
 
-    public CaptureWindow(CaptureSession session, CapturedDisplay display)
+    public CaptureWindow(CaptureSession session, CapturedDisplay display, double topSafeInset)
     {
         _session = session; Display = display; Picture = new Picture(display.Png);
         Title = session.Preset switch { CaptureAction.Record => "Tbox 录屏选区", CaptureAction.Long => "Tbox 长截图选区", _ => "Tbox 截图" };
@@ -41,11 +40,9 @@ internal sealed class CaptureWindow : Window
         var overlay = new Canvas();
         _text = new AnnotationTextEditor(overlay, Editor,
             point => new Point(point.X * Scale.X, point.Y * Scale.Y), () => Scale);
-        _hint = CreateHint();
         _toolbar = CreateToolbar();
         _toolbar.IsVisible = false;
         overlay.Children.Add(_toolbar);
-        overlay.Children.Add(_hint);
         _modeConfirmation = new Border
         {
             IsVisible = false, Background = Ui.ToolbarBackground, BorderBrush = Ui.ToolbarBorder, BorderThickness = new Thickness(1),
@@ -58,7 +55,7 @@ internal sealed class CaptureWindow : Window
             } }
         };
         overlay.Children.Add(_modeConfirmation);
-        Content = new Grid { Children = { Surface, overlay } };
+        Content = new Grid { Children = { Surface, overlay, CreateHint(topSafeInset) } };
         Editor.Changed += () => Surface.InvalidateVisual();
         KeyDown += OnKeyDown;
         AddHandler(KeyDownEvent, (_, args) =>
@@ -104,7 +101,6 @@ internal sealed class CaptureWindow : Window
         Surface.InvalidateVisual();
         var bounds = _session.State.ActiveDisplay == Display.Id ? _session.State.Selection : null;
         _toolbar.IsVisible = bounds is { Width: > 0, Height: > 0 } && !Surface.IsDragging && !_toolbarHidden;
-        PlaceHint();
         if (bounds is not { } selection) return;
         _toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _toolbar.DesiredSize;
@@ -121,14 +117,7 @@ internal sealed class CaptureWindow : Window
     // The hint chip: a sentence plus key caps, centred at the top. Mode messages replace the default text.
     public void SetHint(string message) { _hintText.Text = message; _hintKeys.IsVisible = message.Length == 0; Refresh(); }
 
-    private void PlaceHint()
-    {
-        _hint.Measure(Size.Infinity);
-        Canvas.SetLeft(_hint, Math.Max(0, (Surface.Bounds.Width - _hint.DesiredSize.Width) / 2));
-        Canvas.SetTop(_hint, 18);
-    }
-
-    private Border CreateHint()
+    private Border CreateHint(double topSafeInset)
     {
         var name = _session.Preset switch { CaptureAction.Record => "录屏区域", CaptureAction.Long => "长截图区域", _ => null };
         var lead = new TextBlock { Text = name is null ? "拖动框选，单击选窗口" : $"拖动框选{name}", Foreground = Brushes.White, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
@@ -142,6 +131,8 @@ internal sealed class CaptureWindow : Window
         }
         return new Border
         {
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, topSafeInset + 18, 0, 0),
             Background = new SolidColorBrush(Color.Parse("#14141C"), .82), CornerRadius = new CornerRadius(9), Padding = new Thickness(12, 7),
             IsHitTestVisible = false, Child = new Panel { Children = { _hintKeys, _hintText } }
         };

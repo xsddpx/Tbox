@@ -272,8 +272,8 @@ public sealed class DesktopController : IDisposable
             return;
         }
         _capturing = true;
-        var restore = Main.IsVisible;
-        Main.Hide();
+        var restore = (preset is CaptureAction.Long or CaptureAction.Record) && Main.IsVisible;
+        if (restore) Main.Hide();
         try
         {
             await Task.Delay(150, _stop.Token);

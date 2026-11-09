@@ -56,19 +56,49 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public void ToolsHideTheMainWindowBeforeTheCaptureStartsAndClosingOnlyHides()
+    public void ClosingTheMainWindowHidesItAndKeepsTboxRunning()
     {
-        using var scope = new Scope(new FakePlatform { HasScreenPermission = true });
+        using var scope = new Scope(new FakePlatform());
         var main = scope.Controller.Main;
-        scope.Controller.ShowMain(); Layout(main);
-        Click(main, "截图");
-        Assert.False(main.IsVisible);
-
         scope.Controller.ShowMain();
         main.Close();
         Assert.False(main.IsVisible); // Closing hides; Tbox keeps running in the tray.
         scope.Controller.ShowMain();
         Assert.True(main.IsVisible);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    public async Task NormalCaptureKeepsTheMainWindowInItsCurrentState(bool useShortcut, bool mainVisible)
+    {
+        using var frame = DesktopController.RenderText("Screen capture");
+        var size = frame.Bitmap.PixelSize;
+        var platform = new FakePlatform
+        {
+            HasScreenPermission = true,
+            Displays = [new(1, 0, 0, size.Width, size.Height, frame.Png)]
+        };
+        using var scope = new Scope(platform);
+        await scope.InitializeAsync();
+        var main = scope.Controller.Main;
+        var page = useShortcut ? MainPage.About : MainPage.Capture;
+        if (mainVisible) { scope.Controller.ShowMain(page); Layout(main); }
+
+        if (useShortcut) platform.HotkeyHandler!(HotkeyAction.Capture);
+        else Click(main, "截图");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(mainVisible, main.IsVisible);
+
+        for (var attempt = 0; attempt < 100 && platform.CaptureRequests == 0; attempt++) await Task.Delay(10);
+        Assert.Equal(1, platform.CaptureRequests);
+        var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
+        Assert.Equal(mainVisible, main.IsVisible);
+        overlay.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Assert.Empty(scope.Lifetime.Windows.OfType<CaptureWindow>());
+        Assert.Equal(mainVisible, main.IsVisible);
+        if (mainVisible) Assert.Equal(page, main.CurrentPage);
     }
 
     [AvaloniaFact]

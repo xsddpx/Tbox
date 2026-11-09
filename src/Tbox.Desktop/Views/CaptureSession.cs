@@ -27,7 +27,8 @@ internal sealed class CaptureSession
         _controller = controller; _closed = closed;
         Preset = preset is CaptureAction.Record or CaptureAction.Long ? preset : null;
         _targets = controller.Platform.CreateCaptureTargets();
-        foreach (var display in displays) _windows.Add(new CaptureWindow(this, display));
+        foreach (var display in displays)
+            _windows.Add(new CaptureWindow(this, display, controller.Platform.GetDisplayTopSafeInset(display.Id)));
     }
 
     public void Show()
