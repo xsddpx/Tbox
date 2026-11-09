@@ -101,6 +101,10 @@ jobs:
       - name: Test macOS signing safeguards
         if: runner.os == 'macOS'
         run: bash tests/macos/test-signing-policy.sh
+      - name: Test macOS global shortcut conflicts across processes
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: bash tests/macos/test-hotkey-registration.sh
 
   signing-readiness:
     # Explicit, temporary opt-in for configuring persistent identities. No Tbox

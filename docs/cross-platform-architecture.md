@@ -29,7 +29,7 @@
 | 录屏 | 状态机、时间、参数、导出工作流 | 屏幕与系统音频捕获、编码器 |
 | 文件夹跳转 | 最近可信目录、校验、失败反馈 | Finder / Explorer 与各自标准文件对话框 |
 
-评估过 SharpHook：它可跨平台处理全局键盘事件，但 macOS 需要辅助功能权限。全局快捷键仍用小范围系统注册接口（Windows `RegisterHotKey`、Mac Carbon `RegisterEventHotKey`），不额外监听全部键盘事件。组合键模型、默认值、校验与原生键码在 `Tbox.Core/ShortcutPolicy.cs`；`IPlatformServices.RegisterHotkey/UnregisterHotkey` 按动作逐项注册，录制器只在主窗口内读取按键。
+评估过 SharpHook：它可跨平台处理全局键盘事件，但 macOS 需要辅助功能权限。全局快捷键仍用小范围系统注册接口（Windows `RegisterHotKey`、Mac Carbon `RegisterEventHotKey`），不额外监听全部键盘事件。组合键模型、默认值、校验与原生键码在 `Tbox.Core/ShortcutPolicy.cs`；`IPlatformServices.RegisterHotkey/UnregisterHotkey` 按动作逐项注册，录制器只在主窗口内读取按键。macOS 使用独占注册以检测系统报告的独占冲突，Carbon 仍可能接受其他进程以共享方式注册的组合。
 
 ## 权限与发布
 

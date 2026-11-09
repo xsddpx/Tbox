@@ -147,8 +147,9 @@ public func registerHotkey(_ callback: @escaping @convention(c) (Int32) -> Void,
     }
     unregisterHotkey(id)
     var reference: EventHotKeyRef?
+    // A shared Carbon registration can succeed without receiving events from an exclusively held shortcut.
     let result = RegisterEventHotKey(UInt32(keyCode), UInt32(modifiers), EventHotKeyID(signature: 0x54424F58, id: UInt32(id)),
-                                     GetApplicationEventTarget(), 0, &reference)
+                                     GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &reference)
     guard result == noErr, let reference = reference else { return result == noErr ? -1 : result }
     hotkeys[id] = reference
     return noErr
