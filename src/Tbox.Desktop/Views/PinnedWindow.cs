@@ -1,9 +1,10 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Styling;
-using Avalonia.Threading;
 using Tbox.Core;
 using Tbox.Desktop.Models;
 using Tbox.Desktop.Platform;
@@ -18,15 +19,12 @@ public sealed class PinnedWindow : Window
     private readonly ContextMenu _menu = new();
     private Window? _toolbarWindow;
     private bool _toolbarWanted;
-    private bool _hovered;
     private bool _closing;
-    private DispatcherTimer? _hoverHide;
     public Picture Picture { get; }
     public PixelRegion Region { get; private set; }
     public AnnotationEditor Editor { get; } = new();
     public bool CanAnnotate => _toolbarWindow?.IsVisible == true;
-    // Selected (hovered or editing) pins carry a thin amethyst border.
-    internal bool IsSelected => _hovered || CanAnnotate;
+    internal bool IsSelected => IsActive || _toolbarWindow is { IsActive: true, IsVisible: true };
 
     public PinnedWindow(DesktopController controller, Picture picture)
     {
@@ -44,7 +42,7 @@ public sealed class PinnedWindow : Window
             point => new Point((point.X - Region.Left) * Scale.X, (point.Y - Region.Top) * Scale.Y), () => Scale, true);
         _text.EscapeCommitted += FinishEditing;
         Content = new Grid { Children = { _surface, overlay } };
-        Add("显示工具条 · Space", ToggleToolbar); Add("恢复完整贴图", Restore);
+        Add("恢复完整贴图", Restore);
         Add("识别文字", Recognize); Add("复制图片", () => controller.Run(CopyAsync));
         Add("图片另存为…", () => controller.Run(SaveAsync));
         _menu.Items.Add(new Separator()); Add("关闭贴图", Close);
@@ -55,30 +53,32 @@ public sealed class PinnedWindow : Window
             if (args.Property == IsVisibleProperty && !IsVisible) _toolbarWindow?.Hide();
             else if (args.Property == IsVisibleProperty && IsVisible && _toolbarWanted && !_closing) ShowToolbar();
         };
-        KeyDown += OnKeyDown; Editor.Changed += () => _surface.InvalidateVisual();
-        // Hovering the pin shows its toolbar (spec ⑤); it hides again shortly after the pointer leaves both, unless a tool is in use.
-        PointerEntered += (_, _) => { _hovered = true; _hoverHide?.Stop(); if (!CanAnnotate) ShowToolbar(); _surface.InvalidateVisual(); };
-        PointerExited += (_, _) => { _hovered = false; ScheduleHoverHide(); _surface.InvalidateVisual(); };
-        Closed += (_, _) => { _closing = true; _hoverHide?.Stop(); _toolbarWindow?.Close(); Picture.Dispose(); };
+        AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+        Editor.Changed += () => _surface.InvalidateVisual();
+        Activated += (_, _) => _surface.InvalidateVisual();
+        Deactivated += (_, _) => _surface.InvalidateVisual();
+        Closed += (_, _) => { _closing = true; _toolbarWindow?.Close(); Picture.Dispose(); };
     }
 
     public Vector Scale => new(_surface.Bounds.Width / Region.Width, _surface.Bounds.Height / Region.Height);
     public AnnotationPoint ToPixel(Point point) => new(Region.Left + point.X / Scale.X, Region.Top + point.Y / Scale.Y);
     public void ShowMenu() => _menu.Open(this);
-    public void ToggleToolbar() { if (CanAnnotate) FinishEditing(); else ShowToolbar(); }
 
     private void ShowToolbar()
     {
         _toolbarWanted = true;
         if (_toolbarWindow is null)
         {
-            // rect, arrow, pen, text, mosaic | colour | undo, redo | OCR, save, copy | done (spec ⑤).
-            var toolbar = new AnnotationToolbar(Editor, _text.Commit, AnnotationToolbar.PinTools, sizes: false);
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", Recognize));
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Save, $"保存 · {ShortcutLabels.Command}S", () => _controller.Run(SaveAsync)));
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Copy, $"复制图片 · {ShortcutLabels.Command}C", () => _controller.Run(CopyAsync)));
-            toolbar.Actions.Children.Add(Ui.ToolbarDivider());
-            toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Check, "完成 · Enter", FinishEditing));
+            var tools = new AnnotationToolbar(Editor, _text.Commit);
+            var outputs = Ui.Toolbar(
+                [
+                    AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", Recognize),
+                    AnnotationToolbar.IconButton(IconKind.Save, $"保存 · {ShortcutLabels.Command}S", () => _controller.Run(SaveAsync)),
+                    AnnotationToolbar.IconButton(IconKind.Copy, $"复制图片 · {ShortcutLabels.Command}C", () => _controller.Run(CopyAsync))
+                ],
+                [AnnotationToolbar.IconButton(IconKind.Check, "完成 · Enter", FinishEditing)]);
+            tools.HorizontalAlignment = outputs.HorizontalAlignment = HorizontalAlignment.Left;
+            var toolbar = new StackPanel { Spacing = 6, Children = { tools, outputs } };
             toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             _toolbarWindow = new Window
             {
@@ -86,9 +86,9 @@ public sealed class PinnedWindow : Window
                 SystemDecorations = SystemDecorations.None, CanResize = false, Topmost = true, ShowInTaskbar = false, ShowActivated = false,
                 RequestedThemeVariant = ThemeVariant.Dark, Background = Brushes.Transparent, TransparencyLevelHint = [WindowTransparencyLevel.Transparent]
             };
-            _toolbarWindow.KeyDown += OnKeyDown;
-            _toolbarWindow.PointerEntered += (_, _) => _hoverHide?.Stop();
-            _toolbarWindow.PointerExited += (_, _) => ScheduleHoverHide();
+            _toolbarWindow.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
+            _toolbarWindow.Activated += (_, _) => _surface.InvalidateVisual();
+            _toolbarWindow.Deactivated += (_, _) => _surface.InvalidateVisual();
         }
         _toolbarWindow.Show(); PlaceToolbar();
     }
@@ -109,18 +109,6 @@ public sealed class PinnedWindow : Window
     {
         _text.Commit(); Editor.FinishPolyline(); Editor.CancelGesture(); Editor.Select(null);
         _toolbarWanted = false; _toolbarWindow?.Hide(); _surface.InvalidateVisual();
-    }
-
-    // Leaving hides the hover toolbar after a short grace period, so the pointer can travel to it; an active tool keeps it.
-    private void ScheduleHoverHide()
-    {
-        if (!CanAnnotate || Editor.Tool is not null || _text.IsEditing) return;
-        _hoverHide ??= new DispatcherTimer(TimeSpan.FromMilliseconds(600), DispatcherPriority.Normal, (_, _) =>
-        {
-            _hoverHide!.Stop();
-            if (!_hovered && _toolbarWindow?.IsPointerOver != true && Editor.Tool is null && !_text.IsEditing) FinishEditing();
-        });
-        _hoverHide.Stop(); _hoverHide.Start();
     }
 
     public async Task CopyAsync()
@@ -176,7 +164,11 @@ public sealed class PinnedWindow : Window
             else return;
             e.Handled = true;
         }
-        else if (e.Key == Key.Space) { ToggleToolbar(); e.Handled = true; }
+        else if (e.Key == Key.Space && e.KeyModifiers == KeyModifiers.None && IsSelected)
+        {
+            if (CanAnnotate) FinishEditing(); else ShowToolbar();
+            e.Handled = true;
+        }
         else if (CanAnnotate && e.Key == Key.B) { Editor.Select(AnnotationTool.Pen); e.Handled = true; }
         else if (CanAnnotate && e.Key == Key.T) { Editor.Select(AnnotationTool.Text); e.Handled = true; }
         else if (CanAnnotate && e.Key is Key.D1 or Key.D2) { Editor.ChangeSize(e.Key == Key.D1 ? -1 : 1); e.Handled = true; }
