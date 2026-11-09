@@ -14,7 +14,6 @@ public sealed class ScreenPermissionTests
     {
         var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
         controller.Main = new MainWindow(controller);
-        controller.Panel = new TrayPanel(controller);
         return controller;
     }
 
@@ -23,19 +22,19 @@ public sealed class ScreenPermissionTests
     {
         var platform = new FakePlatform();
         using var controller = CreateController(platform);
-        var panel = controller.Panel!;
+        var main = controller.Main;
         try
         {
-            // Opening the panel alone must not show an unrequested permission prompt.
-            controller.ShowPanel();
+            // Opening the main window alone must not show an unrequested permission prompt.
+            controller.ShowMain();
             Assert.False(HasPermissionButton());
-            panel.Hide();
+            main.Hide();
             await controller.CaptureAsync(CaptureAction.Record);
-            Assert.True(panel.IsVisible);
+            Assert.True(main.IsVisible);
             Assert.True(HasPermissionButton());
             for (var attempt = 0; attempt < 5; attempt++)
             {
-                controller.ShowPanel();
+                controller.ShowMain();
                 await controller.CaptureAsync();
                 await controller.LongCaptureAsync();
             }
@@ -44,15 +43,15 @@ public sealed class ScreenPermissionTests
             Assert.Equal(0, platform.CaptureRequests);
 
             platform.HasScreenPermission = true;
-            panel.Refresh();
+            main.Refresh();
             Assert.False(HasPermissionButton());
         }
-        finally { panel.Close(); controller.Main.Close(); }
+        finally { controller.Dispose(); main.Close(); }
 
         bool HasPermissionButton()
         {
-            panel.UpdateLayout();
-            return panel.GetVisualDescendants().OfType<Button>()
+            main.UpdateLayout();
+            return main.GetVisualDescendants().OfType<Button>()
                 .Any(button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "允许屏幕录制");
         }
     }

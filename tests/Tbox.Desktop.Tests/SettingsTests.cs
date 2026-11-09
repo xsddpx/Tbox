@@ -27,17 +27,16 @@ public sealed class SettingsTests
         using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
         var window = controller.Main = new MainWindow(controller);
         window.Show();
-        foreach (var theme in new[] { ThemeVariant.Light, ThemeVariant.Dark })
-        foreach (var width in new[] { 1280, 900, 560, 360 })
+        // The window never gets narrower than its 680 × 520 minimum.
+        foreach (var width in new[] { 1280, 800, MainWindow.MinimumWidth })
         {
-            window.RequestedThemeVariant = theme;
-            window.Width = width; window.Height = 460;
-            foreach (var page in Enum.GetValues<SettingsPage>())
+            window.Width = width; window.Height = MainWindow.MinimumHeight;
+            foreach (var page in Enum.GetValues<MainPage>())
             {
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Empty(window.GetVisualDescendants().OfType<SplitView>());
                 Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
-                Assert.True(window.CurrentPageView.Bounds.Width > width - 10);
+                Assert.True(window.CurrentPageView.Bounds.Width > width - 208 - 10 - 10);
                 foreach (var control in window.CurrentPageView.GetVisualDescendants().OfType<Control>()
                     .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or ToggleSwitch or ComboBox))
                 {
@@ -48,42 +47,12 @@ public sealed class SettingsTests
                 if (Environment.GetEnvironmentVariable("TBOX_UI_PREVIEWS") is { Length: > 0 } directory)
                 {
                     Directory.CreateDirectory(directory);
-                    using var preview = new RenderTargetBitmap(new PixelSize(width, 460), new Vector(96, 96));
-                    preview.Render(window); preview.Save(Path.Combine(directory, $"{page}-{theme.Key}-{width}.png"));
+                    using var preview = new RenderTargetBitmap(new PixelSize(width, MainWindow.MinimumHeight), new Vector(96, 96));
+                    preview.Render(window); preview.Save(Path.Combine(directory, $"main-{page}-{width}.png"));
                 }
             }
         }
         controller.Dispose(); window.Close();
-    }
-
-    [AvaloniaFact]
-    public void SettingsTabsSwitchPagesAndHoldNoEverydayTools()
-    {
-        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
-        var window = controller.Main = new MainWindow(controller);
-        window.Show();
-        try
-        {
-            Assert.Equal(SettingsPage.General, window.CurrentPage);
-            Tab("文件夹跳转").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Assert.Equal(SettingsPage.Folders, window.CurrentPage);
-            Assert.True(Tab("文件夹跳转").IsChecked); Assert.False(Tab("常规").IsChecked);
-            Tab("常规").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Assert.Equal(SettingsPage.General, window.CurrentPage);
-            window.UpdateLayout();
-            // Capture, pin, OCR and recording entries now live only in the tray panel.
-            foreach (var tool in new[] { "开始截图", "剪贴板贴图", "区域录屏", "选择图片…" })
-                Assert.DoesNotContain(window.GetVisualDescendants().OfType<Button>(), b => AutomationProperties.GetName(b)?.Split(" · ")[0] == tool);
-            Assert.Contains(window.GetVisualDescendants().OfType<Button>(), b => b.IsEffectivelyVisible && Equals(b.Content, "检查更新"));
-        }
-        finally { controller.Dispose(); window.Close(); }
-
-        Avalonia.Controls.Primitives.ToggleButton Tab(string label)
-        {
-            window.UpdateLayout();
-            return Assert.Single(window.GetVisualDescendants().OfType<Avalonia.Controls.Primitives.ToggleButton>(), b =>
-                b is not ToggleSwitch && AutomationProperties.GetName(b) == label);
-        }
     }
 
     [Theory]
@@ -121,10 +90,10 @@ public sealed class SettingsTests
             using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime(), path);
             controller.Main = new MainWindow(controller);
             await Task.WhenAll(controller.SetModulesAsync(false, null), controller.SetModulesAsync(null, false),
-                controller.SetFailureNotificationsAsync(false), controller.ChangeThemeAsync(2));
+                controller.SetFailureNotificationsAsync(false));
             var saved = await new JsonSettingsStore(path).LoadAsync();
             Assert.False(saved.ScreenPasteEnabled); Assert.False(saved.FolderJumpEnabled);
-            Assert.False(saved.ShowFailureNotifications); Assert.Equal("dark", saved.AppTheme);
+            Assert.False(saved.ShowFailureNotifications);
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }

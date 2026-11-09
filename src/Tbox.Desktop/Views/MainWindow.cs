@@ -1,119 +1,106 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
+using Tbox.Core;
 using Tbox.Desktop.Models;
 
 namespace Tbox.Desktop.Views;
 
-// The settings window. Everyday tools live in the tray panel; this window only holds preferences.
+// The one Tbox window (spec ③): a sidebar with 截图 / 文件夹跳转 / 通用 / 关于 and a white content card.
+// It replaces the tray panel, the settings window and the update window. Closing only hides it.
 public sealed class MainWindow : Window
 {
+    public const int DefaultWidth = 800, DefaultHeight = 600, MinimumWidth = 680, MinimumHeight = 520, RecentCount = 4;
+    private static readonly IBrush NavText = Brush.Parse("#3B3D49"), NavIcon = Brush.Parse("#6B6E7B"), Strong = Brush.Parse("#1A1B22");
     private readonly DesktopController _controller;
-    private readonly TextBlock _status = Ui.Caption("");
-    private readonly SettingsRow _cacheRow;
-    private readonly SettingsRow _folderRow;
-    private readonly SettingsRow _startupRow;
-    private readonly SettingsRow _captureRow;
-    private readonly ToggleSwitch _captureToggle = ModuleSwitch("启用截图与贴图");
-    private readonly ToggleSwitch _folderToggle = ModuleSwitch("启用文件夹跳转");
-    private readonly ToggleSwitch _startupToggle = ModuleSwitch("开机启动");
-    private readonly ToggleSwitch _failureToggle = ModuleSwitch("功能失败时通知");
-    private readonly ComboBox _theme = new() { ItemsSource = new[] { "跟随系统", "浅色", "深色" }, MinWidth = 128 };
-    private readonly Button _folderPermission;
-    private readonly Button _cancelStartup;
-    private readonly Border _notice;
-    private readonly Dictionary<SettingsPage, ToggleButton> _tabs = [];
-    private readonly ContentControl _body = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
-    private readonly Dictionary<SettingsPage, ScrollViewer> _pages = [];
-    private bool _updatingSettings;
+    private readonly Dictionary<MainPage, NavItem> _nav = [];
+    private readonly Dictionary<MainPage, ScrollViewer> _pages = [];
+    private readonly ContentControl _body = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
+    private readonly TextBlock _statusText = Ui.Description("");
+    private readonly Border _status;
+    private readonly List<Bitmap> _thumbnails = [];
+    private readonly Bitmap _brand;
+    private bool _updating;
     private bool _initialSizeApplied;
 
+    // 截图
+    private readonly ToggleSwitch _captureToggle = Switch("启用截图与贴图");
+    private readonly Border _capturePermission;
+    private readonly Button _capturePermissionButton;
+    private readonly Border _captureOff = Ui.Note("截图与贴图已关闭，快捷键已释放。打开右上角开关即可恢复。");
+    private readonly Control _captureTools;
+    private readonly Button _captureButton;
+    private readonly SettingsLine _hotkeys;
+    private readonly SettingsLine _cache;
+    private readonly Grid _recent = new() { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 6, 0, 0) };
+    private readonly TextBlock _recentEmpty = Ui.Description("截图后会显示在这里。");
+    // 文件夹跳转
+    private readonly ToggleSwitch _folderToggle = Switch("启用文件夹跳转");
+    private readonly Border _folderPermission;
+    private readonly Border _folderOff = Ui.Note("文件夹跳转已关闭，快捷键已释放。打开右上角开关即可恢复。");
+    private readonly Control _folderHero;
+    private readonly SettingsLine _folderTarget;
+    // 通用
+    private readonly ToggleSwitch _startupToggle = Switch("开机时启动");
+    private readonly ToggleSwitch _failureToggle = Switch("失败时提示");
+    private readonly Button _cancelStartup;
+    private readonly SettingsLine _startup;
+    // 关于
+    private readonly UpdateCard _update;
+
     internal static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
-    internal SettingsPage CurrentPage { get; private set; }
+    internal MainPage CurrentPage { get; private set; }
     internal ScrollViewer CurrentPageView => _pages[CurrentPage];
+    internal IReadOnlyList<string> RecentPaths { get; private set; } = [];
 
     public MainWindow(DesktopController controller)
     {
         _controller = controller;
-        Ui.Configure(this, "Tbox 设置", 560, 560);
-        MinWidth = 360;
-        MinHeight = 360;
+        Ui.Configure(this, "Tbox", DefaultWidth, DefaultHeight);
+        MinWidth = MinimumWidth; MinHeight = MinimumHeight;
+        // The sidebar runs to the top edge and the system caption buttons sit over the window background, as in the spec.
+        ExtendClientAreaToDecorationsHint = true; ExtendClientAreaTitleBarHeightHint = 34;
+        using (var asset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/StoreLogo.png"))) _brand = new Bitmap(asset);
 
-        _folderPermission = Ui.Primary("允许辅助功能", () => RunCommand(controller.RequestFolderPermission));
+        _capturePermissionButton = Ui.Primary("去授权", controller.RequestPermission, "允许屏幕录制");
+        _capturePermission = Ui.WarningBar(IconKind.Capture, "需要屏幕录制权限",
+            OperatingSystem.IsMacOS() ? "在“系统设置 › 隐私与安全性”中允许 Tbox 后即可截图" : "在系统设置中允许 Tbox 截取屏幕后即可截图", _capturePermissionButton);
+        _captureButton = Ui.Primary("截图", () => controller.Run(controller.CaptureAsync), $"截图 · {ShortcutLabels.Capture}");
+        _captureButton.MinHeight = 36; _captureButton.Padding = new Thickness(14, 0, 10, 0);
+        _hotkeys = new SettingsLine("快捷键", $"截图 {ShortcutLabels.Capture} · 贴图 {ShortcutLabels.Pin} · 显隐贴图 {ShortcutLabels.Toggle}");
+        _cache = new SettingsLine("保存位置", "", Ui.Button("更改…", () => controller.Run(controller.ChooseCacheAsync), "更改保存位置"));
+        _captureTools = CaptureTools();
+        var folderButton = Ui.Primary("去授权", controller.RequestFolderPermission, "允许辅助功能");
+        _folderPermission = Ui.WarningBar(IconKind.Warn, "需要辅助功能权限", "允许后 Tbox 才能读取访达当前目录并跳转", folderButton);
+        _folderHero = FolderHero();
+        _folderTarget = new SettingsLine("当前会跳到", "");
         _cancelStartup = Ui.Button("取消申请", () => controller.Run(() => controller.SetStartupAsync(false)), "取消开机启动申请");
-        _startupRow = new SettingsRow("登录时启动", Ui.Row(_cancelStartup, _startupToggle), icon: IconKind.Startup);
-        _captureRow = new SettingsRow("截图与贴图", _captureToggle, icon: IconKind.Capture);
-        _cacheRow = new SettingsRow("截图缓存", null, icon: IconKind.Folder);
-        _folderRow = new SettingsRow("当前目录", _folderPermission, icon: IconKind.Folder);
-        _theme.SelectionChanged += (_, _) =>
-        {
-            if (!_updatingSettings) controller.Run(() => controller.ChangeThemeAsync(_theme.SelectedIndex));
-        };
-        _startupToggle.IsCheckedChanged += (_, _) =>
-        {
-            if (!_updatingSettings) controller.Run(() => controller.SetStartupAsync(_startupToggle.IsChecked == true));
-        };
-        _failureToggle.IsCheckedChanged += (_, _) =>
-        {
-            if (!_updatingSettings) controller.Run(() => controller.SetFailureNotificationsAsync(_failureToggle.IsChecked == true));
-        };
-        _captureToggle.IsCheckedChanged += (_, _) =>
-        {
-            if (!_updatingSettings) controller.Run(() => controller.SetModulesAsync(_captureToggle.IsChecked == true, null));
-        };
-        _folderToggle.IsCheckedChanged += (_, _) =>
-        {
-            if (!_updatingSettings) controller.Run(() => controller.SetModulesAsync(null, _folderToggle.IsChecked == true));
-        };
-
-        // A segmented control: one tinted track with the selected tab raised as a surface.
-        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-        foreach (var (page, label) in new[] { (SettingsPage.General, "常规"), (SettingsPage.Folders, "文件夹跳转") })
-        {
-            var tab = new ToggleButton { Content = label, Padding = new Thickness(12, 0), Height = 28, MinHeight = 28,
-                CornerRadius = new CornerRadius(6), BorderThickness = default, VerticalContentAlignment = VerticalAlignment.Center };
-            AutomationProperties.SetName(tab, label);
-            tab.Click += (_, _) => Navigate(page);
-            Ui.Themed(tab, (t, c) =>
-            {
-                t.Resources["ToggleButtonBackground"] = Brushes.Transparent;
-                t.Resources["ToggleButtonBackgroundPointerOver"] = Brush.Parse(c.Hover);
-                t.Resources["ToggleButtonBackgroundPressed"] = Brush.Parse(c.Hover);
-                t.Resources["ToggleButtonForeground"] = Brush.Parse(c.SecondaryText);
-                t.Resources["ToggleButtonForegroundPointerOver"] = Brush.Parse(c.Text);
-                t.Resources["ToggleButtonForegroundPressed"] = Brush.Parse(c.Text);
-                foreach (var state in new[] { "", "PointerOver", "Pressed" })
-                {
-                    t.Resources["ToggleButtonBackgroundChecked" + state] = Brush.Parse(c.Surface);
-                    t.Resources["ToggleButtonForegroundChecked" + state] = Brush.Parse(c.Text);
-                }
-            });
-            _tabs[page] = tab; tabs.Children.Add(tab);
-        }
-        var tabStrip = Ui.Themed(new Border { Child = tabs, Padding = new Thickness(2), CornerRadius = new CornerRadius(DesignTokens.ControlRadius),
-            BorderThickness = new Thickness(1) }, (b, c) => { b.Background = Brush.Parse(c.SecondarySurface); b.BorderBrush = Brush.Parse(c.Border); });
-        var header = Ui.Header("设置", $"Tbox {Version}", tabStrip, out var brandBitmap);
-        header.MaxWidth = 560; header.Margin = new Thickness(20, 14, 20, 6);
-        Closed += (_, _) => brandBitmap.Dispose();
-
-        _notice = Ui.Card(_status);
-        _notice.Padding = new Thickness(12, 8);
-        _notice.MaxWidth = 560;
-        _notice.Margin = new Thickness(20, 0, 20, 14);
-        _notice.IsVisible = false;
+        _startup = new SettingsLine("开机时启动", "启动后只在托盘运行，不打开窗口", Ui.Row(_cancelStartup, _startupToggle));
+        _update = new UpdateCard(controller);
+        _update.AvailabilityChanged += RefreshDots;
+        Wire();
         BuildPages();
 
-        var root = new DockPanel();
-        DockPanel.SetDock(header, Dock.Top);
-        DockPanel.SetDock(_notice, Dock.Bottom);
-        root.Children.Add(header);
-        root.Children.Add(_notice);
-        root.Children.Add(_body);
+        var statusIcon = new LineIcon(IconKind.Info, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) };
+        _status = new Border { CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10), Margin = new Thickness(26, 0, 26, 16),
+            Background = Brush.Parse("#F7F6FB"), IsVisible = false,
+            Child = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 8, Children = { statusIcon, Ui.Column(_statusText, 1) } } };
+        DockPanel.SetDock(_status, Dock.Bottom);
+        var card = new Border
+        {
+            Background = Brushes.White, CornerRadius = new CornerRadius(DesignTokens.PanelRadius), Margin = new Thickness(0, 34, 10, 10), ClipToBounds = true,
+            BoxShadow = BoxShadows.Parse("0 0 0 1 #0D101220, 0 10 30 0 #0F101220"),
+            Child = new DockPanel { Children = { _status, _body } }
+        };
+        var root = new Grid { ColumnDefinitions = new ColumnDefinitions($"{208},*"), Children = { Sidebar(), Ui.Column(card, 1) } };
         Content = root;
-        Navigate(SettingsPage.General);
+        Navigate(MainPage.Capture);
         Refresh();
 
         Closing += (_, args) =>
@@ -124,6 +111,7 @@ public sealed class MainWindow : Window
                 Hide();
             }
         };
+        Closed += (_, _) => { _update.Release(); ReleaseThumbnails(); _brand.Dispose(); };
         Activated += (_, _) =>
         {
             Refresh();
@@ -141,109 +129,454 @@ public sealed class MainWindow : Window
             Width = Math.Min(Width, workWidth * .9);
             Height = Math.Min(Height, workHeight * .9);
         };
-        controller.ThemeLoaded += _ => Refresh();
     }
 
-    internal void Navigate(SettingsPage page)
+    internal void Navigate(MainPage page)
     {
         CurrentPage = page;
         _body.Content = _pages[page];
-        foreach (var (key, tab) in _tabs) tab.IsChecked = key == page;
+        foreach (var (key, item) in _nav) item.Selected = key == page;
         SetStatus("");
+    }
+
+    public void SetStatus(string message)
+    {
+        _statusText.Text = message;
+        _status.IsVisible = !string.IsNullOrWhiteSpace(message);
+    }
+
+    public void Refresh()
+    {
+        var settings = _controller.Settings;
+        var capture = settings.ScreenPasteEnabled;
+        var folders = settings.FolderJumpEnabled;
+        _updating = true;
+        _captureToggle.IsChecked = capture; _folderToggle.IsChecked = folders;
+        _startupToggle.IsChecked = _controller.Startup.Enabled; _failureToggle.IsChecked = settings.ShowFailureNotifications;
+        _updating = false;
+
+        // 截图: the permission bar owns the page's single primary button while it is shown.
+        var needsPermission = capture && _controller.CapturePermissionNeeded;
+        _capturePermission.IsVisible = needsPermission;
+        _capturePermissionButton.Content = _controller.ScreenPermissionRequested ? "打开设置" : "去授权";
+        AutomationProperties.SetName(_capturePermissionButton, _controller.ScreenPermissionRequested ? "打开屏幕录制设置" : "允许屏幕录制");
+        SetCaptureButton(primary: !needsPermission);
+        _captureOff.IsVisible = !capture;
+        _captureTools.IsEnabled = capture; _captureTools.Opacity = capture ? 1 : .45;
+        var conflict = capture && _controller.HasHotkeyConflict;
+        _hotkeys.SetDescription(conflict ? "快捷键被其他应用占用，可在本页启动工具" : $"截图 {ShortcutLabels.Capture} · 贴图 {ShortcutLabels.Pin} · 显隐贴图 {ShortcutLabels.Toggle}", conflict);
+        _hotkeys.Trailing = !capture ? Ui.Status("已关闭", DesignTokens.Hint) : conflict ? Ui.Status("冲突", DesignTokens.Error) : Ui.Status("可用", DesignTokens.Ready);
+        _cache.SetDescription(_controller.CacheDirectory);
+
+        // 文件夹跳转
+        var folderPermission = _controller.HasFolderPermission;
+        _folderPermission.IsVisible = folders && !folderPermission;
+        _folderOff.IsVisible = !folders;
+        _folderHero.Opacity = folders ? 1 : .45;
+        _folderTarget.SetDescription(!folderPermission ? "授权后显示"
+            : string.IsNullOrWhiteSpace(_controller.FolderDirectory) ? "尚未读取目录，将使用用户主目录" : _controller.FolderDirectory);
+        _folderTarget.Trailing = !folders ? Ui.Status("已关闭", DesignTokens.Hint)
+            : folderPermission ? Ui.Status("可用", DesignTokens.Ready) : Ui.Status("未授权", DesignTokens.Error);
+
+        // 通用
+        _startup.SetDescription(_controller.Startup.Message ?? "启动后只在托盘运行，不打开窗口");
+        _cancelStartup.IsVisible = _controller.Startup.RequiresApproval;
+
+        RefreshDots();
+        RefreshRecent();
+    }
+
+    // Red = hotkey conflict, yellow = permission needed or an update is available.
+    private void RefreshDots()
+    {
+        var capture = _controller.Settings.ScreenPasteEnabled;
+        _nav[MainPage.Capture].Dot = capture && _controller.HasHotkeyConflict ? DesignTokens.Recording
+            : capture && _controller.CapturePermissionNeeded ? DesignTokens.AttentionDot : null;
+        _nav[MainPage.Folders].Dot = _controller.Settings.FolderJumpEnabled && !_controller.HasFolderPermission ? DesignTokens.AttentionDot : null;
+        _nav[MainPage.About].Dot = _update.UpdateAvailable ? DesignTokens.AttentionDot : null;
+    }
+
+    private void Wire()
+    {
+        void On(ToggleSwitch toggle, Func<bool, Task> change) =>
+            toggle.IsCheckedChanged += (_, _) => { if (!_updating) _controller.Run(() => change(toggle.IsChecked == true)); };
+        On(_captureToggle, enabled => _controller.SetModulesAsync(enabled, null));
+        On(_folderToggle, enabled => _controller.SetModulesAsync(null, enabled));
+        On(_startupToggle, _controller.SetStartupAsync);
+        On(_failureToggle, _controller.SetFailureNotificationsAsync);
+    }
+
+    private Control Sidebar()
+    {
+        var name = new TextBlock { Text = "Tbox", FontSize = 15, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(8, 0, 0, 18), IsHitTestVisible = false,
+            Children = { new Image { Source = _brand, Width = 28, Height = 28, IsHitTestVisible = false }, name } };
+        var items = new StackPanel { Spacing = 2 };
+        void Group(string title) => items.Children.Add(new TextBlock { Text = title, FontSize = 11.5, FontWeight = FontWeight.SemiBold,
+            Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 12, 0, 6), IsHitTestVisible = false });
+        void Item(MainPage page, IconKind icon, string title) { var item = new NavItem(icon, title, () => Navigate(page)); _nav[page] = item; items.Children.Add(item); }
+        Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
+        Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.About, IconKind.Update, "关于");
+        var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
+        DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(version, Dock.Bottom);
+        // macOS draws the traffic lights over the top-left corner, so the brand moves below them.
+        return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, version, items } };
     }
 
     private void BuildPages()
     {
-        var shortcuts = new WrapPanel { Orientation = Orientation.Horizontal };
-        foreach (var (label, key) in new[] { ("截图", ShortcutLabels.Capture), ("贴图", ShortcutLabels.Pin), ("显隐贴图", ShortcutLabels.Toggle) })
-            shortcuts.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 2, 14, 2),
-                Children = { Ui.Caption(label), Ui.Key(key) } });
-        var shortcutRow = new SettingsRow("快捷键", Ui.Button("检查", () =>
-        {
-            Refresh();
-            SetStatus(_controller.HasHotkeyConflict ? "快捷键被占用。请关闭占用它们的应用后重新启用工具。" : "当前未发现快捷键冲突。");
-        }, "检查快捷键"), icon: IconKind.Keyboard);
-        var cacheActions = Ui.Row(Ui.Button("打开", () => RunCommand(_controller.OpenCache), "打开目录"),
-            Ui.Button("更换…", () => _controller.Run(_controller.ChooseCacheAsync), "更换目录…"));
-        AddPage(SettingsPage.General,
-            Ui.SectionLabel("外观与启动"),
-            Ui.Group(new SettingsRow("主题", _theme, icon: IconKind.Theme), _startupRow,
-                new SettingsRow("失败通知", _failureToggle, "功能失败时在屏幕角落提示", IconKind.Bell)),
-            Ui.SectionLabel("截图与贴图"),
-            Ui.Group(_captureRow, Indented(shortcutRow, shortcuts)),
-            Ui.SectionLabel("截图缓存"),
-            Ui.Group(Indented(_cacheRow, cacheActions)),
-            Ui.SectionLabel("关于"),
-            Ui.Group(new SettingsRow($"Tbox {Version}", Ui.Primary("检查更新", _controller.ShowUpdates), "公开下载，无需登录", IconKind.Update),
-                new SettingsRow("帮助与反馈", Ui.Link("打开", () => _controller.Run(async () =>
-                {
-                    if (!await Launcher.LaunchUriAsync(new Uri("https://github.com/xsddpx/Tbox/issues")))
-                        SetStatus("无法打开反馈页面。");
-                }), "帮助与反馈"), "在 GitHub 提交问题或建议", IconKind.Help)));
+        var openCache = Ui.Link(OperatingSystem.IsMacOS() ? "在访达中显示" : "打开文件夹", () => RunCommand(_controller.OpenCache));
+        _recentEmpty.Margin = new Thickness(0, 6, 0, 0);
+        AddPage(MainPage.Capture, PageHeader(IconKind.Capture, "截图", "截图后可标注、贴图、识别文字", _captureToggle),
+            Spaced(_capturePermission, 14), Spaced(_captureOff, 16), _captureTools,
+            Ui.GroupHeader("设置"), Ui.Rows(_hotkeys, _cache),
+            Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty);
 
-        AddPage(SettingsPage.Folders,
-            Ui.SectionLabel("在打开或保存面板中跳转"),
-            Ui.Group(new SettingsRow("启用文件夹跳转", _folderToggle, $"在系统文件面板中按 {ShortcutLabels.Folder}，跳到最近使用的目录", IconKind.Jump),
-                _folderRow));
+        var keys = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        foreach (var key in KeyCaps(ShortcutLabels.Folder)) keys.Children.Add(Ui.Key(key));
+        AddPage(MainPage.Folders, PageHeader(IconKind.Jump, "文件夹跳转", "打开或保存文件时，一键跳到正在用的文件夹", _folderToggle),
+            Spaced(_folderPermission, 14), Spaced(_folderOff, 16), _folderHero,
+            Ui.GroupHeader("状态"), Ui.Rows(new SettingsLine("快捷键", "只在打开 / 保存对话框里生效", keys), _folderTarget));
+
+        AddPage(MainPage.General, PageHeader(IconKind.Sliders, "通用", "启动与提示", null),
+            Spaced(Ui.GroupHeader("启动"), 8), _startup,
+            Ui.GroupHeader("提示"), new SettingsLine("失败时提示", "截图或识别失败时，在屏幕角落说明原因", _failureToggle),
+            Spaced(Ui.Note("关闭窗口后 Tbox 继续在托盘运行，快捷键照常可用。右键托盘图标可退出。"), 18));
+
+        var feedback = new SurfaceButton("反馈问题", () => _controller.Run(async () =>
+        {
+            if (!await Launcher.LaunchUriAsync(new Uri("https://github.com/xsddpx/Tbox/issues"))) SetStatus("无法打开反馈页面。");
+        }));
+        feedback.Content = new SettingsLine("反馈问题", "在 GitHub 提交问题或建议", new LineIcon(IconKind.Chevron, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16 });
+        Hover(feedback, "#F7F6FB", 8);
+        AddPage(MainPage.About, PageHeader(IconKind.Update, "关于", "版本、更新与反馈", null),
+            Spaced(_update, 16), Ui.GroupHeader("帮助"), feedback);
     }
 
-    // A row followed by extra content aligned under its title.
-    private static StackPanel Indented(SettingsRow row, Control content) =>
-        new() { Children = { row, new Border { Child = content, Margin = new Thickness(48, -4, 16, 12) } } };
-
-    private void AddPage(SettingsPage key, params Control[] content)
+    private void AddPage(MainPage key, params Control[] content)
     {
-        var panel = new StackPanel { Spacing = 8, MaxWidth = 560, Margin = new Thickness(20, 6, 20, 20) };
+        var panel = new StackPanel { Margin = new Thickness(26, 20, 26, 20) };
         foreach (var child in content) panel.Children.Add(child);
         _pages[key] = new ScrollViewer
         {
-            Content = panel,
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            HorizontalContentAlignment = HorizontalAlignment.Stretch
+            Content = panel, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, HorizontalContentAlignment = HorizontalAlignment.Stretch
         };
     }
 
-    private static ToggleSwitch ModuleSwitch(string label)
+    private static T Spaced<T>(T control, double top) where T : Control { control.Margin = new Thickness(0, top, 0, 0); return control; }
+
+    private static Grid PageHeader(IconKind icon, string title, string description, ToggleSwitch? toggle)
+    {
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new TextBlock { Text = title, FontSize = DesignTokens.PageTitle, LineHeight = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong },
+            Ui.Description(description)
+        } };
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 14,
+            Children = { Ui.IconChip(icon, ToolTone.Violet, 40, 20), Ui.Column(titles, 1) } };
+        if (toggle is not null) { toggle.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(Ui.Column(toggle, 2)); }
+        return header;
+    }
+
+    private Control CaptureTools()
+    {
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new TextBlock { Text = "开始截图", FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong },
+            Spaced(Ui.Description("单击窗口或拖动框选，按 R 回到上次区域"), 2),
+            Spaced(_captureButton, 14)
+        } };
+        _captureButton.HorizontalAlignment = HorizontalAlignment.Left;
+        var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children =
+        {
+            text, Ui.Column(CaptureIllustration(), 1)
+        } });
+        hero.Padding = new Thickness(20, 16, 16, 16);
+
+        var ocrMenu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
+        ocrMenu.Items.Add(MenuItem("识别剪贴板图片", () => _controller.Run(_controller.OcrClipboardAsync)));
+        ocrMenu.Items.Add(MenuItem("选择图片…", () => _controller.Run(_controller.OpenImageForOcrAsync)));
+        SurfaceButton? ocr = null;
+        var cards = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 12, 0, 0), Children =
+        {
+            Feature("贴出剪贴板", IconKind.Pin, ToolTone.Amber, ShortcutLabels.Pin, () => _controller.Run(_controller.PinClipboardAsync)),
+            Ui.Column(Feature("长截图", IconKind.Long, ToolTone.Blue, null, () => _controller.Run(_controller.LongCaptureAsync)), 1),
+            Ui.Column(Feature("录屏", IconKind.Record, ToolTone.Red, null, () => _controller.Run(_controller.RecordRegionAsync)), 2),
+            Ui.Column(ocr = Feature("识别文字", IconKind.Ocr, ToolTone.Green, null, () => ocrMenu.ShowAt(ocr!)), 3)
+        } };
+        return new StackPanel { Margin = new Thickness(0, 16, 0, 0), Children = { hero, cards } };
+    }
+
+    private void SetCaptureButton(bool primary)
+    {
+        if (primary) _captureButton.Classes.Add("accent"); else _captureButton.Classes.Remove("accent");
+        _captureButton.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
+        {
+            new TextBlock { Text = "截图", VerticalAlignment = VerticalAlignment.Center }, Ui.Key(ShortcutLabels.Capture, onAccent: primary)
+        } };
+    }
+
+    private static SurfaceButton Feature(string title, IconKind icon, ToolTone tone, string? shortcut, Action action)
+    {
+        var button = new SurfaceButton(shortcut is null ? title : $"{title} · {shortcut}", action) { Height = 62, CornerRadius = new CornerRadius(12) };
+        var layout = new Grid { Margin = new Thickness(12, 10), RowDefinitions = new RowDefinitions("Auto,*,Auto"), Children =
+        {
+            Ui.IconChip(icon, tone),
+            new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Bottom,
+                TextTrimming = TextTrimming.CharacterEllipsis, [Grid.RowProperty] = 2 }
+        } };
+        ((Control)layout.Children[0]).HorizontalAlignment = HorizontalAlignment.Left;
+        if (shortcut is not null) { var key = Ui.Key(shortcut); key.HorizontalAlignment = HorizontalAlignment.Right; key.VerticalAlignment = VerticalAlignment.Top; key.Margin = new Thickness(0, 2, 0, 0); layout.Children.Add(key); }
+        button.Content = new Border { CornerRadius = new CornerRadius(12), BorderBrush = Brush.Parse("#EEEDF3"), BorderThickness = new Thickness(1), Child = layout };
+        Hover(button, "#F7F6FB", 12);
+        return button;
+    }
+
+    private Control FolderHero()
+    {
+        var mac = OperatingSystem.IsMacOS();
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new TextBlock { Text = $"按 {string.Join(" + ", KeyCaps(ShortcutLabels.Folder))}", FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong },
+            Spaced(Ui.Description($"在任意软件的打开 / 保存对话框里，直接跳到{(mac ? "访达" : "资源管理器")}里最近打开的文件夹。"), 2)
+        } };
+        var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children = { text, Ui.Column(FolderIllustration(), 1) } });
+        hero.Padding = new Thickness(20, 16, 16, 16); hero.Margin = new Thickness(0, 16, 0, 0);
+        return hero;
+    }
+
+    // Two small decorative scenes for the hero banners, drawn so they stay sharp at any scale.
+    private static Border Scene(Control content) => new()
+    {
+        Width = 150, Height = 80, CornerRadius = new CornerRadius(8), ClipToBounds = true, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center,
+        BoxShadow = BoxShadows.Parse("0 6 18 0 #24503CA0"), Child = content,
+        Background = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(.4, 1, RelativeUnit.Relative),
+            GradientStops = { new GradientStop(Color.Parse("#EBEDF6"), 0), new GradientStop(Color.Parse("#DCE1EF"), 1) } }
+    };
+    private static Rectangle Box(double x, double y, double w, double h, string fill, double radius = 2) =>
+        new() { Width = w, Height = h, Fill = Brush.Parse(fill), RadiusX = radius, RadiusY = radius, [Canvas.LeftProperty] = x, [Canvas.TopProperty] = y };
+
+    private static Control CaptureIllustration()
+    {
+        var canvas = new Canvas { Children =
+        {
+            Box(13, 10, 124, 80, "#FFFFFF", 6), Box(13, 10, 124, 10, "#F3F4F8", 0), Box(22, 26, 50, 6, "#E6E8EF"), Box(22, 37, 76, 4, "#EEF0F5"),
+            Box(22, 50, 50, 26, "#EEEAFE", 3), Box(78, 50, 50, 26, "#E6F0FF", 3),
+            // Dim everything outside the selection.
+            Box(0, 0, 150, 34, "#4D1C1838", 0), Box(0, 66, 150, 14, "#4D1C1838", 0), Box(0, 34, 46, 32, "#4D1C1838", 0), Box(112, 34, 38, 32, "#4D1C1838", 0),
+            new Rectangle { Width = 66, Height = 32, Stroke = Brush.Parse(DesignTokens.Accent), StrokeThickness = 1.5, [Canvas.LeftProperty] = 46, [Canvas.TopProperty] = 34 },
+            new Border { Background = Brush.Parse(DesignTokens.Accent), CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 0), [Canvas.LeftProperty] = 46, [Canvas.TopProperty] = 17,
+                Child = new TextBlock { Text = "430 × 250", FontSize = 9, FontWeight = FontWeight.SemiBold, Foreground = Brushes.White, LineHeight = 15 } }
+        } };
+        foreach (var (x, y) in new[] { (43.0, 31.0), (109.0, 31.0), (43.0, 63.0), (109.0, 63.0) })
+            canvas.Children.Add(new Rectangle { Width = 6, Height = 6, Fill = Brushes.White, Stroke = Brush.Parse(DesignTokens.Accent), StrokeThickness = 1.5,
+                [Canvas.LeftProperty] = x, [Canvas.TopProperty] = y });
+        return Scene(canvas);
+    }
+
+    private static Control FolderIllustration()
+    {
+        var path = OperatingSystem.IsMacOS() ? "~/Projects/Tbox/docs" : @"D:\Projects\Tbox\docs";
+        var canvas = new Canvas { Children =
+        {
+            Box(13, 10, 124, 80, "#FFFFFF", 6),
+            new Border { Width = 110, Height = 14, CornerRadius = new CornerRadius(4), Background = Brush.Parse("#F1EDFF"), BorderBrush = Brush.Parse("#CDBFFA"),
+                BorderThickness = new Thickness(1), Padding = new Thickness(6, 0), [Canvas.LeftProperty] = 20, [Canvas.TopProperty] = 17,
+                Child = new TextBlock { Text = path, FontSize = 8.5, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#5A39D6"), VerticalAlignment = VerticalAlignment.Center } }
+        } };
+        for (var row = 0; row < 2; row++)
+        for (var column = 0; column < 4; column++)
+            canvas.Children.Add(Box(22 + column * 28, 38 + row * 20, 18, 14, (row + column) % 3 == 0 ? "#C9D3E6" : "#FFD27A"));
+        var caps = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, [Canvas.LeftProperty] = 96, [Canvas.TopProperty] = 58 };
+        foreach (var key in KeyCaps(ShortcutLabels.Folder))
+            caps.Children.Add(new Border { Height = 17, MinWidth = 17, Padding = new Thickness(4, 0), CornerRadius = new CornerRadius(4), Background = Brushes.White,
+                BoxShadow = BoxShadows.Parse("0 1 0 0 #33000000, 0 0 0 1 #14000000"),
+                Child = new TextBlock { Text = key, FontSize = 9, FontWeight = FontWeight.Bold, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center } });
+        canvas.Children.Add(caps);
+        return Scene(canvas);
+    }
+
+    // "Ctrl+G" → Ctrl, G; macOS symbols such as "⌃G" get one cap per key.
+    internal static string[] KeyCaps(string label) =>
+        label.Contains('+') ? label.Split('+') : label.Select(c => c.ToString()).ToArray();
+
+    private void RefreshRecent()
+    {
+        IReadOnlyList<FileInfo> files;
+        try { files = new CaptureCache(_controller.CacheDirectory).GetRecentFiles(RecentCount); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { files = []; }
+        var paths = files.Select(file => file.FullName).ToArray();
+        if (paths.SequenceEqual(RecentPaths) && _recent.Children.Count == paths.Length) return;
+        _recent.Children.Clear(); ReleaseThumbnails();
+        RecentPaths = paths;
+        for (var index = 0; index < files.Count; index++)
+        {
+            var file = files[index];
+            Bitmap? bitmap = null;
+            try { using var stream = File.OpenRead(file.FullName); bitmap = Bitmap.DecodeToWidth(stream, 240); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException) { }
+            if (bitmap is null) continue;
+            _thumbnails.Add(bitmap);
+            _recent.Children.Add(Ui.Column(RecentThumbnail(file, bitmap), index));
+        }
+        _recent.IsVisible = _recent.Children.Count > 0;
+        _recentEmpty.IsVisible = !_recent.IsVisible;
+    }
+
+    private Control RecentThumbnail(FileInfo file, Bitmap bitmap)
+    {
+        var path = file.FullName;
+        var label = RecentCaptureLabel.Format(file.LastWriteTime, DateTime.Now);
+        var time = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(153, 12, 14, 24)), CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(6, 0), Margin = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom,
+            Child = new TextBlock { Text = label, FontSize = 10, FontWeight = FontWeight.SemiBold, LineHeight = 16, Foreground = Brushes.White }
+        };
+        var pin = OverlayButton(IconKind.Pin, $"贴到屏幕 · {label}", () => _controller.Run(() => _controller.PinFileAsync(path)));
+        var copy = OverlayButton(IconKind.Copy, $"复制截图 · {label}", () => _controller.Run(() => _controller.CopyFileAsync(path)));
+        var actions = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(87, 12, 14, 24)), IsVisible = false,
+            Child = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center, Children = { pin, copy } }
+        };
+        var frame = new Border
+        {
+            CornerRadius = new CornerRadius(10), ClipToBounds = true, BorderThickness = new Thickness(1), BorderBrush = Brush.Parse("#0F101220"),
+            Child = new Grid { Children = { new Image { Source = bitmap, Stretch = Stretch.UniformToFill }, time, actions } }
+        };
+        var card = new SurfaceButton($"打开截图 · {label}", () => _controller.Run(() => _controller.OpenCachedAsync(path))) { Content = frame, CornerRadius = new CornerRadius(10) };
+        ToolTip.SetTip(card, $"{label} · {file.Name}");
+        card.Resources["ButtonBackgroundPointerOver"] = Brushes.Transparent; card.Resources["ButtonBackgroundPressed"] = Brushes.Transparent;
+        // Thumbnails keep 16:9 at any card width.
+        card.SizeChanged += (_, e) => { var height = Math.Round(e.NewSize.Width * 9 / 16); if (double.IsNaN(card.Height) || Math.Abs(card.Height - height) > .5) card.Height = height; };
+        void Show(bool visible) { actions.IsVisible = visible; frame.BorderThickness = new Thickness(visible ? 2 : 1); frame.BorderBrush = visible ? Brush.Parse(DesignTokens.Accent) : Brush.Parse("#0F101220"); }
+        card.PointerEntered += (_, _) => Show(true);
+        card.PointerExited += (_, _) => Show(false);
+        // Keyboard users reach the two actions directly, so focus also reveals them.
+        foreach (var button in new[] { card, pin, copy }) { button.GotFocus += (_, _) => Show(true); button.LostFocus += (_, _) => Show(card.IsPointerOver); }
+        return card;
+    }
+
+    private static Button OverlayButton(IconKind icon, string label, Action action)
+    {
+        var button = Ui.Button(label, action, label);
+        button.Content = new LineIcon(icon, brush: Strong) { Width = 16, Height = 16 };
+        button.Padding = new Thickness(6); button.MinHeight = 0; button.Width = button.Height = 28; button.MinWidth = 28;
+        button.CornerRadius = new CornerRadius(7); button.BorderThickness = default;
+        button.Background = Brushes.White;
+        button.Resources["ButtonBackgroundPointerOver"] = Brush.Parse("#F7F6FB");
+        button.Resources["ButtonBackgroundPressed"] = Brush.Parse("#EFEEF4");
+        return button;
+    }
+
+    private void ReleaseThumbnails()
+    {
+        foreach (var bitmap in _thumbnails) bitmap.Dispose();
+        _thumbnails.Clear();
+    }
+
+    private static void Hover(Button button, string color, double radius)
+    {
+        button.CornerRadius = new CornerRadius(radius);
+        button.Resources["ButtonBackgroundPointerOver"] = Brush.Parse(color);
+        button.Resources["ButtonBackgroundPressed"] = Brush.Parse("#EFEEF4");
+        foreach (var state in new[] { "", "PointerOver", "Pressed", "Disabled" }) button.Resources["ButtonForeground" + state] = Strong;
+        button.Resources["ButtonBackgroundDisabled"] = Brushes.Transparent;
+    }
+
+    private static ToggleSwitch Switch(string label)
     {
         var toggle = new ToggleSwitch { OnContent = null, OffContent = null, MinWidth = 0 };
         AutomationProperties.SetName(toggle, label);
         return toggle;
     }
 
+    private static MenuItem MenuItem(string header, Action action)
+    {
+        var item = new MenuItem { Header = header };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
     private void RunCommand(Action action)
     {
         SetStatus("");
-        _controller.Run(() =>
+        _controller.Run(() => { action(); return Task.CompletedTask; });
+    }
+
+    // Sidebar entry: 38 px, radius 10. The selected item is a raised white surface with an amethyst icon.
+    private sealed class NavItem : Border
+    {
+        private readonly LineIcon _icon;
+        private readonly TextBlock _text;
+        private readonly Border _dot = new() { Width = 7, Height = 7, CornerRadius = new CornerRadius(3.5), IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
+        private readonly SurfaceButton _button;
+        public NavItem(IconKind icon, string title, Action select)
         {
-            action();
-            return Task.CompletedTask;
-        });
+            CornerRadius = new CornerRadius(10);
+            _icon = new LineIcon(icon, brush: NavIcon) { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center };
+            _text = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, Foreground = NavText };
+            _button = new SurfaceButton(title, select) { Height = 38, Content = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Margin = new Thickness(12, 0),
+                Children = { _icon, Ui.Column(_text, 1), Ui.Column(_dot, 2) }
+            } };
+            Hover(_button, "#99FFFFFF", 10);
+            Child = _button;
+        }
+        public bool Selected
+        {
+            set
+            {
+                Background = value ? Brushes.White : Brushes.Transparent;
+                BoxShadow = value ? BoxShadows.Parse("0 1 2 0 #0F101220, 0 6 16 0 #0F101220") : default;
+                _icon.Stroke = value ? Brush.Parse(DesignTokens.Accent) : NavIcon;
+                _text.FontWeight = value ? FontWeight.SemiBold : FontWeight.Normal;
+                _text.Foreground = value ? Strong : NavText;
+                _button.Resources["ButtonBackgroundPointerOver"] = value ? Brushes.Transparent : Brush.Parse("#99FFFFFF");
+            }
+        }
+        public string? Dot
+        {
+            set { _dot.IsVisible = value is not null; if (value is not null) _dot.Background = Brush.Parse(value); }
+        }
     }
+}
 
-    public void SetStatus(string message)
+// A 46 px settings row: name, one-line description and a trailing control or status.
+internal sealed class SettingsLine : Grid
+{
+    private readonly TextBlock _description = Ui.Description("");
+    private Control? _trailing;
+    public SettingsLine(string title, string description, Control? trailing = null)
     {
-        _status.Text = message;
-        _notice.IsVisible = !string.IsNullOrWhiteSpace(message);
+        MinHeight = 46; ColumnSpacing = 14; ColumnDefinitions = new ColumnDefinitions("*,Auto");
+        _description.FontSize = DesignTokens.Caption; _description.LineHeight = 16; _description.TextWrapping = TextWrapping.NoWrap;
+        _description.TextTrimming = TextTrimming.CharacterEllipsis;
+        Children.Add(new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 6), Children =
+        {
+            new TextBlock { Text = title, FontSize = DesignTokens.Body, Foreground = Brush.Parse("#1A1B22") }, _description
+        } });
+        SetDescription(description);
+        Trailing = trailing;
     }
-
-    public void Refresh()
+    public Control? Trailing
     {
-        _updatingSettings = true;
-        _captureToggle.IsChecked = _controller.Settings.ScreenPasteEnabled;
-        _folderToggle.IsChecked = _controller.Settings.FolderJumpEnabled;
-        _failureToggle.IsChecked = _controller.Settings.ShowFailureNotifications;
-        _startupToggle.IsChecked = _controller.Startup.Enabled;
-        _theme.SelectedIndex = _controller.Settings.AppTheme switch { "light" => 1, "dark" => 2, _ => 0 };
-        _updatingSettings = false;
-
-        _captureRow.Description = _controller.HasHotkeyConflict ? "部分快捷键被占用。可从托盘面板启动工具。" : "截图、贴图、长截图、录屏和识字";
-        _startupRow.Description = _controller.Startup.Message;
-        _cancelStartup.IsVisible = _controller.Startup.RequiresApproval;
-        _folderRow.Description = !_controller.HasFolderPermission
-            ? "启用辅助功能权限后，Tbox 才能读取最近目录并跳转。"
-            : string.IsNullOrWhiteSpace(_controller.FolderDirectory) ? "尚未读取目录，将使用用户主目录。" : _controller.FolderDirectory;
-        _folderPermission.IsVisible = !_controller.HasFolderPermission;
-        _cacheRow.Description = _controller.CacheDirectory;
-        if (_controller.Panel is { IsVisible: true } panel) panel.Refresh();
+        get => _trailing;
+        set
+        {
+            if (_trailing is not null) Children.Remove(_trailing);
+            _trailing = value;
+            if (value is null) return;
+            value.VerticalAlignment = VerticalAlignment.Center; SetColumn(value, 1); Children.Add(value);
+        }
+    }
+    public void SetDescription(string text, bool error = false)
+    {
+        _description.Text = text; _description.IsVisible = text.Length > 0;
+        _description.Foreground = Brush.Parse(error ? DesignTokens.Error : "#5F6270");
+        ToolTip.SetTip(_description, text.Length > 0 ? text : null);
     }
 }

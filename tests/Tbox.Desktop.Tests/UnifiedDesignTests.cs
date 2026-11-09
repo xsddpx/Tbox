@@ -12,7 +12,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tbox.Core;
 using Tbox.Desktop.Models;
-using Tbox.Desktop.Updates;
 using Tbox.Desktop.Views;
 using Xunit;
 
@@ -22,7 +21,7 @@ namespace Tbox.Desktop.Tests;
 public sealed class UnifiedDesignTests
 {
     [AvaloniaFact]
-    public void PageWindowsShareTheBrandHeaderAndThemedControlsInBothThemes()
+    public void ResultWindowsShareTheBrandHeaderAndThemedControlsInBothThemes()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
         using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
@@ -30,8 +29,7 @@ public sealed class UnifiedDesignTests
         using var picture = DesktopController.RenderText("Tbox");
         var windows = new (string Name, Window Window)[]
         {
-            ("settings", controller.Main), ("ocr", new OcrWindow(controller)),
-            ("update", new UpdateWindow(controller, new GitHubUpdateClient(new HttpClientHandler()))),
+            ("ocr", new OcrWindow(controller)),
             ("preview", new ImageResultWindow(controller, new Picture(picture.Png), false)),
             ("confirm", new ConfirmWindow("录屏尚未保存，是否放弃？", "放弃录屏"))
         };
@@ -55,7 +53,31 @@ public sealed class UnifiedDesignTests
                 Preview(window, $"{name}-{theme.Key}");
             }
         }
-        finally { foreach (var (_, window) in windows) window.Close(); }
+        finally { foreach (var (_, window) in windows) window.Close(); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void MainWindowFollowsTheLightSpecWithOnePrimaryButtonPerPage()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        using var controller = new DesktopController(new FakePlatform { HasScreenPermission = true }, new ClassicDesktopStyleApplicationLifetime());
+        var main = controller.Main = new MainWindow(controller);
+        main.RequestedThemeVariant = ThemeVariant.Light; main.Show();
+        try
+        {
+            Assert.Equal(Color.Parse("#F4F3F8"), ((ISolidColorBrush)main.Background!).Color);
+            foreach (var page in Enum.GetValues<MainPage>())
+            {
+                main.Navigate(page); main.UpdateLayout(); Dispatcher.UIThread.RunJobs(); main.UpdateLayout();
+                var buttons = main.CurrentPageView.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible).ToArray();
+                Assert.True(buttons.Count(b => b.Classes.Contains("accent")) <= 1, page.ToString());
+                // Page titles are 20 px (spec ①).
+                Assert.Contains(main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>(), t => t.FontSize == 20);
+                Assert.All(buttons.Where(b => b.GetType() == typeof(Button)), b => Assert.True(b.MinHeight <= 36, AutomationProperties.GetName(b)));
+                Preview(main, $"main-{page}");
+            }
+        }
+        finally { controller.Dispose(); main.Close(); }
     }
 
     [AvaloniaFact]

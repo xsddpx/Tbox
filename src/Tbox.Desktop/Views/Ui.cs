@@ -31,7 +31,7 @@ internal static class Ui
     };
     public static Button Button(string text, Action action, string? tooltip = null)
     {
-        var button = new Button { Content = text, MinHeight = DesignTokens.ControlHeight, Padding = new Thickness(14, 7),
+        var button = new Button { Content = text, MinHeight = DesignTokens.ControlHeight, Padding = new Thickness(14, 5), FontSize = 13,
             CornerRadius = new CornerRadius(DesignTokens.ControlRadius), VerticalAlignment = VerticalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center };
         if (tooltip is not null) ToolTip.SetTip(button, tooltip);
@@ -162,12 +162,116 @@ internal static class Ui
         return card;
     }
 
-    // Keyboard shortcut cap, the same chip the tray panel shows beside tools.
-    public static Border Key(string text) => Themed(new Border
+    // Keyboard shortcut cap: 20 px tall, one cap per key. On a filled accent button it turns translucent white.
+    public static Border Key(string text, bool onAccent = false) => Themed(new Border
     {
-        CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 2), VerticalAlignment = VerticalAlignment.Center,
-        Child = new TextBlock { Text = text, FontSize = 11 }
-    }, (b, c) => { b.Background = Brush.Parse(c.Hover); ((TextBlock)b.Child!).Foreground = Brush.Parse(c.SecondaryText); });
+        CornerRadius = new CornerRadius(5), Padding = new Thickness(6, 0), Height = 20, MinWidth = 20, VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center }
+    }, (b, c) =>
+    {
+        b.Background = onAccent ? new SolidColorBrush(Colors.White, .22) : new SolidColorBrush(Color.Parse("#101220"), .06);
+        ((TextBlock)b.Child!).Foreground = onAccent ? Brushes.White : Brush.Parse(c.SecondaryText);
+    });
+
+    // Page building blocks from spec ③: grey group title, 46 px rows with hairlines, dot statuses, notes and the warning bar.
+    public static TextBlock GroupTitle(string text) => new()
+    {
+        Text = text, FontSize = DesignTokens.Caption, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse(DesignTokens.Hint),
+        VerticalAlignment = VerticalAlignment.Center
+    };
+    public static Grid GroupHeader(string text, Control? trailing = null)
+    {
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 14, 0, 2), MinHeight = 22 };
+        header.Children.Add(GroupTitle(text));
+        if (trailing is not null) { trailing.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(trailing, 1); header.Children.Add(trailing); }
+        return header;
+    }
+    public static StackPanel Rows(params Control[] rows)
+    {
+        var panel = new StackPanel();
+        for (var i = 0; i < rows.Length; i++)
+        {
+            if (i > 0) panel.Children.Add(new Border { Height = 1, Background = Brush.Parse(DesignTokens.Hairline) });
+            panel.Children.Add(rows[i]);
+        }
+        return panel;
+    }
+    public static TextBlock Description(string text) => new()
+    {
+        Text = text, FontSize = DesignTokens.Description, LineHeight = 18, TextWrapping = TextWrapping.Wrap, Foreground = Brush.Parse("#5F6270")
+    };
+    // Coloured dot plus a word: 可用, 冲突, 未授权.
+    public static StackPanel Status(string text, string color)
+    {
+        var brush = Brush.Parse(color);
+        return new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = brush, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = text, FontSize = DesignTokens.Caption, Foreground = brush, VerticalAlignment = VerticalAlignment.Center }
+        } };
+    }
+    public static Border Note(string text) => new()
+    {
+        CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 12), Background = Brush.Parse("#F7F6FB"),
+        Child = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 8, Children =
+        {
+            new LineIcon(IconKind.Info, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) },
+            Column(Description(text), 1)
+        } }
+    };
+    // Yellow attention bar above a page's hero; its button becomes the page's only primary action.
+    public static Border WarningBar(IconKind icon, string title, string detail, Button action)
+    {
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#1A1B22") },
+            new TextBlock { Text = detail, FontSize = DesignTokens.Caption, TextWrapping = TextWrapping.Wrap, Foreground = Brush.Parse("#6B5A3A") }
+        } };
+        action.MinHeight = 30; action.Height = 30; action.Padding = new Thickness(12, 0);
+        return new Border
+        {
+            CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10), Background = Brush.Parse("#FFF6E6"),
+            BorderBrush = Brush.Parse("#F6E2B8"), BorderThickness = new Thickness(1),
+            Child = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Children =
+            {
+                new LineIcon(icon, brush: Brush.Parse(DesignTokens.Attention)) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center },
+                Column(text, 1), Column(action, 2)
+            } }
+        };
+    }
+    // Soft square behind a tool icon. Each tool keeps one colour everywhere.
+    public static Border IconChip(IconKind icon, ToolTone tone, double size = 28, double glyph = 16)
+    {
+        var (background, foreground) = tone switch
+        {
+            ToolTone.Amber => ("#FFF3DA", "#B7791F"), ToolTone.Blue => ("#E7F0FF", "#2F6BDB"),
+            ToolTone.Red => ("#FFE9EA", "#D9363E"), ToolTone.Green => ("#E2F5EC", "#1C8A58"), ToolTone.Grey => ("#F0EFF5", "#5F6270"),
+            _ => ("#F2EDFF", DesignTokens.Accent)
+        };
+        return new Border
+        {
+            Width = size, Height = size, CornerRadius = new CornerRadius(size >= 40 ? 12 : 8),
+            Background = tone == ToolTone.Violet
+                ? new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+                    GradientStops = { new GradientStop(Color.Parse("#F2EDFF"), 0), new GradientStop(Color.Parse("#E3D9FF"), 1) } }
+                : Brush.Parse(background),
+            Child = new LineIcon(icon, brush: Brush.Parse(foreground)) { Width = glyph, Height = glyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+        };
+    }
+    public static T Column<T>(T control, int column) where T : Control { Grid.SetColumn(control, column); return control; }
+
+    // Soft violet banner holding a page's main entry (spec ③).
+    public static Border Hero(Control content, double minHeight = 112) => new()
+    {
+        MinHeight = minHeight, CornerRadius = new CornerRadius(14), Padding = new Thickness(20, 18), ClipToBounds = true,
+        BorderBrush = Brush.Parse("#ECE6FD"), BorderThickness = new Thickness(1), Child = content,
+        Background = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, .45, RelativeUnit.Relative),
+            GradientStops = { new GradientStop(Color.Parse("#F2EEFF"), 0), new GradientStop(Color.Parse("#F8F6FF"), .55), new GradientStop(Color.Parse("#FDFDFF"), 1) }
+        }
+    };
 
     public static void Configure(Window window, string title, int width, int height)
     {
@@ -187,6 +291,20 @@ internal static class Ui
     {
         void Update() => apply(control, DesignTokens.Colors(control.ActualThemeVariant == ThemeVariant.Dark));
         control.ActualThemeVariantChanged += (_, _) => Update(); Update(); return control;
+    }
+}
+
+// A button drawn as a surface (sidebar item, feature card, thumbnail) rather than as a standard push button.
+internal sealed class SurfaceButton : Button
+{
+    protected override Type StyleKeyOverride => typeof(Button);
+    public SurfaceButton(string name, Action? action = null)
+    {
+        AutomationProperties.SetName(this, name); ToolTip.SetTip(this, name);
+        Padding = default; BorderThickness = default; Background = Brushes.Transparent;
+        HorizontalAlignment = HorizontalAlignment.Stretch; HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        VerticalContentAlignment = VerticalAlignment.Stretch;
+        if (action is not null) Click += (_, e) => { if (ReferenceEquals(e.Source, this)) action(); };
     }
 }
 
@@ -227,3 +345,6 @@ internal sealed class SettingsRow : Grid
         set { _description.Text = value; _description.IsVisible = !string.IsNullOrWhiteSpace(value); }
     }
 }
+
+// Tool colours from spec ①: pin amber, long capture blue, recording red, OCR green, page headers violet.
+internal enum ToolTone { Violet, Amber, Blue, Red, Green, Grey }

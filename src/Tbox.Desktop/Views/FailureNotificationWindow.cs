@@ -4,7 +4,7 @@ using Avalonia.Threading;
 
 namespace Tbox.Desktop.Views;
 
-// Short notice for actions started from the tray panel or a hotkey while no Tbox window is open.
+// Short notice for actions started from the tray menu or a hotkey while no Tbox window is open.
 internal sealed class FailureNotificationWindow : Window
 {
     private static FailureNotificationWindow? _current;
@@ -31,7 +31,7 @@ internal sealed class FailureNotificationWindow : Window
         // Same floating card as the tray panel: brand, title, message and two quiet actions.
         var header = Ui.Header(title, null, Ui.IconButton(IconKind.Close, "关闭", Close), out var brand);
         Closed += (_, _) => brand.Dispose();
-        var actions = Ui.Row(Ui.Link("打开 Tbox", () => { Close(); controller.ShowPanel(); }));
+        var actions = Ui.Row(Ui.Link("打开 Tbox", () => { Close(); controller.ShowMain(); }));
         actions.HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right;
         var card = Ui.Card(new StackPanel { Spacing = 8, Children =
         {
