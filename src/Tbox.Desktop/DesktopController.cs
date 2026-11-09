@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -6,7 +6,6 @@ using Avalonia.Input.Platform;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
-using Avalonia.Styling;
 using Avalonia.Threading;
 using Tbox.Core;
 using Tbox.Desktop.Models;
@@ -33,7 +32,6 @@ public sealed class DesktopController : IDisposable
     private readonly List<RecordingReviewWindow> _reviews = [];
     private bool _quitRequested;
     private OcrWindow? _ocr;
-    private UpdateWindow? _update;
     private AppSettings _settings = new();
     private CaptureCache _cache;
     private bool _capturing;
@@ -42,23 +40,11 @@ public sealed class DesktopController : IDisposable
     private bool _capturePermissionNeeded;
     public IPlatformServices Platform { get; }
     public CaptureHistory CaptureHistory { get; } = new();
-    // The settings window. It stays hidden until opened from the panel, menu or app reopen.
+    // The one main window. It stays hidden until opened from the tray, a second launch or app reopen.
     public MainWindow Main { get; set; } = null!;
-    public TrayPanel? Panel { get; set; }
     public bool IsQuitting { get; private set; }
     internal bool HasOpenWorkForUpdate => _capturing || _capture is not null || _longCapture is not null || _recording is not null ||
-        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window => window != Main && window != Panel && window != _update && window is not FailureNotificationWindow);
-    public void ShowUpdates()
-    {
-        if (_update is null)
-        {
-            ShowSettings();
-            _update = new UpdateWindow(this);
-            _update.Closed += (_, _) => _update = null;
-            _update.Show(Main);
-        }
-        else _update.Activate();
-    }
+        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window => window != Main && window is not FailureNotificationWindow);
     public string CacheDirectory => _cache.DirectoryPath;
     public AppSettings Settings => _settings;
     public string FolderDirectory => _folders.CurrentDirectory;
@@ -69,8 +55,7 @@ public sealed class DesktopController : IDisposable
     public int PinCount => _pins.Count;
     public bool PinsHidden => _pinsHidden;
     public StartupState Startup { get; private set; } = new(false);
-    public bool HasHotkeyConflict => _hotkeys.ActiveMask != ((_settings.ScreenPasteEnabled ? 7 : 0) | (_settings.FolderJumpEnabled ? 8 : 0));
-    public event Action<int>? ThemeLoaded;
+    public bool HasHotkeyConflict => _hotkeys.Applied && _hotkeys.ActiveMask != ((_settings.ScreenPasteEnabled ? 7 : 0) | (_settings.FolderJumpEnabled ? 8 : 0));
 
     public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime, string? settingsPath = null)
     {
@@ -91,13 +76,11 @@ public sealed class DesktopController : IDisposable
             : await SettingsMigration.ImportIfMissingAsync(_settingsPath, _legacySettingsPath, _stop.Token);
         _settings = await _settingsStore.LoadAsync(_stop.Token);
         _cache = CreateCache(_settings.ScreenCaptureCacheDirectory);
-        var index = _settings.AppTheme switch { "light" => 1, "dark" => 2, _ => 0 };
-        ApplyTheme(index); ThemeLoaded?.Invoke(index);
         if (!args.Contains("--smoke-test"))
         {
             var hotkeys = _hotkeys.TryChange(_settings.ScreenPasteEnabled, _settings.FolderJumpEnabled);
             if (_settings.FolderJumpEnabled) _folders.Start();
-            if (!hotkeys) Main.SetStatus("快捷键被占用。可从面板或菜单启动工具。");
+            if (!hotkeys) Main.SetStatus("快捷键被占用。可在主窗口或托盘菜单启动工具。");
             Main.Refresh();
             await RefreshStartupAsync();
             var location = await Task.Run(() => CacheLocation.Prepare(_cache.DirectoryPath,
@@ -180,21 +163,14 @@ public sealed class DesktopController : IDisposable
         finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
-    // Tray click, app reopen and a second launch all open the panel; settings are one click further.
-    public Func<DesktopPoint?>? PanelAnchor { get; set; }
-    public void ShowPanel()
-    {
-        if (IsQuitting || Panel is null) return;
-        Panel.ShowNearPointer(PanelAnchor?.Invoke());
-    }
-    public void TogglePanel()
-    {
-        if (Panel?.IsVisible == true) Panel.Hide(); else ShowPanel();
-    }
-    public void ShowSettings()
+    // Tray click, app reopen and a second launch all bring the main window to the front.
+    // A hidden window reopens on 截图; one that is already open keeps its page unless a page is requested.
+    public void ShowMain() => ShowMain(null);
+    internal void ShowMain(MainPage? page)
     {
         if (IsQuitting) return;
-        Panel?.Hide();
+        if (!Main.IsVisible) Main.Navigate(page ?? MainPage.Capture);
+        else if (page is { } requested) Main.Navigate(requested);
         Main.Show();
         if (Main.WindowState == WindowState.Minimized) Main.WindowState = WindowState.Normal;
         Main.Activate(); Main.Refresh();
@@ -223,14 +199,14 @@ public sealed class DesktopController : IDisposable
         if (!_settings.ScreenPasteEnabled || _capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;
         if (!Platform.HasScreenPermission)
         {
-            // Explain in the panel; only its button may request access.
+            // Explain on the capture page; only its button may request access.
             _capturePermissionNeeded = true;
-            ShowPanel();
+            ShowMain(MainPage.Capture);
             return;
         }
         _capturing = true;
         var restore = Main.IsVisible;
-        Main.Hide(); Panel?.Hide();
+        Main.Hide();
         try
         {
             await Task.Delay(150, _stop.Token);
@@ -239,11 +215,11 @@ public sealed class DesktopController : IDisposable
             _capture = new CaptureSession(this, displays, cancelled =>
             {
                 _capture = null;
-                if (restore && cancelled && !IsQuitting) ShowSettings();
+                if (restore && cancelled && !IsQuitting) ShowMain();
             }, preset);
             _capture.Show();
         }
-        catch { if (restore) ShowSettings(); throw; }
+        catch { if (restore) ShowMain(); throw; }
         finally { _capturing = false; }
     }
 
@@ -288,8 +264,11 @@ public sealed class DesktopController : IDisposable
     {
         using var picture = await LoadCachedAsync(path);
         await CopyAsync(picture);
-        if (Panel is not null && !Main.IsVisible) FailureNotificationWindow.ShowInfo(this, "已复制截图。");
+        if (!Main.IsVisible) FailureNotificationWindow.ShowInfo(this, "已复制截图。");
     }
+
+    // A recent capture opens in the image preview; the preview owns and releases the loaded picture.
+    public async Task OpenCachedAsync(string path) => ShowImageResult(await LoadCachedAsync(path), false);
 
     private async Task<Picture> LoadCachedAsync(string path)
     {
@@ -297,7 +276,7 @@ public sealed class DesktopController : IDisposable
         if (!string.Equals(Path.GetDirectoryName(full), CacheDirectory, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("只能打开截图缓存目录中的图片。");
         try { return new Picture(await File.ReadAllBytesAsync(full, _stop.Token)); }
-        catch (FileNotFoundException) { Panel?.Refresh(); throw new InvalidOperationException("这张截图已被清理或移动。"); }
+        catch (FileNotFoundException) { Main.Refresh(); throw new InvalidOperationException("这张截图已被清理或移动。"); }
     }
 
     internal async Task StartLongCaptureAsync(DesktopPlacement region)
@@ -321,7 +300,7 @@ public sealed class DesktopController : IDisposable
     internal async Task StartRecordingAsync(RecordingArea area)
     {
         if (_recording is not null || _quitRequested) return;
-        _capturing = true; Main.Hide(); Panel?.Hide();
+        _capturing = true; Main.Hide();
         try
         {
             await Task.Delay(150, _stop.Token);
@@ -365,14 +344,14 @@ public sealed class DesktopController : IDisposable
         }
     }
 
-    // Status for actions started from the panel or a hotkey: shown in settings when open, otherwise briefly.
+    // Status for actions started from a hotkey or the tray menu: shown in the main window when open, otherwise briefly.
     private void Notify(string message)
     {
         Main.SetStatus(message);
-        if (!Main.IsVisible && !IsQuitting && Panel is not null) FailureNotificationWindow.ShowInfo(this, message);
+        if (!Main.IsVisible && !IsQuitting) FailureNotificationWindow.ShowInfo(this, message);
     }
 
-    // The panel hides as soon as an action starts, so dialogs attach to settings or the open OCR window.
+    // Dialogs attach to the main window when it is open, otherwise to the open OCR window.
     private Window DialogOwner => Main.IsVisible ? Main : _ocr is { IsVisible: true } ocr ? ocr : Main;
 
     public async Task OcrClipboardAsync()
@@ -520,12 +499,6 @@ public sealed class DesktopController : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Main.SetStatus("缓存清理暂时失败，下次启动会重试。"); }
     }
 
-    public async Task ChangeThemeAsync(int index)
-    {
-        await UpdateSettingsAsync(settings => settings with { AppTheme = index switch { 1 => "light", 2 => "dark", _ => "system" } });
-        ApplyTheme(index);
-    }
-
     private async Task UpdateSettingsAsync(Func<AppSettings, AppSettings> update)
     {
         await _moduleChanges.WaitAsync(_stop.Token);
@@ -568,9 +541,6 @@ public sealed class DesktopController : IDisposable
         }
         finally { _moduleChanges.Release(); Main.Refresh(); }
     }
-
-    private static void ApplyTheme(int index) => Application.Current!.RequestedThemeVariant =
-        index switch { 1 => ThemeVariant.Light, 2 => ThemeVariant.Dark, _ => ThemeVariant.Default };
 
     public void OpenCache()
     {

@@ -1,10 +1,11 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Tbox.Core;
 using Tbox.Desktop.Models;
 using Tbox.Desktop.Platform;
@@ -17,7 +18,9 @@ internal sealed class CaptureWindow : Window
     private readonly Border _toolbar;
     private readonly AnnotationTextEditor _text;
     private bool _toolbarHidden;
-    private readonly TextBlock _hint = new() { Foreground = Brushes.White, Margin = new Thickness(20, 10), IsHitTestVisible = false };
+    private readonly Border _hint;
+    private readonly StackPanel _hintKeys = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
+    private readonly TextBlock _hintText = new() { Foreground = Brushes.White, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
     private readonly Border _modeConfirmation;
     private readonly TextBlock _modePrompt = new() { Foreground = Brushes.White };
     private CaptureAction _pendingMode;
@@ -38,6 +41,7 @@ internal sealed class CaptureWindow : Window
         var overlay = new Canvas();
         _text = new AnnotationTextEditor(overlay, Editor,
             point => new Point(point.X * Scale.X, point.Y * Scale.Y), () => Scale);
+        _hint = CreateHint();
         _toolbar = CreateToolbar();
         _toolbar.IsVisible = false;
         overlay.Children.Add(_toolbar);
@@ -70,21 +74,29 @@ internal sealed class CaptureWindow : Window
     {
         if (_session.Preset is { } preset)
         {
+            // Record / long-capture area: confirm and cancel only, as icons like every other toolbar.
             var name = preset == CaptureAction.Record ? "录屏" : "长截图";
-            var confirm = Ui.Primary($"确认{name}区域", () => _session.Finish(this, preset), $"确认{name}区域 · Enter");
-            var cancel = Ui.Button("取消", _session.Cancel, $"取消{name}选区 · Esc");
-            return Ui.ToolbarSurface(Ui.Row(confirm, cancel));
+            var confirm = AnnotationToolbar.IconButton(preset == CaptureAction.Record ? IconKind.Record : IconKind.Long, $"确认{name}区域 · Enter",
+                () => _session.Finish(this, preset), preset == CaptureAction.Record ? Brush.Parse("#FF6B6E") : null);
+            return Ui.Toolbar([confirm], [AnnotationToolbar.IconButton(IconKind.Close, $"取消 · Esc", _session.Cancel)]);
         }
 
-        var toolbar = new AnnotationToolbar(Editor, _text.Commit);
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Long, "长截图", () => RequestMode(CaptureAction.Long)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Record, "区域录屏", () => RequestMode(CaptureAction.Record), Ui.RecordRed));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Pin, $"固定为贴图 · {ShortcutLabels.Command}T / 鼠标中键", () => _session.Finish(this, CaptureAction.Pin)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", () => _session.Finish(this, CaptureAction.Ocr)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Save, $"保存图片 · {ShortcutLabels.Command}S", () => _session.Finish(this, CaptureAction.Save)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Copy, $"复制图片 · {ShortcutLabels.Command}C / Enter", () => _session.Finish(this, CaptureAction.Copy)));
-        toolbar.Actions.Children.Add(AnnotationToolbar.IconButton(IconKind.Close, "取消截图 · Esc", _session.Cancel));
-        return toolbar;
+        // Row 1: annotation tools, colour and size, undo / redo. Row 2: mode, outputs and cancel (spec ⑤).
+        var tools = new AnnotationToolbar(Editor, _text.Commit);
+        var outputs = Ui.Toolbar(
+            [
+                AnnotationToolbar.IconButton(IconKind.Long, "长截图", () => RequestMode(CaptureAction.Long)),
+                AnnotationToolbar.IconButton(IconKind.Record, "录屏", () => RequestMode(CaptureAction.Record), Brush.Parse("#FF6B6E"))
+            ],
+            [
+                AnnotationToolbar.IconButton(IconKind.Pin, $"贴图 · {ShortcutLabels.Command}T", () => _session.Finish(this, CaptureAction.Pin)),
+                AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", () => _session.Finish(this, CaptureAction.Ocr)),
+                AnnotationToolbar.IconButton(IconKind.Save, $"保存 · {ShortcutLabels.Command}S", () => _session.Finish(this, CaptureAction.Save)),
+                AnnotationToolbar.IconButton(IconKind.Copy, $"复制 · {ShortcutLabels.Command}C / Enter", () => _session.Finish(this, CaptureAction.Copy))
+            ],
+            [AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", _session.Cancel)]);
+        tools.HorizontalAlignment = outputs.HorizontalAlignment = HorizontalAlignment.Left;
+        return new Border { Child = new StackPanel { Spacing = 6, Children = { tools, outputs } } };
     }
 
     public void Refresh()
@@ -92,16 +104,56 @@ internal sealed class CaptureWindow : Window
         Surface.InvalidateVisual();
         var bounds = _session.State.ActiveDisplay == Display.Id ? _session.State.Selection : null;
         _toolbar.IsVisible = bounds is { Width: > 0, Height: > 0 } && !Surface.IsDragging && !_toolbarHidden;
+        PlaceHint();
         if (bounds is not { } selection) return;
         _toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _toolbar.DesiredSize;
-        Canvas.SetLeft(_toolbar, Math.Clamp(selection.Right - size.Width, 0, Math.Max(0, Surface.Bounds.Width - size.Width)));
-        var y = selection.Bottom + 8;
-        if (y + size.Height > Surface.Bounds.Height) y = selection.Top - size.Height - 8;
-        Canvas.SetTop(_toolbar, Math.Clamp(y, 0, Math.Max(0, Surface.Bounds.Height - size.Height)));
+        if (size.Width < 1 || size.Height < 1) return; // Hidden while dragging; placed once it shows.
+        var placed = PinToolbarPlacementPolicy.PlaceTaskToolbar(
+            new PinWindowBounds((int)selection.Left, (int)selection.Top, (int)Math.Max(1, selection.Width), (int)Math.Max(1, selection.Height)),
+            new PinWindowBounds(0, 0, (int)Math.Max(1, Surface.Bounds.Width), (int)Math.Max(1, Surface.Bounds.Height)),
+            (int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height));
+        // Left-aligned with the selection as in the spec, kept on screen.
+        Canvas.SetLeft(_toolbar, Math.Clamp(selection.Left, 0, Math.Max(0, Surface.Bounds.Width - size.Width)));
+        Canvas.SetTop(_toolbar, placed.Y);
     }
 
-    public void SetHint(string message) => _hint.Text = message;
+    // The hint chip: a sentence plus key caps, centred at the top. Mode messages replace the default text.
+    public void SetHint(string message) { _hintText.Text = message; _hintKeys.IsVisible = message.Length == 0; Refresh(); }
+
+    private void PlaceHint()
+    {
+        _hint.Measure(Size.Infinity);
+        Canvas.SetLeft(_hint, Math.Max(0, (Surface.Bounds.Width - _hint.DesiredSize.Width) / 2));
+        Canvas.SetTop(_hint, 18);
+    }
+
+    private Border CreateHint()
+    {
+        var name = _session.Preset switch { CaptureAction.Record => "录屏区域", CaptureAction.Long => "长截图区域", _ => null };
+        var lead = new TextBlock { Text = name is null ? "拖动框选，单击选窗口" : $"拖动框选{name}", Foreground = Brushes.White, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+        _hintKeys.Children.Add(lead);
+        foreach (var (key, label) in _session.Preset is null
+            ? new[] { ("R", "上次区域"), ("Tab", "元素检测"), ("Esc", "取消") }
+            : new[] { ("Enter", "确认"), ("Esc", "取消") })
+        {
+            _hintKeys.Children.Add(HintKey(key));
+            _hintKeys.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+        }
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.Parse("#14141C"), .82), CornerRadius = new CornerRadius(9), Padding = new Thickness(12, 7),
+            IsHitTestVisible = false, Child = new Panel { Children = { _hintKeys, _hintText } }
+        };
+    }
+
+    private static Border HintKey(string key) => new()
+    {
+        Background = new SolidColorBrush(Colors.White, .16), CornerRadius = new CornerRadius(5), Padding = new Thickness(6, 0), Height = 20, MinWidth = 20,
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = key, FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center }
+    };
 
     private void RequestMode(CaptureAction action)
     {
@@ -195,15 +247,7 @@ internal sealed class CaptureSurface : Control
         if ((Selection ?? DetectedSelection) is not { Width: > 0, Height: > 0 } selection)
         {
             context.FillRectangle(shade, size);
-            var instruction = _session.Preset switch
-            {
-                CaptureAction.Record => "拖动选择录屏区域  ·  Esc 取消",
-                CaptureAction.Long => "拖动选择长截图区域  ·  Esc 取消",
-                _ => "拖动选择截图区域  ·  Esc 取消"
-            };
-            var text = new FormattedText(instruction, CultureInfo.CurrentUICulture,
-                FlowDirection.LeftToRight, Typeface.Default, 16, Brushes.White);
-            context.DrawText(text, new Point(Math.Max(24, (Bounds.Width - text.Width) / 2), 40));
+            // The hint chip at the top tells the user what to do.
             return;
         }
         var r = new Rect(selection.Left, selection.Top, selection.Width, selection.Height);
@@ -217,14 +261,17 @@ internal sealed class CaptureSurface : Control
         context.FillRectangle(shade, new Rect(0, r.Bottom, Bounds.Width, Math.Max(0, Bounds.Height - r.Bottom)));
         context.FillRectangle(shade, new Rect(0, r.Top, r.Left, r.Height));
         context.FillRectangle(shade, new Rect(r.Right, r.Top, Math.Max(0, Bounds.Width - r.Right), r.Height));
-        SelectionOutline.Draw(context, r, Ui.ModeBrush(_session.Preset), Selection is not null);
+        var mode = Ui.ModeBrush(_session.Preset);
+        SelectionOutline.Draw(context, r, mode, Selection is not null);
         var region = CaptureRegionPolicy.MapToPixels(Bounds.Width, Bounds.Height, r.X, r.Y, r.Width, r.Height,
             _window.Picture.Bitmap.PixelSize.Width, _window.Picture.Bitmap.PixelSize.Height);
+        // Size tag in the mode colour; yellow takes dark text for contrast.
         var label = new FormattedText($"{region.Width} × {region.Height}", CultureInfo.InvariantCulture,
-            FlowDirection.LeftToRight, Typeface.Default, 12, Brushes.White);
+            FlowDirection.LeftToRight, new Typeface(Typeface.Default.FontFamily, weight: FontWeight.SemiBold), 12,
+            _session.Preset == CaptureAction.Long ? Brush.Parse("#1A1B22") : Brushes.White);
         var labelPoint = new Point(r.Left, r.Top >= 28 ? r.Top - 26 : r.Top + 8);
-        context.FillRectangle(Ui.ToolbarBackground, new Rect(labelPoint.X, labelPoint.Y, label.Width + 12, 22));
-        context.DrawText(label, labelPoint + new Vector(6, 3));
+        context.DrawRectangle(mode, null, new RoundedRect(new Rect(labelPoint.X, labelPoint.Y, label.Width + 14, 22), 5));
+        context.DrawText(label, labelPoint + new Vector(7, 3));
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)

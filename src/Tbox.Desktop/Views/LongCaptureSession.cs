@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -21,7 +21,10 @@ internal sealed class LongCaptureSession
     private readonly Window _toolbar;
     private readonly Window _preview;
     private readonly LongPreview _surface = new();
-    private readonly TextBlock _size = new() { Text = "…", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _size = Ui.ToolbarLabel("…");
+    private readonly TextBlock _progress = new() { Text = "向下滚动开始拼接", FontSize = 11, FontWeight = FontWeight.SemiBold,
+        Foreground = Brush.Parse(DesignTokens.TaskSecondaryText), Margin = new Thickness(4, 8, 4, 2) };
+    private int _frames;
     private readonly List<Button> _actions = [];
     private Task _loop = Task.CompletedTask;
     private LongCaptureBuffer? _buffer;
@@ -31,27 +34,37 @@ internal sealed class LongCaptureSession
     public LongCaptureSession(DesktopController controller, DesktopPlacement region, Action closed)
     {
         _controller = controller; _region = region; _closed = closed;
-        _border = Floating("Tbox 长截图区域", new SelectionOutline(Ui.LongYellow));
+        // Yellow selection; the area is fixed once scrolling starts, so no resize handles.
+        _border = Floating("Tbox 长截图区域", new SelectionOutline(Ui.LongYellow, handles: false));
         _border.Background = Brushes.Transparent; _border.ShowActivated = false;
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        buttons.Children.Add(_size);
-        Add(buttons, IconKind.Pin, "固定为贴图", () => FinishAsync(CaptureAction.Pin));
-        Add(buttons, IconKind.Save, "保存图片", () => FinishAsync(CaptureAction.Save));
-        Add(buttons, IconKind.FullScreen, "全屏预览", () => FinishAsync(null));
-        var cancel = AnnotationToolbar.IconButton(IconKind.Close, "取消长截图 · Esc", Stop);
-        buttons.Children.Add(cancel);
-        Add(buttons, IconKind.Copy, "复制图片", () => FinishAsync(CaptureAction.Copy));
-        var bar = Ui.ToolbarSurface(buttons, 6);
+        // Size | pin, full-screen preview, save, copy | cancel (spec ⑤).
+        var bar = Ui.Toolbar([_size],
+            [Action(IconKind.Pin, $"贴图 · {ShortcutLabels.Command}T", CaptureAction.Pin), Action(IconKind.FullScreen, "全屏预览", null),
+             Action(IconKind.Save, $"保存 · {ShortcutLabels.Command}S", CaptureAction.Save), Action(IconKind.Copy, $"复制 · {ShortcutLabels.Command}C / Enter", CaptureAction.Copy)],
+            [AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", Stop)]);
+        _size.MinWidth = 76; _size.TextAlignment = TextAlignment.Center;
         bar.Measure(Size.Infinity);
         _toolbar = Floating("Tbox 长截图工具条", bar);
-        _toolbar.Width = Math.Max(300, bar.DesiredSize.Width); _toolbar.Height = bar.DesiredSize.Height;
-        _toolbar.KeyDown += (_, e) => { if (e.Key == Key.Escape) { Stop(); e.Handled = true; } };
+        _toolbar.Width = bar.DesiredSize.Width; _toolbar.Height = bar.DesiredSize.Height;
+        _toolbar.KeyDown += (_, e) =>
+        {
+            var command = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0;
+            if (e.Key == Key.Escape) Stop();
+            else if (e.Key == Key.Enter || command && e.Key == Key.C) _controller.Run(() => FinishAsync(CaptureAction.Copy));
+            else if (command && e.Key == Key.S) _controller.Run(() => FinishAsync(CaptureAction.Save));
+            else if (command && e.Key == Key.T) _controller.Run(() => FinishAsync(CaptureAction.Pin));
+            else return;
+            e.Handled = true;
+        };
+        var frame = new Border { CornerRadius = new CornerRadius(6), Background = Brushes.White, ClipToBounds = true, Child = _surface };
+        var preview = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), Children = { frame, _progress } };
+        Grid.SetRow(_progress, 1);
         _preview = Floating("Tbox 长截图实时预览", new Border
         {
             Background = Ui.ToolbarBackground, BorderBrush = Ui.ToolbarBorder, BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(DesignTokens.TaskRadius), Padding = new Thickness(6), Child = _surface
+            CornerRadius = new CornerRadius(DesignTokens.TaskRadius), Padding = new Thickness(6), Child = preview
         });
-        _preview.Width = 240; _preview.Height = 480; _preview.ShowActivated = false;
+        _preview.Width = 180; _preview.Height = 360; _preview.ShowActivated = false;
         _preview.Closed += (_, _) => Stop();
     }
 
@@ -66,14 +79,14 @@ internal sealed class LongCaptureSession
         platform.PrepareCaptureOverlay(borderHandle, true);
         _toolbar.Show();
         var work = platform.GetWorkArea(borderHandle);
-        var placement = PinToolbarPlacementPolicy.PlaceAdjacent(new PinWindowBounds((int)_region.Left, (int)_region.Top, (int)_region.Width, (int)_region.Height),
+        var placement = PinToolbarPlacementPolicy.PlaceTaskToolbar(new PinWindowBounds((int)_region.Left, (int)_region.Top, (int)_region.Width, (int)_region.Height),
             new PinWindowBounds((int)work.Left, (int)work.Top, (int)work.Width, (int)work.Height),
             (int)Math.Ceiling(_toolbar.Width * scale), (int)Math.Ceiling(_toolbar.Height * scale));
         platform.PlaceWindow(_toolbar.TryGetPlatformHandle()!.Handle,
             new DesktopPlacement(placement.X, placement.Y, placement.Width, placement.Height), false);
         platform.PrepareCaptureOverlay(_toolbar.TryGetPlatformHandle()!.Handle, false);
         _preview.Show();
-        var width = Math.Min(240 * scale, work.Width); var height = Math.Min(600 * scale, work.Height);
+        var width = Math.Min(180 * scale, work.Width); var height = Math.Min(Math.Max(300 * scale, _region.Height), work.Height);
         var left = _region.Left + _region.Width + 12 * scale;
         if (left + width > work.Left + work.Width) left = _region.Left - width - 12 * scale;
         left = Math.Clamp(left, work.Left, work.Left + work.Width - width);
@@ -104,6 +117,8 @@ internal sealed class LongCaptureSession
                     _surface.Picture = next; _surface.ViewportTop = _buffer.ViewportTop; _surface.ViewportHeight = _buffer.FrameHeight;
                     _surface.InvalidateVisual(); old?.Dispose();
                     _size.Text = $"{_buffer.Width} × {_buffer.Height}";
+                    if (result is { Decision: ScrollCaptureFrameDecision.Started or ScrollCaptureFrameDecision.Appended }) _frames++;
+                    _progress.Text = result is { Decision: ScrollCaptureFrameDecision.LimitReached } ? $"已拼接 {_frames} 屏 · 已达上限" : $"已拼接 {_frames} 屏 · 继续滚动";
                     foreach (var button in _actions) button.IsEnabled = true;
                 }
                 if (result is { Decision: ScrollCaptureFrameDecision.LimitReached })
@@ -150,10 +165,12 @@ internal sealed class LongCaptureSession
         _ = _loop.ContinueWith(_ => _stop.Dispose(), TaskScheduler.Default);
     }
 
-    private void Add(StackPanel panel, IconKind icon, string label, Func<Task> action)
+    // Outputs stay disabled until the first frame arrives; null opens the full-screen preview.
+    private Button Action(IconKind icon, string label, CaptureAction? action)
     {
-        var button = AnnotationToolbar.IconButton(icon, label, () => _controller.Run(action));
-        button.IsEnabled = false; _actions.Add(button); panel.Children.Add(button);
+        var button = AnnotationToolbar.IconButton(icon, label, () => _controller.Run(() => FinishAsync(action)));
+        button.IsEnabled = false; _actions.Add(button);
+        return button;
     }
 
     private static Window Floating(string title, Control content) => new()
@@ -177,7 +194,7 @@ internal sealed class LongPreview : Control
         var size = new Size(picture.Bitmap.PixelSize.Width * ratio, picture.Bitmap.PixelSize.Height * ratio);
         var left = (Bounds.Width - size.Width) / 2;
         context.DrawImage(picture.Bitmap, new Rect(left, 0, size.Width, size.Height));
-        context.DrawRectangle(null, new Pen(Brush.Parse("#48D597"), 2),
+        context.DrawRectangle(null, new Pen(Ui.LongYellow, 2),
             new Rect(left, ViewportTop * ratio, size.Width, Math.Min(ViewportHeight * ratio, size.Height)));
     }
 }

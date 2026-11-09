@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -80,5 +80,23 @@ public sealed class OcrWorkspaceTests
             preview.Render(window);
             preview.Save(Path.Combine(directory, name + ".png"));
         }
+    }
+
+    [AvaloniaFact]
+    public void EmptyResultExplainsTheNextStepAndDisablesCopying()
+    {
+        var platform = new FakePlatform { OcrResult = new RecognitionResult("", []) };
+        using var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
+        var window = new OcrWindow(controller) { Width = 600 };
+        window.Show();
+        window.Recognize(DesktopController.RenderText("blurred"));
+        try
+        {
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "未识别到文字");
+            Assert.False(Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "复制全部")).IsEnabled);
+            Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "0 行");
+        }
+        finally { window.Close(); }
     }
 }

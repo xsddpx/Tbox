@@ -1,4 +1,4 @@
-using Tbox.Core;
+﻿using Tbox.Core;
 
 namespace Tbox.Desktop.Models;
 
@@ -9,7 +9,7 @@ public sealed class AnnotationEditor
     private bool _drawing;
     public AnnotationDocument Document { get; } = new();
     public AnnotationTool? Tool { get; private set; }
-    public uint Color { get; set; } = 0xFFFF3B30;
+    public uint Color { get; set; } = 0xFFE5484D;
     public double StrokeWidth { get; set; } = 3;
     public double FontSize { get; set; } = 20;
     public double NumberSize { get; set; } = AnnotationDefaults.NumberDiameter;

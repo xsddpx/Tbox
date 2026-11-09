@@ -16,7 +16,12 @@ public sealed class App : Application
     private DesktopController? _controller;
     private TrayIcon? _tray;
     private MacStatusItem? _statusItem;
-    public override void Initialize() => Styles.Add(DesignTokens.CreateTheme());
+    public override void Initialize()
+    {
+        Styles.Add(DesignTokens.CreateTheme());
+        // UI 3.0 is light only; task surfaces request their own dark variant.
+        RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+    }
 
     public override void OnFrameworkInitializationCompleted()
     {
@@ -33,14 +38,13 @@ public sealed class App : Application
             var main = new MainWindow(_controller);
             // Not lifetime.MainWindow: Avalonia shows that window at startup, and Tbox starts in the tray.
             _controller.Main = main;
-            _controller.Panel = new TrayPanel(_controller);
             var activation = this.TryGetFeature<IActivatableLifetime>();
             void OnActivated(object? sender, ActivatedEventArgs args) => RestoreOnReopen(_controller, args);
             if (activation is not null) activation.Activated += OnActivated;
-            // Secondary click keeps a native menu for users who prefer it; a primary click opens the panel.
+            // A primary click opens the main window; secondary click keeps a native menu with the quick actions and quit.
             (string? Title, Action Action)[] menu =
             [
-                ("打开面板", _controller.ShowPanel), ("设置…", _controller.ShowSettings), (null, () => { }),
+                ("打开 Tbox", _controller.ShowMain), (null, () => { }),
                 ($"区域截图   {ShortcutLabels.Capture}", () => _controller.Run(_controller.CaptureAsync)),
                 ($"剪贴板贴图   {ShortcutLabels.Pin}", () => _controller.Run(_controller.PinClipboardAsync)),
                 ($"隐藏 / 显示贴图   {ShortcutLabels.Toggle}", _controller.TogglePins), (null, () => { }),
@@ -62,11 +66,11 @@ public sealed class App : Application
                 if (command == 3) return await PermissionDiagnostics.RunAsync(platform);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (command == 2) _controller.Quit(); else if (command == 1) _controller.ShowPanel();
+                    if (command == 2) _controller.Quit(); else if (command == 1) _controller.ShowMain();
                 });
                 return null;
             });
-            // The settings window stays hidden at startup, so initialization no longer waits for it to open.
+            // The main window stays hidden at startup, so initialization no longer waits for it to open.
             Dispatcher.UIThread.Post(() => _controller.Run(() => _controller.InitializeAsync(lifetime.Args ?? [])));
         }
         base.OnFrameworkInitializationCompleted();
@@ -84,7 +88,7 @@ public sealed class App : Application
         }
         using var trayAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/AppIcon.png"));
         _tray = new TrayIcon { Icon = new WindowIcon(trayAsset), ToolTipText = "Tbox", Menu = menu, IsVisible = true };
-        _tray.Clicked += (_, _) => controller.TogglePanel();
+        _tray.Clicked += (_, _) => controller.ShowMain();
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
     }
 
@@ -95,10 +99,8 @@ public sealed class App : Application
         var actions = entries.Where(entry => entry.Title is not null).Select(entry => entry.Action).ToArray();
         // The approved monochrome silhouette is drawn as a template image with the system menu bar tint.
         _statusItem = new MacStatusItem(png.ToArray(), "Tbox", entries.Select(entry => entry.Title).ToArray(),
-            () => Dispatcher.UIThread.Post(controller.TogglePanel),
+            () => Dispatcher.UIThread.Post(controller.ShowMain),
             command => Dispatcher.UIThread.Post(() => { if (command <= actions.Length) actions[command - 1](); }));
-        var item = _statusItem;
-        controller.PanelAnchor = () => item.Anchor;
     }
 
     internal static void RestoreOnReopen(DesktopController controller, ActivatedEventArgs args)
@@ -106,6 +108,6 @@ public sealed class App : Application
         // macOS reopens an existing process through the application lifetime,
         // without starting the second process handled by SingleInstance.
         if (args.Kind == ActivationKind.Reopen)
-            Dispatcher.UIThread.Post(controller.ShowPanel);
+            Dispatcher.UIThread.Post(controller.ShowMain);
     }
 }

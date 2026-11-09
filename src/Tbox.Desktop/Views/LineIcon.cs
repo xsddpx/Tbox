@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -9,7 +9,7 @@ internal enum IconKind
 {
     Back, Settings, Folder, Capture, Pin, Ocr, Chevron, Record, Long, Eye, EyeOff, Jump, Gear, Copy,
     Rectangle, Ellipse, Line, Polyline, Arrow, Number, Pen, Highlighter, Mosaic, Text, Eraser,
-    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, Update, Help, Keyboard, Theme, Startup, Bell
+    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute
 }
 
 // 24-unit line icons drawn with one stroke weight. Filled glyphs (record dot, play, stop) set Fill.
@@ -18,7 +18,7 @@ internal sealed class LineIcon : Control
     private readonly Geometry _geometry;
     private readonly bool _accent;
     private readonly bool _filled;
-    private readonly IBrush? _brush;
+    private IBrush? _brush;
     public LineIcon(IconKind kind, bool accent = false, IBrush? brush = null)
     {
         Width = Height = 20; _accent = accent; _brush = brush;
@@ -66,10 +66,18 @@ internal sealed class LineIcon : Control
             IconKind.Theme => "M12 3.5 A8.5 8.5 0 1 1 11.99 3.5 Z M12 3.5 V20.5 A8.5 8.5 0 0 0 12 3.5",
             IconKind.Startup => "M12 3 V11 M7.5 6.5 A7 7 0 1 0 16.5 6.5",
             IconKind.Bell => "M6 16 V11 A6 6 0 0 1 18 11 V16 L19.5 18 H4.5 Z M10 20.5 H14",
+            IconKind.Info => "M12 3.5 A8.5 8.5 0 1 1 11.99 3.5 Z M12 11 V16.5 M12 7.5 V8",
+            IconKind.Warn => "M12 3.5 L21.5 20 H2.5 Z M12 9.5 V14 M12 17 V17.5",
+            IconKind.Sliders => "M4 7 H11 M15 7 H20 M13 4.5 V9.5 M4 17 H8 M12 17 H20 M10 14.5 V19.5",
+            IconKind.Speaker => "M4 9.5 H8 L13 5 V19 L8 14.5 H4 Z M16.5 9 A4 4 0 0 1 16.5 15 M19 6.5 A7.5 7.5 0 0 1 19 17.5",
+            IconKind.Mute => "M4 9.5 H8 L13 5 V19 L8 14.5 H4 Z M16.5 9.5 L21 14 M21 9.5 L16.5 14",
+            IconKind.Image => "M4 5 H20 V19 H4 Z M4 16 L9 11 L13 15 L16 12 L20 16 M15.5 8.5 A1 1 0 1 1 15.49 8.5 Z",
             _ => "M9 5 L16 12 L9 19"
         });
         ActualThemeVariantChanged += (_, _) => InvalidateVisual();
     }
+    // Lets a selected sidebar item tint its icon without rebuilding it.
+    public IBrush? Stroke { get => _brush; set { _brush = value; InvalidateVisual(); } }
     public override void Render(DrawingContext context)
     {
         var colors = DesignTokens.Colors(ActualThemeVariant == ThemeVariant.Dark);

@@ -1,4 +1,4 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -13,8 +13,8 @@ namespace Tbox.Desktop.Views;
 // Shared building blocks so the tray panel, settings, OCR, update and task windows read as one product.
 internal static class Ui
 {
-    public static readonly IBrush Blue = Brush.Parse("#0078D4");
-    public static readonly IBrush LongYellow = Brush.Parse("#F8C53A");
+    public static readonly IBrush Blue = Brush.Parse(DesignTokens.CaptureBlue);
+    public static readonly IBrush LongYellow = Brush.Parse(DesignTokens.LongYellow);
     public static readonly IBrush RecordRed = Brush.Parse(DesignTokens.Recording);
     // Capture blue, long-capture yellow and recording red identify the selection mode only.
     public static IBrush ModeBrush(CaptureAction? preset) => preset switch
@@ -31,7 +31,7 @@ internal static class Ui
     };
     public static Button Button(string text, Action action, string? tooltip = null)
     {
-        var button = new Button { Content = text, MinHeight = DesignTokens.ControlHeight, Padding = new Thickness(14, 7),
+        var button = new Button { Content = text, MinHeight = DesignTokens.ControlHeight, Padding = new Thickness(14, 5), FontSize = 13,
             CornerRadius = new CornerRadius(DesignTokens.ControlRadius), VerticalAlignment = VerticalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center };
         if (tooltip is not null) ToolTip.SetTip(button, tooltip);
@@ -78,6 +78,7 @@ internal static class Ui
     {
         var button = TaskButton(tooltip, action);
         button.Content = new LineIcon(icon, brush: brush ?? ToolbarText) { Width = 18, Height = 18 };
+        if (brush is not null) button.Classes.Add("tinted");
         return button;
     }
     public static Button ToolbarButton(string glyph, string tooltip, Action action)
@@ -111,6 +112,86 @@ internal static class Ui
     {
         Width = 1, Height = 20, Margin = new Thickness(4, 0), Background = ToolbarBorder, VerticalAlignment = VerticalAlignment.Center
     };
+    // One task toolbar (spec ⑤): groups of items separated by 1 px dividers, no labels between them.
+    public static Border Toolbar(params Control[][] groups)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        foreach (var group in groups.Where(g => g.Length > 0))
+        {
+            if (row.Children.Count > 0) row.Children.Add(ToolbarDivider());
+            foreach (var item in group) { item.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(item); }
+        }
+        return ToolbarSurface(row);
+    }
+    // The only text a toolbar shows: size, timer, frame rate and "开始录制".
+    public static TextBlock ToolbarLabel(string text, bool strong = true) => new()
+    {
+        Text = text, FontSize = strong ? 12 : 13, FontWeight = strong ? FontWeight.SemiBold : FontWeight.Normal,
+        Foreground = Brush.Parse(DesignTokens.TaskSecondaryText), Margin = new Thickness(8, 0), VerticalAlignment = VerticalAlignment.Center
+    };
+    // Tick a toolbar icon white while its item is selected (filled amethyst).
+    public static void SetToolbarSelected(Button button, bool selected)
+    {
+        button.Classes.Set("selected", selected);
+        button.Background = selected ? Brush.Parse(DesignTokens.Accent) : Brushes.Transparent;
+        button.Resources["ButtonBackgroundPointerOver"] = selected ? Brush.Parse(DesignTokens.Accent) : Brush.Parse(DesignTokens.TaskHover);
+        if (button.Content is LineIcon icon && !button.Classes.Contains("tinted")) icon.Stroke = selected ? Brushes.White : ToolbarText;
+    }
+    // Dark segmented choice used by the recording frame rate.
+    public static Border ToolbarSegmented(IReadOnlyList<string> options, int selected, out Func<int> current, out Action<bool> enable)
+    {
+        var buttons = new List<Button>();
+        var index = selected;
+        void Paint()
+        {
+            for (var i = 0; i < buttons.Count; i++)
+            {
+                var on = i == index;
+                buttons[i].Background = on ? Brush.Parse("#454552") : Brushes.Transparent;
+                buttons[i].Foreground = on ? Brushes.White : Brush.Parse(DesignTokens.TaskSecondaryText);
+                buttons[i].Resources["ButtonBackgroundPointerOver"] = on ? Brush.Parse("#454552") : Brush.Parse("#3A3A46");
+            }
+        }
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        for (var i = 0; i < options.Count; i++)
+        {
+            var position = i;
+            var button = new Button { Content = options[i], Height = 24, MinHeight = 24, MinWidth = 30, Padding = new Thickness(8, 0), FontSize = 12,
+                CornerRadius = new CornerRadius(6), BorderThickness = default, HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(button, $"{options[i]} 帧每秒");
+            ToolTip.SetTip(button, $"{options[i]} 帧每秒");
+            foreach (var state in new[] { "PointerOver", "Pressed" }) button.Resources["ButtonForeground" + state] = Brushes.White;
+            button.Resources["ButtonBackgroundPressed"] = Brush.Parse("#454552");
+            button.Resources["ButtonBackgroundDisabled"] = Brushes.Transparent;
+            button.Click += (_, _) => { index = position; Paint(); };
+            buttons.Add(button); row.Children.Add(button);
+        }
+        Paint();
+        current = () => index;
+        var surface = new Border { Padding = new Thickness(3), CornerRadius = new CornerRadius(8), Background = Brush.Parse(DesignTokens.TaskHover), Child = row,
+            VerticalAlignment = VerticalAlignment.Center };
+        enable = on => { surface.IsEnabled = on; surface.Opacity = on ? 1 : .5; };
+        return surface;
+    }
+    // Filled red "开始录制" — the one place a toolbar uses recording red as a fill.
+    public static Button RecordButton(string tooltip, Action action)
+    {
+        var button = Button("开始录制", action, tooltip);
+        button.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children =
+        {
+            new LineIcon(IconKind.Record, brush: Brushes.White) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = "开始录制", FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center }
+        } };
+        button.Height = 30; button.MinHeight = 30; button.Padding = new Thickness(12, 0); button.Margin = new Thickness(2, 0);
+        foreach (var (state, color) in new[] { ("", DesignTokens.Recording), ("PointerOver", "#D63C41"), ("Pressed", "#BF3439"), ("Disabled", DesignTokens.Recording) })
+        {
+            button.Resources["ButtonBackground" + state] = Brush.Parse(color);
+            button.Resources["ButtonBorderBrush" + state] = Brush.Parse(color);
+            button.Resources["ButtonForeground" + state] = Brushes.White;
+        }
+        return button;
+    }
 
     public static StackPanel Row(params Control[] items)
     {
@@ -162,12 +243,207 @@ internal static class Ui
         return card;
     }
 
-    // Keyboard shortcut cap, the same chip the tray panel shows beside tools.
-    public static Border Key(string text) => Themed(new Border
+    // Keyboard shortcut cap: 20 px tall, one cap per key. On a filled accent button it turns translucent white.
+    public static Border Key(string text, bool onAccent = false) => Themed(new Border
     {
-        CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 2), VerticalAlignment = VerticalAlignment.Center,
-        Child = new TextBlock { Text = text, FontSize = 11 }
-    }, (b, c) => { b.Background = Brush.Parse(c.Hover); ((TextBlock)b.Child!).Foreground = Brush.Parse(c.SecondaryText); });
+        CornerRadius = new CornerRadius(5), Padding = new Thickness(6, 0), Height = 20, MinWidth = 20, VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center }
+    }, (b, c) =>
+    {
+        b.Background = onAccent ? new SolidColorBrush(Colors.White, .22) : new SolidColorBrush(Color.Parse("#101220"), .06);
+        ((TextBlock)b.Child!).Foreground = onAccent ? Brushes.White : Brush.Parse(c.SecondaryText);
+    });
+
+    // Page building blocks from spec ③: grey group title, 46 px rows with hairlines, dot statuses, notes and the warning bar.
+    public static TextBlock GroupTitle(string text) => new()
+    {
+        Text = text, FontSize = DesignTokens.Caption, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse(DesignTokens.Hint),
+        VerticalAlignment = VerticalAlignment.Center
+    };
+    public static Grid GroupHeader(string text, Control? trailing = null)
+    {
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 14, 0, 2), MinHeight = 22 };
+        header.Children.Add(GroupTitle(text));
+        if (trailing is not null) { trailing.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(trailing, 1); header.Children.Add(trailing); }
+        return header;
+    }
+    public static StackPanel Rows(params Control[] rows)
+    {
+        var panel = new StackPanel();
+        for (var i = 0; i < rows.Length; i++)
+        {
+            if (i > 0) panel.Children.Add(new Border { Height = 1, Background = Brush.Parse(DesignTokens.Hairline) });
+            panel.Children.Add(rows[i]);
+        }
+        return panel;
+    }
+    public static TextBlock Description(string text) => new()
+    {
+        Text = text, FontSize = DesignTokens.Description, LineHeight = 18, TextWrapping = TextWrapping.Wrap, Foreground = Brush.Parse("#5F6270")
+    };
+    // Coloured dot plus a word: 可用, 冲突, 未授权.
+    public static StackPanel Status(string text, string color)
+    {
+        var brush = Brush.Parse(color);
+        return new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = brush, VerticalAlignment = VerticalAlignment.Center },
+            new TextBlock { Text = text, FontSize = DesignTokens.Caption, Foreground = brush, VerticalAlignment = VerticalAlignment.Center }
+        } };
+    }
+    public static Border Note(string text) => new()
+    {
+        CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 12), Background = Brush.Parse("#F7F6FB"),
+        Child = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 8, Children =
+        {
+            new LineIcon(IconKind.Info, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) },
+            Column(Description(text), 1)
+        } }
+    };
+    // Yellow attention bar above a page's hero; its button becomes the page's only primary action.
+    public static Border WarningBar(IconKind icon, string title, string detail, Button action)
+    {
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#1A1B22") },
+            new TextBlock { Text = detail, FontSize = DesignTokens.Caption, TextWrapping = TextWrapping.Wrap, Foreground = Brush.Parse("#6B5A3A") }
+        } };
+        action.MinHeight = 30; action.Height = 30; action.Padding = new Thickness(12, 0);
+        return new Border
+        {
+            CornerRadius = new CornerRadius(12), Padding = new Thickness(14, 10), Background = Brush.Parse("#FFF6E6"),
+            BorderBrush = Brush.Parse("#F6E2B8"), BorderThickness = new Thickness(1),
+            Child = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Children =
+            {
+                new LineIcon(icon, brush: Brush.Parse(DesignTokens.Attention)) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center },
+                Column(text, 1), Column(action, 2)
+            } }
+        };
+    }
+    // Soft square behind a tool icon. Each tool keeps one colour everywhere.
+    public static Border IconChip(IconKind icon, ToolTone tone, double size = 28, double glyph = 16)
+    {
+        var (background, foreground) = tone switch
+        {
+            ToolTone.Amber => ("#FFF3DA", "#B7791F"), ToolTone.Blue => ("#E7F0FF", "#2F6BDB"),
+            ToolTone.Red => ("#FFE9EA", "#D9363E"), ToolTone.Green => ("#E2F5EC", "#1C8A58"), ToolTone.Grey => ("#F0EFF5", "#5F6270"),
+            _ => ("#F2EDFF", DesignTokens.Accent)
+        };
+        return new Border
+        {
+            Width = size, Height = size, CornerRadius = new CornerRadius(size >= 40 ? 12 : 8),
+            Background = tone == ToolTone.Violet
+                ? new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
+                    GradientStops = { new GradientStop(Color.Parse("#F2EDFF"), 0), new GradientStop(Color.Parse("#E3D9FF"), 1) } }
+                : Brush.Parse(background),
+            Child = new LineIcon(icon, brush: Brush.Parse(foreground)) { Width = glyph, Height = glyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+        };
+    }
+    public static T Column<T>(T control, int column) where T : Control { Grid.SetColumn(control, column); return control; }
+
+    // Result windows (spec ④) share the main window's structure: tinted window → header → white sheet → bottom bar.
+    public static Grid ResultHeader(IconKind icon, ToolTone tone, string title, TextBlock subtitle, Control? trailing = null)
+    {
+        subtitle.FontSize = DesignTokens.Caption; subtitle.LineHeight = 16;
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new TextBlock { Text = title, FontSize = DesignTokens.SectionTitle, LineHeight = 22, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#1A1B22") },
+            subtitle
+        } };
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 4, 20, 14),
+            Children = { IconChip(icon, tone, 40, 20), Column(titles, 1) } };
+        if (trailing is not null) { trailing.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(Column(trailing, 2)); }
+        return header;
+    }
+    public static Border Sheet(Control content) => new()
+    {
+        Child = content, Background = Brushes.White, CornerRadius = new CornerRadius(DesignTokens.PanelRadius), Margin = new Thickness(12, 0, 12, 0),
+        ClipToBounds = true, BoxShadow = BoxShadows.Parse("0 0 0 1 #0D101220, 0 10 30 0 #0F101220")
+    };
+    // Bottom bar: status on the left, buttons on the right with the primary one last.
+    public static Grid ResultBar(Control status, params Control[] actions)
+    {
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        foreach (var action in actions) { action.VerticalAlignment = VerticalAlignment.Center; buttons.Children.Add(action); }
+        status.VerticalAlignment = VerticalAlignment.Center;
+        return new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 12, 20, 14),
+            Children = { status, Column(buttons, 1) } };
+    }
+    // The window's own top strip: 16 px mark and title, sitting under the system caption buttons.
+    public static Grid TitleStrip(string title, Bitmap brand) => new()
+    {
+        Height = 34, IsHitTestVisible = false, Children =
+        {
+            new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(OperatingSystem.IsMacOS() ? 78 : 14, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, Children =
+                {
+                    new Image { Source = brand, Width = 16, Height = 16 },
+                    new TextBlock { Text = title, FontSize = 12, Foreground = Brush.Parse("#3B3D49"), VerticalAlignment = VerticalAlignment.Center }
+                } }
+        }
+    };
+    public static Bitmap Brand()
+    {
+        using var asset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/StoreLogo.png"));
+        return new Bitmap(asset);
+    }
+    // Extends a result window under the title bar so the strip, header and sheet sit on one tinted surface.
+    public static void ExtendIntoTitleBar(Window window)
+    {
+        window.ExtendClientAreaToDecorationsHint = true; window.ExtendClientAreaTitleBarHeightHint = 34;
+    }
+
+    // 2–4 mutually exclusive choices (spec ②). The selected segment is a raised white chip.
+    public static Border Segmented(IReadOnlyList<string> options, int selected, Action<int> changed, out Func<int> current, out Action<bool> enable)
+    {
+        var buttons = new List<Button>();
+        var chips = new List<Border>();
+        var index = selected;
+        void Paint()
+        {
+            for (var i = 0; i < buttons.Count; i++)
+            {
+                var on = i == index;
+                chips[i].Background = on ? Brushes.White : Brushes.Transparent;
+                chips[i].BoxShadow = on ? BoxShadows.Parse("0 1 2 0 #1A101220, 0 0 0 1 #0A101220") : default;
+                buttons[i].FontWeight = on ? FontWeight.SemiBold : FontWeight.Normal;
+                buttons[i].Foreground = Brush.Parse(on ? "#1A1B22" : "#5F6270");
+                buttons[i].Resources["ButtonBackgroundPointerOver"] = on ? Brushes.Transparent : new SolidColorBrush(Colors.White, .6);
+            }
+        }
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        for (var i = 0; i < options.Count; i++)
+        {
+            var position = i;
+            var button = new Button { Content = options[i], Height = 26, MinHeight = 26, Padding = new Thickness(12, 0), FontSize = 13,
+                CornerRadius = new CornerRadius(7), BorderThickness = default, Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(button, options[i]);
+            button.Resources["ButtonBackgroundPressed"] = Brushes.Transparent;
+            foreach (var state in new[] { "PointerOver", "Pressed" }) button.Resources["ButtonForeground" + state] = Brush.Parse("#1A1B22");
+            button.Click += (_, _) => { if (index == position) return; index = position; Paint(); changed(position); };
+            var chip = new Border { CornerRadius = new CornerRadius(7), Child = button };
+            buttons.Add(button); chips.Add(chip); row.Children.Add(chip);
+        }
+        Paint();
+        current = () => index;
+        var surface = new Border { Padding = new Thickness(3), CornerRadius = new CornerRadius(9), Background = Brush.Parse("#F0EFF5"), Child = row,
+            VerticalAlignment = VerticalAlignment.Center };
+        enable = on => { surface.IsEnabled = on; surface.Opacity = on ? 1 : .5; };
+        return surface;
+    }
+
+    // Soft violet banner holding a page's main entry (spec ③).
+    public static Border Hero(Control content, double minHeight = 112) => new()
+    {
+        MinHeight = minHeight, CornerRadius = new CornerRadius(14), Padding = new Thickness(20, 18), ClipToBounds = true,
+        BorderBrush = Brush.Parse("#ECE6FD"), BorderThickness = new Thickness(1), Child = content,
+        Background = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, .45, RelativeUnit.Relative),
+            GradientStops = { new GradientStop(Color.Parse("#F2EEFF"), 0), new GradientStop(Color.Parse("#F8F6FF"), .55), new GradientStop(Color.Parse("#FDFDFF"), 1) }
+        }
+    };
 
     public static void Configure(Window window, string title, int width, int height)
     {
@@ -187,6 +463,20 @@ internal static class Ui
     {
         void Update() => apply(control, DesignTokens.Colors(control.ActualThemeVariant == ThemeVariant.Dark));
         control.ActualThemeVariantChanged += (_, _) => Update(); Update(); return control;
+    }
+}
+
+// A button drawn as a surface (sidebar item, feature card, thumbnail) rather than as a standard push button.
+internal sealed class SurfaceButton : Button
+{
+    protected override Type StyleKeyOverride => typeof(Button);
+    public SurfaceButton(string name, Action? action = null)
+    {
+        AutomationProperties.SetName(this, name); ToolTip.SetTip(this, name);
+        Padding = default; BorderThickness = default; Background = Brushes.Transparent;
+        HorizontalAlignment = HorizontalAlignment.Stretch; HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        VerticalContentAlignment = VerticalAlignment.Stretch;
+        if (action is not null) Click += (_, e) => { if (ReferenceEquals(e.Source, this)) action(); };
     }
 }
 
@@ -227,3 +517,6 @@ internal sealed class SettingsRow : Grid
         set { _description.Text = value; _description.IsVisible = !string.IsNullOrWhiteSpace(value); }
     }
 }
+
+// Tool colours from spec ①: pin amber, long capture blue, recording red, OCR green, page headers violet.
+internal enum ToolTone { Violet, Amber, Blue, Red, Green, Grey }

@@ -1,4 +1,4 @@
-using Tbox.Core;
+﻿using Tbox.Core;
 using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop.Tests;
@@ -27,7 +27,8 @@ internal sealed class FakePlatform : IPlatformServices
     public DesktopPoint GetPointerPosition() => new(100, 100);
     public ICaptureTargetSource CreateCaptureTargets() => new EmptyTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
-    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => throw new NotSupportedException();
+    public IRegionRecorder? Recorder { get; set; }
+    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => Recorder ?? throw new NotSupportedException();
     public IFolderNavigation CreateFolderNavigation() => new EmptyFolders();
     public IStartupRegistration StartupRegistration { get; set; } = new EmptyStartup();
     public IStartupRegistration CreateStartupRegistration() => StartupRegistration;
@@ -52,4 +53,15 @@ internal sealed class FakePlatform : IPlatformServices
         public Task<FolderNavigationResult> JumpAsync(CancellationToken cancellationToken) => Task.FromResult(new FolderNavigationResult(true));
         public void Dispose() { }
     }
+}
+
+// A recorder that only tracks calls, for toolbar state tests.
+internal sealed class FakeRecorder : IRegionRecorder
+{
+    public bool Started { get; private set; }
+    public Task StartAsync(string path, CancellationToken cancellationToken) { Started = true; return Task.CompletedTask; }
+    public void Pause() { }
+    public void Resume() { }
+    public Task<RecordingOutput> StopAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
+    public void Dispose() { }
 }
