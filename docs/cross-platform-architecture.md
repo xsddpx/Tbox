@@ -49,7 +49,7 @@
 
 ## 主要官方依据
 
-文件夹跳转通过 `IFolderNavigation` 接入共用模块开关和 Ctrl+G。Windows 链接原 `ExplorerFolderTracker`、`ExplorerShellViewResolver`、`FileDialogNavigator`，避免重写已验证的活动标签逻辑。Mac 使用辅助功能接口观察 Finder 的选中窗口，并仅向 AppKit 标准文件面板服务发送导航操作，结果依赖目录属性确认；这些面板属性还须在当前系统实际验证。失败仅在当前状态区反馈，不向未知窗口输入路径。模块设置只在热键注册完整成功后保存，失败会重新注册上一组热键。
+文件夹跳转通过 `IFolderNavigation` 接入共用模块开关和 Ctrl+G。Windows 链接原 `ExplorerFolderTracker`、`ExplorerShellViewResolver`、`FileDialogNavigator`，避免重写已验证的活动标签逻辑。Mac 使用辅助功能接口观察 Finder 的选中窗口。窗口未提供目录地址时，从同一窗口的图标或列表视图读取文件 URL，要求父目录一致并与窗口标题相符。无法核实的目录保留上一次可信记录。系统文件面板可能以宿主应用的辅助功能节点呈现。Tbox 用实际 AppKit 服务控件核实面板来源，仅向该服务进程发送导航按键。确认“前往文件夹”子面板获得焦点并选中完整目标路径后才提交，再检查原面板已显示目标目录。失败仅在当前状态区反馈。模块设置只在热键注册完整成功后保存，失败会重新注册上一组热键。
 
 - [Avalonia 11 平台支持](https://v11.docs.avaloniaui.net/docs/overview/supported-platforms/)
 - [Avalonia 剪贴板 API](https://docs.avaloniaui.net/docs/how-to/clipboard-how-to)
