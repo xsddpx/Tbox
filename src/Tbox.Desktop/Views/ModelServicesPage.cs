@@ -13,6 +13,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private readonly ModelService _service;
     private readonly Func<Window> _owner;
     private readonly ComboBox _connections = new() { HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0 };
+    internal ComboBox Provider { get; } = new() { ItemsSource = new[] { "DeepSeek", "自定义服务（OpenAI 兼容）" }, HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0 };
+    internal Expander MoreSettings { get; } = new() { Header = "更多设置", IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
     internal TextBox ConnectionName { get; } = Field("连接名称");
     internal TextBox BaseUrl { get; } = Field("API 基础地址", "例如 https://api.example.com/v1");
     internal TextBox Secret { get; } = new() { PasswordChar = '●', Watermark = "输入新的 API 密钥", MinWidth = 0, MaxLength = 1280 };
@@ -43,6 +45,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         AutomationProperties.SetName(Models, "模型 ID 列表");
         AutomationProperties.SetName(_connections, "选择模型连接");
         AutomationProperties.SetName(_defaultModel, "全局默认模型 ID");
+        AutomationProperties.SetName(Provider, "模型服务商");
         _replace = Ui.Link("替换", BeginReplaceKey);
         _deleteKey = Ui.Link("删除密钥", () => Run(DeleteKeyAsync), accent: false);
         _secretEditor = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children =
@@ -73,28 +76,28 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         NoKey.IsCheckedChanged += (_, _) => Changed();
         UseAsDefault.IsCheckedChanged += (_, _) => Changed();
         _defaultModel.SelectionChanged += (_, _) => Changed();
-        _form.Children.Add(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8,
-            Children = { _connections, Ui.Column(_add, 1) } });
-        _form.Children.Add(Labelled("连接名称", ConnectionName));
-        _form.Children.Add(Labelled("接口协议", Ui.Description("OpenAI 兼容 · Chat Completions")));
-        _form.Children.Add(Labelled("API 地址", BaseUrl));
-        _form.Children.Add(_endpoint);
+        Provider.SelectionChanged += (_, _) => ApplyPreset();
+        _form.Children.Add(Labelled("服务商", Provider));
         _form.Children.Add(Labelled("API 密钥", keyState));
         _form.Children.Add(_secretEditor);
-        _form.Children.Add(NoKey);
-        _form.Children.Add(Labelled("模型 ID", Models));
-        _form.Children.Add(Ui.Row(_fetch, Ui.Description("获取失败时可手动填写")));
-        _form.Children.Add(UseAsDefault);
-        _form.Children.Add(Labelled("默认模型", _defaultModel));
-        _form.Children.Add(_global);
+        _form.Children.Add(Labelled("模型", _defaultModel));
+        var advanced = new StackPanel { Spacing = 10, Margin = new Thickness(0, 8, 0, 8), Children =
+        {
+            new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children = { _connections, Ui.Column(_add, 1) } },
+            Labelled("连接名称", ConnectionName), Labelled("API 地址", BaseUrl), _endpoint,
+            Ui.Description("接口：OpenAI 兼容 · Chat Completions"), NoKey,
+            Labelled("模型 ID", Models), Ui.Row(_fetch, Ui.Description("每行一个，可手动填写")), UseAsDefault, _global, _delete
+        } };
+        MoreSettings.Content = advanced;
+        _form.Children.Add(MoreSettings);
         _form.Children.Add(new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 6,
-            Children = { _reset, Ui.Column(_delete, 1), Ui.Column(_save, 2) } });
+            Children = { _reset, Ui.Column(_save, 2) } });
         _delete.HorizontalAlignment = HorizontalAlignment.Left;
         var testbar = new StackPanel { Spacing = 10, Children =
         {
-            Ui.GroupHeader("调用验证"), Ui.Description("仅发送固定的少量测试文字，可能产生 API 费用。不会读取剪贴板或发送截图。"),
+            Ui.GroupHeader("连接测试"), Ui.Description("保存不会发起调用。点击测试才发送少量文字，可能产生 API 费用。"),
             Ui.Row(_test, _stop), _status, _testResult,
-            Ui.Note("密钥保存在本机系统凭据库。保存与测试相互独立；列表获取成功不代表模型推理可用。当前只提供文本能力，不执行工具或命令。")
+            Ui.Description("密钥由系统安全保存，不回填显示；不会自动发送截图或剪贴板。")
         } };
         Content = new StackPanel { Spacing = 8, Margin = new Thickness(0, 16, 0, 0), Children = { _form, testbar } };
         RefreshControls();
@@ -116,11 +119,12 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         try
         {
             _id = connection?.Id ?? Guid.NewGuid();
-            ConnectionName.Text = connection?.Name ?? "";
-            BaseUrl.Text = connection?.BaseUrl ?? "";
-            Models.Text = string.Join('\n', connection?.Models ?? []);
+            ConnectionName.Text = connection?.Name ?? "DeepSeek";
+            BaseUrl.Text = connection?.BaseUrl ?? "https://api.deepseek.com";
+            Models.Text = string.Join('\n', connection?.Models ?? ["deepseek-chat"]);
+            Provider.SelectedIndex = IsDeepSeek(BaseUrl.Text) ? 0 : 1;
             NoKey.IsChecked = connection is not null && !connection.RequiresKey;
-            UseAsDefault.IsChecked = _service.Configuration.DefaultModel?.ConnectionId == _id;
+            UseAsDefault.IsChecked = connection is null ? _service.Configuration.DefaultModel is null : _service.Configuration.DefaultModel?.ConnectionId == _id;
             Secret.Text = ""; _editingKey = connection?.CredentialId is null;
             _dirty = false;
             RefreshModelChoices(_service.Configuration.DefaultModel?.ConnectionId == _id ? _service.Configuration.DefaultModel.ModelId : null);
@@ -148,7 +152,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         });
         Secret.Text = ""; _dirty = false;
         await LoadDraftAsync(_service.Configuration.Connections.Single(c => c.Id == _id));
-        SetStatus("配置已保存 · 未测试。密钥未写入普通配置。");
+        SetStatus("已保存 · 尚未测试。可以直接在工具中使用。");
     }
 
     internal void BeginReplaceKey()
@@ -204,7 +208,29 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         }, testing: true);
     }
 
-    private ModelConnection Draft() => new(_id, ConnectionName.Text ?? "", BaseUrl.Text?.Trim() ?? "", ModelIds()) { RequiresKey = NoKey.IsChecked != true };
+    private ModelConnection Draft()
+    {
+        var ids = ModelIds();
+        // The simple selector also remembers a connection's preferred model without stealing the global default.
+        if (_defaultModel.SelectedItem is string selected && ids.Contains(selected, StringComparer.Ordinal))
+            ids = new[] { selected }.Concat(ids.Where(id => id != selected)).ToArray();
+        return new(_id, ConnectionName.Text ?? "", BaseUrl.Text?.Trim() ?? "", ids) { RequiresKey = NoKey.IsChecked != true };
+    }
+    private static bool IsDeepSeek(string? url) => url?.Trim().TrimEnd('/') is "https://api.deepseek.com" or "https://api.deepseek.com/v1";
+    private void ApplyPreset()
+    {
+        if (_loading || Provider.SelectedIndex < 0) return;
+        _loading = true;
+        var deepseek = Provider.SelectedIndex == 0;
+        ConnectionName.Text = deepseek ? "DeepSeek" : "自定义服务";
+        BaseUrl.Text = deepseek ? "https://api.deepseek.com" : "";
+        Models.Text = deepseek ? "deepseek-chat" : "";
+        Secret.Text = ""; _editingKey = true; NoKey.IsChecked = false;
+        MoreSettings.IsExpanded = !deepseek;
+        _loading = false;
+        Changed();
+        SetStatus(deepseek ? "已填好官方地址和默认模型，填写密钥后保存即可。" : "请在更多设置中填写 API 地址和模型 ID；不会沿用旧服务的密钥。");
+    }
     private string[] ModelIds() => (Models.Text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
     private void Changed()
     {

@@ -14,6 +14,29 @@ namespace Tbox.Desktop.Tests;
 public sealed class ModelServicesPageTests
 {
     [AvaloniaFact]
+    public async Task DeepSeekSetupOnlyRequiresAKeyAndKeepsAdvancedSettingsCollapsed()
+    {
+        using var scope = new Scope(); await scope.Page.OpenAsync();
+        Assert.False(scope.Page.MoreSettings.IsExpanded);
+        Assert.Equal("https://api.deepseek.com", scope.Page.BaseUrl.Text);
+        Assert.Equal("deepseek-chat", scope.Page.Models.Text);
+        scope.Page.Secret.Text = "simple-test-key";
+        await scope.Page.SaveAsync();
+        Assert.Equal("deepseek-chat", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal(0, scope.Calls); Assert.False(scope.Page.MoreSettings.IsExpanded);
+        Assert.Equal("simple-test-key", Assert.Single(scope.Credentials.Values).Value);
+    }
+
+    [AvaloniaFact]
+    public async Task ChoosingCustomServiceExpandsRequiredFieldsAndDoesNotReuseTypedKey()
+    {
+        using var scope = new Scope(); await scope.Page.OpenAsync(); scope.Page.Secret.Text = "unsaved-test-key";
+        scope.Page.Provider.SelectedIndex = 1;
+        Assert.True(scope.Page.MoreSettings.IsExpanded);
+        Assert.Equal("", scope.Page.BaseUrl.Text); Assert.Equal("", scope.Page.Secret.Text);
+        Assert.Equal(0, scope.Calls);
+    }
+    [AvaloniaFact]
     public async Task SavingShowsAnOpaquePlaceholderWithoutReadingBackTheSecretAndDoesNotTest()
     {
         using var scope = new Scope();

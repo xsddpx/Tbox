@@ -59,6 +59,7 @@ public sealed class MainWindow : Window
     // 关于
     private readonly UpdateCard _update;
     private readonly ModelServicesPage _models;
+    private readonly TranslationPage _translation;
 
     internal static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
     internal MainPage CurrentPage { get; private set; }
@@ -91,6 +92,10 @@ public sealed class MainWindow : Window
         _startup = new SettingsLine("开机时启动", "启动后只在托盘运行，不打开窗口", Ui.Row(_cancelStartup, _startupToggle));
         _update = new UpdateCard(controller);
         _models = new ModelServicesPage(controller.Models, () => this);
+        _translation = new TranslationPage(controller.Models, async () =>
+        {
+            await controller.Models.InitializeAsync(); return controller.Models.Configuration;
+        }, () => Navigate(MainPage.Models));
         _update.AvailabilityChanged += RefreshDots;
         Wire();
         BuildPages();
@@ -129,8 +134,8 @@ public sealed class MainWindow : Window
                 Hide();
             }
         };
-        Closed += (_, _) => { _models.Dispose(); _update.Release(); ReleaseThumbnails(); _brand.Dispose(); };
-        PropertyChanged += (_, args) => { if (args.Property == IsVisibleProperty && !IsVisible) _models.Leave(); };
+        Closed += (_, _) => { _translation.Dispose(); _models.Dispose(); _update.Release(); ReleaseThumbnails(); _brand.Dispose(); };
+        PropertyChanged += (_, args) => { if (args.Property == IsVisibleProperty && !IsVisible) { _models.Leave(); _translation.Leave(); } };
         Activated += (_, _) =>
         {
             Refresh();
@@ -158,11 +163,13 @@ public sealed class MainWindow : Window
     {
         StopRecordingShortcut();
         if (CurrentPage == MainPage.Models && page != MainPage.Models) _models.Leave();
+        if (CurrentPage == MainPage.Translation && page != MainPage.Translation) _translation.Leave();
         CurrentPage = page;
         _body.Content = _pages[page];
         foreach (var (key, item) in _nav) item.Selected = key == page;
         SetStatus("");
         if (page == MainPage.Models) _controller.Run(_models.OpenAsync);
+        if (page == MainPage.Translation) _controller.Run(_translation.OpenAsync);
     }
 
     private void StopRecordingShortcut()
@@ -250,6 +257,7 @@ public sealed class MainWindow : Window
             Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 12, 0, 6), IsHitTestVisible = false });
         void Item(MainPage page, IconKind icon, string title) { var item = new NavItem(icon, title, () => Navigate(page)); _nav[page] = item; items.Children.Add(item); }
         Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
+        Item(MainPage.Translation, IconKind.Translate, "翻译");
         Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.About, IconKind.Update, "关于");
         var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
         DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(version, Dock.Bottom);
@@ -278,6 +286,7 @@ public sealed class MainWindow : Window
             Spaced(Ui.Note("关闭窗口后 Tbox 继续在托盘运行，快捷键照常可用。右键托盘图标可退出。"), 18));
 
         AddPage(MainPage.Models, PageHeader(IconKind.Model, "模型服务", "统一管理连接与模型，供未来工具复用", null), _models);
+        AddPage(MainPage.Translation, PageHeader(IconKind.Translate, "翻译", "复用公共模型能力 · 原文与译文对照", null), _translation);
 
         var feedback = new SurfaceButton("反馈问题", () => _controller.Run(async () =>
         {

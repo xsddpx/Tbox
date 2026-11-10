@@ -32,7 +32,7 @@ public sealed class MainWindowTests
         Assert.Equal(MainWindow.MinimumWidth, main.MinWidth); Assert.Equal(MainWindow.MinimumHeight, main.MinHeight);
         foreach (var tool in new[] { "截图", "贴出剪贴板", "长截图", "录屏", "识别文字", "更改保存位置" })
             Assert.True(Find(main, tool).IsEffectivelyEnabled, tool);
-        foreach (var (label, page) in new[] { ("文件夹跳转", MainPage.Folders), ("通用", MainPage.General), ("关于", MainPage.About), ("截图", MainPage.Capture) })
+        foreach (var (label, page) in new[] { ("文件夹跳转", MainPage.Folders), ("翻译", MainPage.Translation), ("模型服务", MainPage.Models), ("通用", MainPage.General), ("关于", MainPage.About), ("截图", MainPage.Capture) })
         {
             Click(main, label, sidebar: true);
             Assert.Equal(page, main.CurrentPage);

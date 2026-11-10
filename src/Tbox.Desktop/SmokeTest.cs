@@ -45,12 +45,14 @@ internal static class SmokeTest
                 ? await RecordingSmokeTest.RunAsync(controller.Platform, controller.Main, directory) : null;
             var modelServices = args.Contains("--verify-model-services")
                 ? await ModelServices.ModelServicesSmokeTest.RunAsync(directory) : null;
+            var translation = args.Contains("--verify-translation")
+                ? await Translation.TranslationSmokeTest.RunAsync(directory) : null;
             controller.Main.Hide();
             await WriteResultAsync(directory, JsonSerializer.Serialize(new
             {
                 success = true, nativeOcr = true, pixelCrop = true, uiRendered = true,
                 screenPermission = controller.Platform.HasScreenPermission, captureVerified, displayCount, recognizedText = ocr.Text,
-                recording, toolbar, modelServices
+                recording, toolbar, modelServices, translation
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception error)
