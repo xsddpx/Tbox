@@ -2,6 +2,7 @@
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -65,6 +66,39 @@ public sealed class TaskToolbarTests
         Assert.True(toolbar.MorePopup.IsOpen);
         Assert.Equal(["长截图", "录屏", "重做"], Names(toolbar.MorePopup.Child!));
         Assert.True(toolbar.DismissPopover());
+    }
+
+    [AvaloniaFact]
+    public async Task CaptureTooltipsWaitOnEachButtonAndAppearInsideTheCaptureOverlay()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var window = scope.Window;
+        var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        var buttons = toolbar.MainRow.GetVisualDescendants().OfType<Button>().ToArray();
+        var popup = Assert.Single(window.GetVisualDescendants().OfType<Popup>(), p => p.Placement == PlacementMode.Bottom);
+        Assert.All(buttons, button =>
+        {
+            Assert.Equal(1000, ToolTip.GetShowDelay(button));
+            Assert.Equal(-1, ToolTip.GetBetweenShowDelay(button));
+        });
+
+        foreach (var name in new[] { "贴图", "保存" })
+        {
+            var button = Assert.Single(buttons, b => AutomationProperties.GetName(b)?.StartsWith(name + " · ") == true);
+            var center = new Point(button.Bounds.Width / 2, button.Bounds.Height / 2);
+            window.MouseMove(button.TranslatePoint(center, window)!.Value, RawInputModifiers.None);
+            Assert.False(popup.IsOpen);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            while (!popup.IsOpen) await Task.Delay(25, timeout.Token);
+            Layout(window);
+            Assert.True(popup.IsUsingOverlayLayer);
+            Assert.Equal(button, popup.PlacementTarget);
+            var text = Assert.IsType<TextBlock>(Assert.IsType<Border>(popup.Child).Child);
+            Assert.Equal(ToolTip.GetTip(button), text.Text);
+        }
+
+        window.MouseMove(new Point(50, 600), RawInputModifiers.None);
+        Assert.False(popup.IsOpen);
     }
 
     [AvaloniaFact]
