@@ -3,8 +3,10 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using Tbox.Core;
 using Windows.ApplicationModel;
 using Windows.Graphics.Imaging;
@@ -168,7 +170,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
     }
     public ICaptureTargetSource CreateCaptureTargets() => WindowsCaptureTargets.CreateSnapshot();
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new WindowsRegionRecorder(area, systemAudio, framesPerSecond);
-    public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation();
+    internal WindowsFolderPicker FolderPicker { get; } = new();
+    public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation(FolderPicker);
+    public async Task<string?> PickFolderAsync(Window owner, string title) => await Dispatcher.UIThread.InvokeAsync(
+        () => FolderPicker.Show(owner.TryGetPlatformHandle()?.Handle ?? 0, title), DispatcherPriority.Background);
     public IStartupRegistration CreateStartupRegistration() => new WindowsStartupRegistration();
     public void Dispose() { _hotkeys?.Dispose(); _hotkeys = null; }
     private static Win32Exception Error(string message) => new(Marshal.GetLastWin32Error(), message);

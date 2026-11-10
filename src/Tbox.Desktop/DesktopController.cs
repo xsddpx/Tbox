@@ -628,11 +628,11 @@ public sealed class DesktopController : IDisposable
     public async Task ChooseCacheAsync()
     {
         if (_cachePickerOpen) return;
-        IReadOnlyList<IStorageFolder> folders;
+        string? path;
         _cachePickerOpen = true;
-        try { folders = await Main.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择截图缓存目录", AllowMultiple = false }); }
+        try { path = await Platform.PickFolderAsync(Main, "选择截图缓存目录"); }
         finally { _cachePickerOpen = false; }
-        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } path) return;
+        if (path is null) return;
         var cache = CreateCache(path);
         await Task.Run(() => CacheLocation.VerifyWritable(cache.DirectoryPath));
         await UpdateSettingsAsync(settings => settings with { ScreenCaptureCacheDirectory = path });
