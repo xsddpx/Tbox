@@ -5,6 +5,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Themes.Fluent;
@@ -39,42 +40,52 @@ public sealed class TaskToolbarTests
     }
 
     [AvaloniaFact]
-    public async Task CaptureToolbarHasToolsOnTheFirstRowAndModesOutputsAndCancelOnTheSecond()
+    public async Task CaptureToolbarKeepsTenToolsAndOutputsInOneRowAndModesInMore()
     {
         using var scope = await CaptureScope.StartAsync(null);
         var window = scope.Window;
-        var rows = window.GetVisualDescendants().OfType<Border>().Where(b => b.IsEffectivelyVisible && Equals(b.Background, Ui.ToolbarBackground)
-            && b.Child is StackPanel { Orientation: Avalonia.Layout.Orientation.Horizontal }).ToArray();
-        Assert.Equal(2, rows.Length);
-        Assert.Equal(["矩形", "椭圆", "箭头", "直线", "画笔", "高亮", "马赛克", "文字", "序号", "橡皮擦", "|", "颜色", "减小粗细", "增大粗细", "|", "撤销", "重做"], Names(rows[0]));
-        Assert.Equal(["长截图", "录屏", "|", "贴图", "识别文字", "保存", "复制", "|", "取消"], Names(rows[1]));
-        Assert.True(rows[1].TranslatePoint(default, window)!.Value.Y > rows[0].TranslatePoint(default, window)!.Value.Y);
+        var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        Assert.Equal(["矩形", "椭圆", "箭头", "直线", "画笔", "高亮", "马赛克", "文字", "序号", "橡皮擦", "|", "撤销", "|", "贴图", "识别文字", "保存", "复制", "更多操作", "|", "取消"], Names(toolbar.MainRow));
+        Assert.InRange(toolbar.Bounds.Height, 32, 48);
+        Assert.True(toolbar.Bounds.Right <= window.ClientSize.Width);
         // Every tooltip names the action first; shortcuts follow " · ".
-        Assert.All(rows.SelectMany(r => r.GetVisualDescendants().OfType<Button>()), b => Assert.Equal(AutomationProperties.GetName(b), ToolTip.GetTip(b)));
+        Assert.All(toolbar.MainRow.GetVisualDescendants().OfType<Button>(), b => Assert.Equal(AutomationProperties.GetName(b), ToolTip.GetTip(b)));
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "上次区域");
         Preview(window, "task-capture");
 
         // The selected tool is filled amethyst with a white icon; clicking it again clears the selection.
-        var rectangle = rows[0].GetVisualDescendants().OfType<Button>().First();
+        var rectangle = toolbar.MainRow.GetVisualDescendants().OfType<Button>().First();
         Click(rectangle);
         Assert.Equal(Color.Parse(DesignTokens.Accent), ((ISolidColorBrush)rectangle.Background!).Color);
         Assert.Equal(Colors.White, ((ISolidColorBrush)((LineIcon)rectangle.Content!).Stroke!).Color);
         Click(rectangle);
         Assert.Null(window.Editor.Tool);
         Assert.Equal(Color.Parse(DesignTokens.TaskText), ((ISolidColorBrush)((LineIcon)rectangle.Content!).Stroke!).Color);
+        Click(toolbar.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "更多操作"));
+        Assert.True(toolbar.MorePopup.IsOpen);
+        Assert.Equal(["长截图", "录屏", "重做"], Names(toolbar.MorePopup.Child!));
+        Assert.True(toolbar.DismissPopover());
     }
 
     [AvaloniaFact]
-    public async Task ColourPopoverOffersTheSpecPaletteOnTheDarkSurface()
+    public async Task PropertiesUseOneHorizontalStripWithThePaletteAndCurrentSize()
     {
         using var scope = await CaptureScope.StartAsync(null);
-        var colour = scope.Window.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "颜色");
-        var flyout = Assert.IsType<Flyout>(colour.Flyout);
-        var surface = Assert.IsType<Border>(flyout.Content);
+        var toolbar = Assert.Single(scope.Window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        Click(toolbar.MainRow.GetVisualDescendants().OfType<Button>().First());
+        Layout(scope.Window);
+        Assert.True(toolbar.PropertiesPopup.IsOpen);
+        var surface = toolbar.PropertiesSurface;
         Assert.Equal(Ui.ToolbarBackground, surface.Background);
-        var swatches = ((StackPanel)surface.Child!).Children.OfType<Button>().Select(b => AutomationProperties.GetName(b)).ToArray();
-        Assert.Equal(["颜色 E5484D", "颜色 F5B400", "颜色 1F9D61", "颜色 3D7BFF", "颜色 6D4AE8", "颜色 1A1B22", "颜色 FFFFFF"], swatches);
+        Assert.Equal(Orientation.Horizontal, Assert.IsType<StackPanel>(surface.Child).Orientation);
+        var swatches = surface.GetVisualDescendants().OfType<Button>().Where(b => AutomationProperties.GetName(b)?.StartsWith("颜色 ") == true).ToArray();
+        Assert.Equal(new[] { "颜色 E5484D", "颜色 F5B400", "颜色 1F9D61", "颜色 3D7BFF", "颜色 6D4AE8", "颜色 1A1B22", "颜色 FFFFFF" }, swatches.Select(b => AutomationProperties.GetName(b)!));
         Assert.Equal(0xFFE5484D, scope.Window.Editor.Color);
+        Click(swatches[3]);
+        Assert.Equal(0xFF3D7BFF, scope.Window.Editor.Color);
+        Assert.True(toolbar.PropertiesPopup.IsOpen);
+        Assert.Contains(surface.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "3 px");
+        Preview(scope.Window, "task-capture-properties-below");
     }
 
     [AvaloniaFact]
@@ -117,14 +128,20 @@ public sealed class TaskToolbarTests
 
             var window = Assert.Single(lifetime.Windows, w => w.Title == "Tbox 贴图工具条");
             Layout(window);
-            var rows = Assert.IsType<StackPanel>(window.Content).Children;
-            Assert.Equal(["矩形", "椭圆", "箭头", "直线", "画笔", "高亮", "马赛克", "文字", "序号", "橡皮擦", "|", "颜色", "减小粗细", "增大粗细", "|", "撤销", "重做"], Names(rows[0]));
-            Assert.Equal(["识别文字", "保存", "复制图片", "|", "完成"], Names(rows[1]));
-            Assert.True(rows[1].Bounds.Y > rows[0].Bounds.Y);
-            Assert.All(rows, row => Assert.True(row.Bounds.Right <= window.ClientSize.Width));
-            var ellipse = rows[0].GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "椭圆");
+            var toolbar = Assert.IsType<AnnotationToolbar>(window.Content);
+            Assert.Equal(["矩形", "椭圆", "箭头", "直线", "画笔", "高亮", "马赛克", "文字", "序号", "橡皮擦", "|", "撤销", "|", "识别文字", "保存", "复制图片", "更多操作", "|", "完成"], Names(toolbar.MainRow));
+            Assert.InRange(toolbar.Bounds.Height, 32, 48);
+            Assert.True(toolbar.Bounds.Right <= window.ClientSize.Width);
+            Click(toolbar.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "更多操作"));
+            Assert.Equal(["重做"], Names(toolbar.MorePopup.Child!));
+            toolbar.DismissPopover();
+            var ellipse = toolbar.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "椭圆");
             Click(ellipse);
             Assert.Equal(AnnotationTool.Ellipse, pin.Editor.Tool);
+            var propertySlider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
+            propertySlider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            Assert.True(pin.CanAnnotate);
+            Assert.True(toolbar.PropertiesPopup.IsOpen);
             Click(ellipse);
             Preview(window, "task-pin-toolbar");
 
@@ -135,6 +152,117 @@ public sealed class TaskToolbarTests
             Assert.True(pin.IsVisible);
         }
         finally { pin.Close(); }
+    }
+
+    [AvaloniaTheory]
+    [InlineData(640, 420, false)]
+    [InlineData(800, 420, false)]
+    [InlineData(1200, 420, false)]
+    [InlineData(640, 620, true)]
+    [InlineData(800, 620, true)]
+    [InlineData(1200, 620, true)]
+    public async Task PropertiesPreferBelowAndFlipAboveAtTheBottomWithoutClipping(int width, int bottom, bool above)
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var window = scope.Window;
+        window.Width = width; Layout(window);
+        window.MouseDown(new Point(20, 100), MouseButton.Left, RawInputModifiers.None);
+        window.MouseMove(new Point(120, bottom), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(new Point(120, bottom), MouseButton.Left, RawInputModifiers.None); Layout(window);
+        var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        Click(toolbar.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "文字 · T"));
+        Layout(window);
+        var surface = toolbar.PropertiesSurface;
+        Assert.True(toolbar.PropertiesPopup.IsOpen);
+        var barPoint = toolbar.TranslatePoint(default, window)!.Value;
+        var propertyPoint = surface.TranslatePoint(default, window)!.Value;
+        Assert.InRange(propertyPoint.X, 0, width - surface.Bounds.Width + 1);
+        Assert.InRange(propertyPoint.Y, 0, window.ClientSize.Height - surface.Bounds.Height + 1);
+        var gap = above ? barPoint.Y - propertyPoint.Y - surface.Bounds.Height : propertyPoint.Y - barPoint.Y - toolbar.Bounds.Height;
+        Assert.True(Math.Abs(gap - 6) <= 1, $"bar={barPoint} {toolbar.Bounds.Size}, properties={propertyPoint} {surface.Bounds.Size}, above={above}, gap={gap}, anchor={toolbar.PropertiesPopup.PlacementRect}");
+        Assert.InRange(surface.Bounds.Height, 32, 48);
+        Preview(window, $"task-properties-{width}-{(above ? "above" : "below")}");
+    }
+
+    [AvaloniaTheory]
+    [InlineData(AnnotationTool.Text, "字号", 32, "32 px")]
+    [InlineData(AnnotationTool.Number, "序号大小", 36, "36 px")]
+    [InlineData(AnnotationTool.Highlighter, "线宽", 5, "30 px")]
+    [InlineData(AnnotationTool.Mosaic, "颗粒大小", 5, "10 px")]
+    [InlineData(AnnotationTool.Eraser, "擦除范围", 5, "15 px")]
+    public async Task PropertyMeaningAndValueFollowTheSelectedTool(AnnotationTool tool, string name, double value, string expected)
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var toolbar = Assert.Single(scope.Window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        scope.Window.Editor.Select(tool); Layout(scope.Window);
+        var slider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
+        Assert.Equal(name, AutomationProperties.GetName(slider));
+        slider.Value = value; Layout(scope.Window);
+        Assert.Equal(value, scope.Window.Editor.CurrentSize);
+        Assert.Contains(toolbar.PropertiesSurface.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == expected);
+        var colors = toolbar.PropertiesSurface.GetVisualDescendants().OfType<Button>().Count(b => AutomationProperties.GetName(b)?.StartsWith("颜色 ") == true);
+        Assert.Equal(tool is AnnotationTool.Mosaic or AnnotationTool.Eraser ? 0 : 7, colors);
+    }
+
+    [AvaloniaFact]
+    public async Task EscapeClosesPropertiesBeforeClearingToolOrEndingCapture()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var window = scope.Window;
+        var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        window.Editor.Select(AnnotationTool.Text); Layout(window);
+        var slider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
+        slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Assert.True(window.IsVisible);
+        Assert.True(toolbar.PropertiesPopup.IsOpen);
+        slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Assert.False(toolbar.PropertiesPopup.IsOpen);
+        Assert.Equal(AnnotationTool.Text, window.Editor.Tool);
+        Assert.True(window.IsVisible);
+        window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Assert.Null(window.Editor.Tool);
+        Assert.True(window.IsVisible);
+        window.Editor.Select(AnnotationTool.Pen); Layout(window);
+        window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Space });
+        Assert.False(toolbar.PropertiesPopup.IsOpen);
+        Assert.False(toolbar.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task DismissingPropertiesWithTheCanvasStillDrawsTheFirstStroke()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var window = scope.Window;
+        var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        window.Editor.Select(AnnotationTool.Pen); Layout(window);
+        Assert.True(toolbar.PropertiesPopup.IsOpen);
+        window.MouseDown(new Point(300, 200), MouseButton.Left, RawInputModifiers.None);
+        window.MouseMove(new Point(350, 240), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(new Point(350, 240), MouseButton.Left, RawInputModifiers.None);
+        Assert.False(toolbar.PropertiesPopup.IsOpen);
+        Assert.Equal(AnnotationTool.Pen, window.Editor.Tool);
+        Assert.IsType<FreePathAnnotationCommand>(Assert.Single(window.Editor.Document.Commands));
+    }
+
+    [AvaloniaFact]
+    public async Task RedoInMoreRestoresAnnotationsAndModeSwitchStillConfirmsDiscard()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var window = scope.Window;
+        var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        window.Editor.Select(AnnotationTool.Rectangle); toolbar.ClosePopovers();
+        window.Editor.Begin(new AnnotationPoint(250, 180), false); window.Editor.End(new AnnotationPoint(320, 220), false);
+        window.Editor.Undo();
+        var more = toolbar.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "更多操作");
+        Click(more); Layout(window);
+        var redo = toolbar.MorePopup.Child!.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b)!.StartsWith("重做"));
+        Assert.True(redo.IsEnabled); Click(redo);
+        Assert.Single(window.Editor.Document.Commands);
+        Assert.False(toolbar.MorePopup.IsOpen);
+        Click(more); Layout(window);
+        Click(toolbar.MorePopup.Child!.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "长截图"));
+        Assert.True(window.IsVisible);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "长截图使用原始画面，是否丢弃本次标注？");
     }
 
     [AvaloniaFact]
