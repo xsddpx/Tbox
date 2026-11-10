@@ -34,6 +34,7 @@ Tbox 启动后只驻留系统托盘（Mac 为菜单栏），不弹出窗口。�
 ## 文档
 
 - [产品需求](docs/product-requirements.md)：产品行为、交互规则和验收标准的唯一活文档。
+- [产品设计参考](docs/product-references.md)：交互、布局和内容方案优先参考 PixPin、Listary 的成熟设计。
 - [UI 3.0 设计规范](docs/ui-design-system.md)：主窗口、结果窗口与任务工具条的视觉和交互规则。
 - [跨平台架构](docs/cross-platform-architecture.md)、[逐项验收记录](docs/cross-platform-acceptance.md)：技术选择与验证证据。
 - [自动发布](docs/automatic-releases.md)、[发布历史](docs/release-history.md)、[版本说明](docs/releases/)、[第三方源码](docs/third-party-sources.md)。
