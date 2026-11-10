@@ -301,7 +301,7 @@ class ReleaseTests(unittest.TestCase):
             if args[1] == 'ls-remote':
                 return 'matching-ref' if pushed else ''
             if args[1] == 'show':
-                return self.history.read_text() if args[2].startswith('FETCH_HEAD:') else '# History'
+                return self.history.read_text(encoding='utf-8') if args[2].startswith('FETCH_HEAD:') else '# History'
             if args[1] == 'push':
                 attempts += 1
                 if attempts == 1:
@@ -317,9 +317,10 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(2, attempts)
         self.assertEqual(1, sum(args[1] == 'switch' for args in calls))
         rows = release.audit_rows(manifest)
-        self.assertTrue(release.has_audit(self.history.read_text(), 'v2.3.4', rows))
+        history = self.history.read_text(encoding='utf-8')
+        self.assertTrue(release.has_audit(history, 'v2.3.4', rows))
         with self.assertRaisesRegex(ValueError, 'differs from the signed packages'):
-            release.has_audit(self.history.read_text().replace(rows[0], ''), 'v2.3.4', rows)
+            release.has_audit(history.replace(rows[0], ''), 'v2.3.4', rows)
 
 
 if __name__ == '__main__':
