@@ -33,6 +33,7 @@ public sealed class DesktopController : IDisposable
     private RecordingControlWindow? _recording;
     private readonly List<RecordingReviewWindow> _reviews = [];
     private bool _quitRequested;
+    private bool _installingUpdate;
     private OcrWindow? _ocr;
     private AppSettings _settings = new();
     private CaptureCache _cache;
@@ -46,9 +47,6 @@ public sealed class DesktopController : IDisposable
     // The one main window. It stays hidden until opened from the tray, a second launch or app reopen.
     public MainWindow Main { get; set; } = null!;
     public bool IsQuitting { get; private set; }
-    internal bool HasOpenWorkForUpdate => _capturing || _capture is not null || _longCapture is not null || _recording is not null ||
-        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window =>
-            window != Main && window is not (FailureNotificationWindow or FolderJumpBarWindow));
     public string CacheDirectory => _cache.DirectoryPath;
     public AppSettings Settings => _settings;
     public string FolderDirectory => _folders.CurrentDirectory;
@@ -116,6 +114,7 @@ public sealed class DesktopController : IDisposable
 
     public async void Run(Func<Task> action)
     {
+        if (_installingUpdate) return;
         try { await action(); }
         catch (OperationCanceledException) { }
         catch (Exception exception)
@@ -321,7 +320,7 @@ public sealed class DesktopController : IDisposable
             await Task.WhenAll(targetsTask, displaysTask);
             var displays = await displaysTask;
             var capturedMs = timer.Elapsed.TotalMilliseconds;
-            if (IsQuitting) return;
+            if (IsQuitting || _installingUpdate) return;
             _capture = new CaptureSession(this, displays, cancelled =>
             {
                 _capture = null;
@@ -398,7 +397,7 @@ public sealed class DesktopController : IDisposable
         try
         {
             await Task.Delay(150, _stop.Token);
-            if (IsQuitting) return;
+            if (IsQuitting || _installingUpdate) return;
             _longCapture?.Stop();
             var session = new LongCaptureSession(this, region, () => _longCapture = null);
             _longCapture = session;
@@ -417,7 +416,7 @@ public sealed class DesktopController : IDisposable
         try
         {
             await Task.Delay(150, _stop.Token);
-            if (IsQuitting) return;
+            if (IsQuitting || _installingUpdate) return;
             var session = new RecordingControlWindow(this, area);
             _recording = session;
             session.Released += () => { if (ReferenceEquals(_recording, session)) _recording = null; };
@@ -428,13 +427,14 @@ public sealed class DesktopController : IDisposable
 
     internal void ShowRecordingReview(RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
     {
+        if (IsQuitting || _installingUpdate) { workspace.Dispose(); return; }
         var review = new RecordingReviewWindow(this, workspace, area, output, duration);
         _reviews.Add(review); review.Released += () => _reviews.Remove(review); review.Show();
     }
 
     private void Pin(Picture picture, DesktopPlacement? placement = null, IReadOnlyList<AnnotationCommand>? annotations = null)
     {
-        if (!_settings.ScreenPasteEnabled || IsQuitting) { picture.Dispose(); return; }
+        if (!_settings.ScreenPasteEnabled || IsQuitting || _installingUpdate) { picture.Dispose(); return; }
         var pin = new PinnedWindow(this, picture);
         foreach (var command in annotations ?? []) pin.Editor.Document.Commit(command);
         _pins.Add(pin);
@@ -491,7 +491,7 @@ public sealed class DesktopController : IDisposable
 
     public void ShowOcr(Picture picture, bool topmost)
     {
-        if (!_settings.ScreenPasteEnabled || IsQuitting) return;
+        if (!_settings.ScreenPasteEnabled || IsQuitting || _installingUpdate) return;
         if (_ocr is null)
         {
             _ocr = new OcrWindow(this);
@@ -685,15 +685,29 @@ public sealed class DesktopController : IDisposable
     public void Quit() => Run(QuitAsync);
     public async Task QuitAsync()
     {
-        if (_quitRequested) return;
+        if (_quitRequested || _installingUpdate) return;
         _quitRequested = true;
         try
         {
             foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
             if (_recording is { } recording) await recording.CancelAsync();
+            if (_installingUpdate) return;
             IsQuitting = true; _lifetime.Shutdown();
         }
         finally { _quitRequested = false; }
+    }
+
+    internal async Task InstallUpdateAsync(Action launchInstaller)
+    {
+        _installingUpdate = true;
+        try
+        {
+            if (_recording is { } recording) await recording.CancelAsync();
+            foreach (var review in _reviews.ToArray()) await review.RequestCloseAsync(discardUnsaved: true);
+            launchInstaller();
+            IsQuitting = true; _lifetime.Shutdown();
+        }
+        finally { _installingUpdate = false; }
     }
     public void Dispose()
     {
