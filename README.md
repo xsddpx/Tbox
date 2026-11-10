@@ -29,4 +29,4 @@
 
 截图和贴图的单排标注工具栏已合入主分支，待正式发布。详见 [v1.1.42 版本说明](docs/releases/v1.1.42.md)。
 
-[产品需求](docs/product-requirements.md) · [界面设计规范](docs/ui-design-system.md) · [跨平台验收](docs/cross-platform-acceptance.md) · [开发与打包](docs/cross-platform-architecture.md#本地开发与打包) · [发布历史](docs/release-history.md) · [第三方源码](docs/third-party-sources.md)
+[产品需求](docs/product-requirements.md) · [产品设计参考](docs/product-references.md) · [界面设计规范](docs/ui-design-system.md) · [跨平台验收](docs/cross-platform-acceptance.md) · [开发与打包](docs/cross-platform-architecture.md#本地开发与打包) · [发布历史](docs/release-history.md) · [第三方源码](docs/third-party-sources.md)
