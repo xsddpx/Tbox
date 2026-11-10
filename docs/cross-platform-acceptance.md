@@ -2,6 +2,14 @@
 
 最新公开安装包见 [GitHub Releases](https://github.com/xsddpx/Tbox/releases/latest)。
 
+## 2026-11-10 Windows 1.1.34 图标与一致性清理
+
+源提交 `fd458a1` 的[双平台检查与 Windows 签名安装工作流](https://github.com/xsddpx/Tbox/actions/runs/42763581032) 全部通过。Windows 作业使用持久 Tbox 证书签名 MSIX，在干净机器安装并验证系统文字识别、共用窗口渲染、实际取帧、录屏和三格式导出；Windows/macOS 共用测试与媒体检查同时通过。
+
+- 当前电脑从 1.1.33 覆盖到 1.1.34，包身份和发布者保持不变；本机验证系统文字识别、像素裁剪、共用窗口渲染、2 个显示器取帧、320×240 录屏及 GIF/WebP/MP4 导出通过。
+- MSIX SHA-256 为 `03EF3E045E56C9EA4EDE82266073ECD89321FD7DC8C5E443FE12F01449910FA5`，签名主题 `CN=Tbox Development`，包内含 16～256 物理像素的 15 个无底板 Shell 图标资源。
+- 开始菜单与托盘的自动截图因本机 Computer Use 运行时缺少内部模块未执行；未用其他输入模拟器替代。安装包资源、签名、覆盖安装和 Shell 资源命名均已验证。
+
 ## 历史公开交付 1.1.15
 
 2026-11-08 03:48:46 +0800 已公开 Windows 11 x64 与 macOS 14+ Apple Silicon 安装包。[正式流程 42407512233](https://github.com/xsddpx/Tbox/actions/runs/42407512233) 全部通过；源码保持私有。公开包已匿名完整下载，大小、SHA-256 与发布清单一致，Mac 深度签名和当前安装版指定签名要求一致，44 个原生二进制满足最低 macOS 14。Windows 实际安装、OCR、取帧、录屏及三格式导出通过；文件夹导航的八次原生检查在串行干净构建后通过。详见 [首发验收记录](releases/v1.1.15-verification.md)。
