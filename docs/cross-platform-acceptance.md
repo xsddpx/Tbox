@@ -81,7 +81,7 @@ Mac 1.1.6 已生成唯一 ZIP、覆盖安装并独立启动（进程 53695）。
 
 2026-11-07：共用桌面工程 32 项测试、原核心 95 项测试通过；已运行本机离线中英文 OCR、原始像素裁剪及单显示器取帧（命令行验证；不代表独立启动后的应用授权）。Windows 目标交叉编译通过；提交 `7e6c1a3` 的 [Windows/macOS CI](https://github.com/xsddpx/Tbox/actions/runs/42372131729) 均通过（95 核心 + 20 桌面测试）；新增长截图及独立进程权限探测后本机桌面测试增至 25 项；[长截图提交的双平台 CI](https://github.com/xsddpx/Tbox/actions/runs/42372899931) 通过。Mac 另有拒绝临时签名和错误标识的两项脚本测试。持久签名已完成首次钥匙串确认；旧临时签名登记迁移完成，屏幕权限连续两次升级保留已在本机验收，见 [验证记录](macos-permission-upgrade-verification.md)。混合 DPI 多显示器、Intel Mac、Windows 共用界面均尚未实机验证。截图全流程仍在授权与交互复验中。
 
-| ID | 原状态 | 原平台源码证据（src/Tbox.App，另注除外） | 共用/目标平台入口（src/Tbox.Desktop，另注除外） | 迁移验收 |
+| ID | 原状态 | 原平台源码证据（提交 `0f88802` 的 src/Tbox.App，另注除外） | 共用/目标平台入口（src/Tbox.Desktop，另注除外） | 迁移验收 |
 | --- | --- | --- | --- | --- |
 | FJ-001 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 云端真实两目录跟踪通过，多标签仍待复验；Mac 待实机复验 |
 | FJ-002 | 已实现 | FolderJumpModule.cs / ExplorerFolderTracker.cs / FileDialogNavigator.cs | Platform/*FolderNavigation.cs / Platform/macos/TboxFolders.swift | Windows 四次实际打开/保存导航通过，全局热键未覆盖；Mac 标准面板复验中 |
@@ -161,12 +161,12 @@ Mac 1.1.6 已生成唯一 ZIP、覆盖安装并独立启动（进程 53695）。
 | UI-007 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-008 | 已实现 | TboxUi.cs / MainWindow.xaml | Views/Ui.cs | 待逐项复验 |
 | UI-009 | 新增 | 用户指定 v5 倒品字 SVG | assets/branding/tbox.svg / scripts/generate-app-icons.py / App.cs | 1.1.12 两平台新图标安装验证通过；Mac ICNS 像素一致、正常启动及权限保留，Windows 安装图块与 EXE 七尺寸图标完全一致 |
-| REL-001 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
-| REL-002 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
-| REL-003 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
-| REL-004 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
-| REL-005 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
-| REL-006 | 已实现 | scripts/package-msix.ps1 / docs/release-history.md | scripts/build-macos.sh / scripts/package-macos.sh | 待逐项复验 |
+| REL-001 | 已实现 | 提交 `0f88802` 的 scripts/package-msix.ps1 / docs/release-history.md | scripts/package-desktop-windows.ps1 / scripts/package-macos.sh | 待逐项复验 |
+| REL-002 | 已实现 | 提交 `0f88802` 的 scripts/package-msix.ps1 / docs/release-history.md | scripts/package-desktop-windows.ps1 / scripts/package-macos.sh | 待逐项复验 |
+| REL-003 | 已实现 | 提交 `0f88802` 的 scripts/package-msix.ps1 / docs/release-history.md | scripts/package-desktop-windows.ps1 / scripts/package-macos.sh | 待逐项复验 |
+| REL-004 | 已实现 | 提交 `0f88802` 的 scripts/package-msix.ps1 / docs/release-history.md | scripts/package-desktop-windows.ps1 / scripts/package-macos.sh | 待逐项复验 |
+| REL-005 | 已实现 | 提交 `0f88802` 的 scripts/package-msix.ps1 / docs/release-history.md | scripts/package-desktop-windows.ps1 / scripts/package-macos.sh | 待逐项复验 |
+| REL-006 | 已实现 | 提交 `0f88802` 的 scripts/package-msix.ps1 / docs/release-history.md | scripts/package-desktop-windows.ps1 / scripts/package-macos.sh | 待逐项复验 |
 
 录屏实现进展（2026-11-07）：Windows 链接原 `ScreenRegionRecorder`，Mac 使用 ScreenCaptureKit + AVAssetWriter；共用操作负责声音失败降级、暂停时钟、等待原生释放再清理。回放使用 LibVLCSharp 的 Avalonia 组件，GIF/WebP 使用外部 FFmpeg 进程。32 项桌面测试、95 项核心测试和两目标编译已通过；Mac 媒体组件打包与真实回放仍在验证，不能视为完成发布。
 

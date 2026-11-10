@@ -11,6 +11,7 @@ SOURCE = ROOT / "assets/branding/tbox.svg"
 DESTINATION = ROOT / "src/Tbox.Desktop/Assets"
 MENU_ICON = ROOT / "src/Tbox.Desktop/Platform/macos/menu-bar-icon.png"
 NS = "{http://www.w3.org/2000/svg}"
+WINDOWS_TARGET_SIZES = (16, 20, 24, 30, 32, 36, 40, 44, 48, 60, 64, 72, 80, 96, 256)
 
 
 def polygon(svg, path_id):
@@ -40,6 +41,23 @@ def menu_icon(svg):
     return mask.resize((64, 64), Image.Resampling.LANCZOS)
 
 
+def fitted_icon(source, size):
+    """Fill Windows icon canvases without clipping the approved artwork."""
+    bounds = source.getchannel("A").getbbox()
+    if bounds is None:
+        raise ValueError("AppIcon.png must contain visible pixels.")
+    cropped = source.crop(bounds)
+    margin = max(1, round(size * 0.02))
+    available = size - margin * 2
+    scale = min(available / cropped.width, available / cropped.height)
+    width = max(1, round(cropped.width * scale))
+    height = max(1, round(cropped.height * scale))
+    icon = cropped.resize((width, height), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", (size, size))
+    canvas.alpha_composite(icon, ((size - width) // 2, (size - height) // 2))
+    return canvas
+
+
 def main():
     svg = ET.parse(SOURCE).getroot()
     if svg.get("viewBox") != "0 0 1024 1024":
@@ -59,10 +77,20 @@ def main():
         wide = Image.new("RGBA", (310, 150))
         wide.alpha_composite(render(150), (80, 0))
         wide.save(DESTINATION / "Wide310x150Logo.png", optimize=True)
+
+        # Windows uses target-size resources in Start, the taskbar, Alt+Tab and
+        # the notification area. The unplated variants prevent the shell from
+        # shrinking the artwork and adding its own backplate.
+        for size in WINDOWS_TARGET_SIZES:
+            fitted_icon(source, size).save(
+                DESTINATION / f"Square44x44Logo.targetsize-{size}_altform-unplated.png",
+                optimize=True,
+            )
+
         sizes = (16, 24, 32, 48, 64, 128, 256)
-        render(256).save(
+        fitted_icon(source, 256).save(
             DESTINATION / "Tbox.ico", sizes=[(size, size) for size in sizes],
-            append_images=[render(size) for size in sizes[:-1]],
+            append_images=[fitted_icon(source, size) for size in sizes[:-1]],
         )
     template.save(MENU_ICON, optimize=True)
     print("Generated Windows PNG/ICO and macOS menu bar template.")
