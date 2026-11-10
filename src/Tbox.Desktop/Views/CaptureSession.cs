@@ -22,11 +22,11 @@ internal sealed class CaptureSession
     public CaptureAction? Preset { get; }
 
     public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action<bool> closed,
-        CaptureAction? preset = null)
+        CaptureAction? preset = null, ICaptureTargetSource? targets = null)
     {
         _controller = controller; _closed = closed;
         Preset = preset is CaptureAction.Record or CaptureAction.Long ? preset : null;
-        _targets = controller.Platform.CreateCaptureTargets();
+        _targets = targets ?? controller.Platform.CreateCaptureTargets();
         foreach (var display in displays)
             _windows.Add(new CaptureWindow(this, display, controller.Platform.GetDisplayTopSafeInset(display.Id)));
     }

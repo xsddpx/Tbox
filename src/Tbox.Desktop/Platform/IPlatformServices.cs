@@ -3,7 +3,26 @@ using Avalonia.Platform.Storage;
 
 namespace Tbox.Desktop.Platform;
 
-public sealed record CapturedDisplay(uint Id, double Left, double Top, double Width, double Height, byte[] Png);
+public sealed record CapturedDisplay(uint Id, double Left, double Top, double Width, double Height, byte[] Png)
+{
+    private byte[] _png = Png;
+    internal byte[]? BgraPixels { get; init; }
+    internal int PixelWidth { get; init; }
+    internal int PixelHeight { get; init; }
+    // Compatibility for diagnostics/export. The interactive capture path never needs PNG encoding.
+    public byte[] Png
+    {
+        get
+        {
+            if (_png.Length != 0 || BgraPixels is null) return _png;
+            using var picture = CreatePicture();
+            return _png = picture.Png;
+        }
+        init => _png = value;
+    }
+    internal Models.Picture CreatePicture() => BgraPixels is { } pixels
+        ? Models.Picture.FromPixels(pixels, PixelWidth, PixelHeight) : new Models.Picture(Png);
+}
 public sealed record DesktopPlacement(double Left, double Top, double Width, double Height);
 public sealed record DesktopPoint(double X, double Y);
 public sealed record RecognizedLine(string Text, double Left, double Top, double Width, double Height);

@@ -18,7 +18,7 @@ internal static class PermissionDiagnostics
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
                 foreach (var display in await platform.CaptureAsync(timeout.Token))
                 {
-                    using var picture = new Picture(display.Png);
+                    using var picture = display.CreatePicture();
                     sizes.Add(new { width = picture.Bitmap.PixelSize.Width, height = picture.Bitmap.PixelSize.Height });
                 }
             }

@@ -10,6 +10,42 @@ namespace Tbox.Desktop.Tests;
 
 public sealed class ScreenPermissionTests
 {
+    [AvaloniaFact]
+    public async Task RepeatedCaptureWhileAcquiringDoesNotStartAnotherSession()
+    {
+        var response = new TaskCompletionSource<IReadOnlyList<Platform.CapturedDisplay>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var platform = new FakePlatform { HasScreenPermission = true, PendingCapture = response.Task };
+        using var controller = CreateController(platform);
+        var main = controller.Main;
+        try
+        {
+            var first = controller.CaptureAsync();
+            Assert.Equal(1, platform.CaptureRequests);
+            await controller.CaptureAsync();
+            Assert.Equal(1, platform.CaptureRequests);
+            response.SetResult([]);
+            await first;
+        }
+        finally { response.TrySetResult([]); controller.Dispose(); main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task NormalCaptureStartsAcquisitionImmediatelyWithoutAnArtificialDelay()
+    {
+        var platform = new FakePlatform { HasScreenPermission = true };
+        using var controller = CreateController(platform);
+        var main = controller.Main;
+        try
+        {
+            var capture = controller.CaptureAsync();
+            // A deterministic check of the first synchronous portion, not a wall-clock timing assertion.
+            Assert.Equal(1, platform.CaptureRequests);
+            await capture;
+            Assert.False(main.IsVisible);
+        }
+        finally { controller.Dispose(); main.Close(); }
+    }
+
     private static DesktopController CreateController(FakePlatform platform)
     {
         var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());

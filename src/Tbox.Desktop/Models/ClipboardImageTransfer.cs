@@ -9,7 +9,7 @@ namespace Tbox.Desktop.Models;
 /// </summary>
 internal sealed class ClipboardImageTransfer : IDataTransfer, IAsyncDataTransfer
 {
-    private Bitmap? _bitmap;
+    private Picture? _picture;
     private readonly DataTransferItem[] _items;
     public IReadOnlyList<DataFormat> Formats { get; } = [DataFormat.Bitmap];
     IReadOnlyList<IDataTransferItem> IDataTransfer.Items => _items;
@@ -17,10 +17,15 @@ internal sealed class ClipboardImageTransfer : IDataTransfer, IAsyncDataTransfer
 
     public ClipboardImageTransfer(byte[] png)
     {
-        using var stream = new MemoryStream(png, writable: false);
-        _bitmap = new Bitmap(stream);
-        _items = [DataTransferItem.Create(DataFormat.Bitmap, () => _bitmap)];
+        _picture = new Picture(png);
+        _items = [DataTransferItem.Create(DataFormat.Bitmap, () => _picture?.Bitmap)];
     }
 
-    public void Dispose() => Interlocked.Exchange(ref _bitmap, null)?.Dispose();
+    public ClipboardImageTransfer(Picture picture)
+    {
+        _picture = picture.Clone();
+        _items = [DataTransferItem.Create(DataFormat.Bitmap, () => _picture?.Bitmap)];
+    }
+
+    public void Dispose() => Interlocked.Exchange(ref _picture, null)?.Dispose();
 }

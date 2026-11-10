@@ -120,7 +120,7 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(mainVisible, main.IsVisible);
 
-        for (var attempt = 0; attempt < 100 && platform.CaptureRequests == 0; attempt++) await Task.Delay(10);
+        for (var attempt = 0; attempt < 100 && !scope.Lifetime.Windows.OfType<CaptureWindow>().Any(); attempt++) await Task.Delay(10);
         Assert.Equal(1, platform.CaptureRequests);
         var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
         Assert.Equal(mainVisible, main.IsVisible);
@@ -128,6 +128,19 @@ public sealed class MainWindowTests
         Assert.Empty(scope.Lifetime.Windows.OfType<CaptureWindow>());
         Assert.Equal(mainVisible, main.IsVisible);
         if (mainVisible) Assert.Equal(page, main.CurrentPage);
+    }
+
+    [AvaloniaFact]
+    public async Task HotkeyStartsBeforeAlreadyQueuedNormalPriorityWork()
+    {
+        var order = new List<string>();
+        var platform = new FakePlatform { HasScreenPermission = true, CaptureStarting = () => order.Add("capture") };
+        using var scope = new Scope(platform);
+        await scope.InitializeAsync();
+        Dispatcher.UIThread.Post(() => order.Add("normal"), DispatcherPriority.Normal);
+        platform.HotkeyHandler!(HotkeyAction.Capture);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new[] { "capture", "normal" }, order);
     }
 
     [AvaloniaFact]
@@ -195,6 +208,21 @@ public sealed class MainWindowTests
             Assert.Single(scope.Lifetime.Windows.OfType<ImageResultWindow>()).Close();
         }
         finally { Directory.Delete(directory, true); }
+    }
+
+    [AvaloniaFact]
+    public async Task ClipboardPinAppearsBeforeCacheEncodingAndGetsItsProtectedCachePathAfterwards()
+    {
+        using var scope = new Scope(new FakePlatform { HasScreenPermission = true });
+        using var picture = Picture.FromPixels([10, 20, 30, 255], 1, 1);
+        var operation = scope.Controller.PinPictureAsync(picture);
+        var pin = Assert.Single(scope.Lifetime.Windows.OfType<PinnedWindow>());
+        Assert.True(pin.IsVisible);
+        Assert.False(pin.Picture.HasEncodedPng);
+        await operation;
+        Assert.NotNull(pin.Picture.CachePath);
+        Assert.Equal(picture.CachePath, pin.Picture.CachePath);
+        Assert.True(File.Exists(pin.Picture.CachePath));
     }
 
     [AvaloniaFact]

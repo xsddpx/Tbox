@@ -133,7 +133,7 @@ public sealed class DesktopController : IDisposable
         if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
         if (action == HotkeyAction.Toggle) TogglePins();
         if (action == HotkeyAction.Folder) Run(JumpFolderAsync);
-    });
+    }, DispatcherPriority.Send);
 
     // Every shortcut whose module is on, at its saved or default combination.
     private void ApplyHotkeys(AppSettings settings)
@@ -307,19 +307,28 @@ public sealed class DesktopController : IDisposable
             return;
         }
         _capturing = true;
+        var timer = Stopwatch.StartNew();
         var restore = (preset is CaptureAction.Long or CaptureAction.Record) && Main.IsVisible;
         if (restore) Main.Hide();
         try
         {
-            await Task.Delay(150, _stop.Token);
-            var displays = await Platform.CaptureAsync(_stop.Token);
+            // Only a window we just hid needs time to leave the compositor's next capture.
+            // Ordinary hotkey/button captures preserve the main window and start immediately.
+            if (restore) await Task.Delay(150, _stop.Token);
+            // Snapshot external targets before overlays exist, alongside screen capture, not on the input thread.
+            var targetsTask = Task.Run(Platform.CreateCaptureTargets, _stop.Token);
+            var displaysTask = Platform.CaptureAsync(_stop.Token);
+            await Task.WhenAll(targetsTask, displaysTask);
+            var displays = await displaysTask;
+            var capturedMs = timer.Elapsed.TotalMilliseconds;
             if (IsQuitting) return;
             _capture = new CaptureSession(this, displays, cancelled =>
             {
                 _capture = null;
                 if (restore && cancelled && !IsQuitting) ShowMain();
-            }, preset);
+            }, preset, await targetsTask);
             _capture.Show();
+            AppLog.Write($"Capture ready: acquisition={capturedMs:F1}ms, overlay-shown={timer.Elapsed.TotalMilliseconds:F1}ms, displays={displays.Count}");
         }
         catch { if (restore) ShowMain(); throw; }
         finally { _capturing = false; }
@@ -330,11 +339,12 @@ public sealed class DesktopController : IDisposable
     {
         using (picture)
         {
-            await CacheAsync(picture);
-            if (action == CaptureAction.Pin) Pin(new Picture(picture.Png) { CachePath = picture.CachePath }, placement, annotations);
+            Picture? pinned = null;
+            if (action == CaptureAction.Pin) { pinned = picture.Clone(); Pin(pinned, placement, annotations); }
             if (action == CaptureAction.Copy) await CopyAsync(picture);
-            if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
+            await CacheAsync(picture, pinned);
+            if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             CaptureHistory.Remember(placement);
         }
     }
@@ -349,8 +359,9 @@ public sealed class DesktopController : IDisposable
     public async Task PinPictureAsync(Picture picture)
     {
         if (!_settings.ScreenPasteEnabled) return;
-        await CacheAsync(picture);
-        Pin(new Picture(picture.Png) { CachePath = picture.CachePath });
+        var pinned = picture.Clone();
+        Pin(pinned);
+        await CacheAsync(picture, pinned);
     }
 
     // Recent captures already live in the cache, so pinning one reuses that file instead of saving a copy.
@@ -496,7 +507,7 @@ public sealed class DesktopController : IDisposable
     public async Task CopyAsync(Picture picture)
     {
         var clipboard = Main.Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。");
-        var transfer = new ClipboardImageTransfer(picture.Png);
+        var transfer = new ClipboardImageTransfer(picture);
         try { await clipboard.SetDataAsync(transfer); }
         catch { transfer.Dispose(); throw; }
         // Ownership belongs to the clipboard after SetDataAsync. In particular,
@@ -529,8 +540,7 @@ public sealed class DesktopController : IDisposable
             {
                 using var bitmap = await clipboard.TryGetBitmapAsync();
                 if (bitmap is null) return null;
-                using var output = new MemoryStream(); bitmap.Save(output);
-                return new Picture(output.ToArray());
+                return Picture.FromBitmap(bitmap);
             },
             async () =>
             {
@@ -541,8 +551,7 @@ public sealed class DesktopController : IDisposable
                     {
                         await using var stream = await file.OpenReadAsync();
                         using var image = new Bitmap(stream);
-                        using var output = new MemoryStream(); image.Save(output);
-                        return new Picture(output.ToArray());
+                        return Picture.FromBitmap(image);
                     }
                     catch (Exception error) when (ClipboardReader.IsUnavailableFormat(error)) { }
                 }
@@ -572,22 +581,25 @@ public sealed class DesktopController : IDisposable
         control.Arrange(new Rect(control.DesiredSize));
         using var image = new RenderTargetBitmap(new PixelSize(1280, (int)Math.Ceiling(control.DesiredSize.Height * 2)), new Vector(192, 192));
         image.Render(control);
-        using var output = new MemoryStream(); image.Save(output);
-        return new Picture(output.ToArray());
+        return Picture.FromBitmap(image);
     }
 
-    private async Task CacheAsync(Picture picture)
+    private async Task CacheAsync(Picture picture, Picture? pinned = null)
     {
-        try { picture.CachePath = await _cache.SaveAsync(picture.Png, _stop.Token); }
+        var png = await Task.Run(() => picture.Png, _stop.Token);
+        var cache = _cache;
+        try { picture.CachePath = await Task.Run(() => cache.SaveAsync(png, _stop.Token), _stop.Token); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             _cache = new CaptureCache(CaptureCachePathPolicy.GetFallbackPath(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)));
-            picture.CachePath = await _cache.SaveAsync(picture.Png, _stop.Token);
+            cache = _cache;
+            picture.CachePath = await Task.Run(() => cache.SaveAsync(png, _stop.Token), _stop.Token);
             Main.SetStatus("原缓存目录不可写，本次运行使用应用数据目录。");
         }
+        if (pinned is not null) pinned.CachePath = picture.CachePath;
         // Protect the image about to become a pin as well as all currently visible/hidden pins.
         _cache.Prune(_pins.Select(pin => pin.Picture.CachePath ?? "").Append(picture.CachePath));
-        Main.Refresh();
+        if (Main.IsVisible) Main.Refresh();
     }
 
     private static CaptureCache CreateCache(string? path) => new(CaptureCachePathPolicy.Resolve(path,
