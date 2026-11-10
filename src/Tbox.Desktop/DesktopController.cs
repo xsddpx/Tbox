@@ -43,6 +43,7 @@ public sealed class DesktopController : IDisposable
     private bool _screenPermissionRequested;
     private bool _capturePermissionNeeded;
     public IPlatformServices Platform { get; }
+    public ModelServices.ModelService Models { get; }
     public CaptureHistory CaptureHistory { get; } = new();
     // The one main window. It stays hidden until opened from the tray, a second launch or app reopen.
     public MainWindow Main { get; set; } = null!;
@@ -79,6 +80,7 @@ public sealed class DesktopController : IDisposable
         _settingsPath = settingsPath ?? Path.Combine(local, "Tbox", "desktop-settings.json");
         _legacySettingsPath = settingsPath is null && OperatingSystem.IsWindows() ? Path.Combine(local, "Tbox", "settings.json") : null;
         _settingsStore = new JsonSettingsStore(_settingsPath);
+        Models = new ModelServices.ModelService(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!, "model-services.json"), ModelCredentialStore.Create());
         _cache = CreateCache(null);
     }
 
@@ -712,6 +714,7 @@ public sealed class DesktopController : IDisposable
     public void Dispose()
     {
         IsQuitting = true; _stop.Cancel();
+        Models.Dispose();
         _folderBar.Dispose();
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();

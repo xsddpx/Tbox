@@ -58,6 +58,7 @@ public sealed class MainWindow : Window
     private readonly SettingsLine _startup;
     // 关于
     private readonly UpdateCard _update;
+    private readonly ModelServicesPage _models;
 
     internal static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
     internal MainPage CurrentPage { get; private set; }
@@ -89,6 +90,7 @@ public sealed class MainWindow : Window
         _cancelStartup = Ui.Button("取消申请", () => controller.Run(() => controller.SetStartupAsync(false)), "取消开机启动申请");
         _startup = new SettingsLine("开机时启动", "启动后只在托盘运行，不打开窗口", Ui.Row(_cancelStartup, _startupToggle));
         _update = new UpdateCard(controller);
+        _models = new ModelServicesPage(controller.Models, () => this);
         _update.AvailabilityChanged += RefreshDots;
         Wire();
         BuildPages();
@@ -127,7 +129,8 @@ public sealed class MainWindow : Window
                 Hide();
             }
         };
-        Closed += (_, _) => { _update.Release(); ReleaseThumbnails(); _brand.Dispose(); };
+        Closed += (_, _) => { _models.Dispose(); _update.Release(); ReleaseThumbnails(); _brand.Dispose(); };
+        PropertyChanged += (_, args) => { if (args.Property == IsVisibleProperty && !IsVisible) _models.Leave(); };
         Activated += (_, _) =>
         {
             Refresh();
@@ -154,10 +157,12 @@ public sealed class MainWindow : Window
     internal void Navigate(MainPage page)
     {
         StopRecordingShortcut();
+        if (CurrentPage == MainPage.Models && page != MainPage.Models) _models.Leave();
         CurrentPage = page;
         _body.Content = _pages[page];
         foreach (var (key, item) in _nav) item.Selected = key == page;
         SetStatus("");
+        if (page == MainPage.Models) _controller.Run(_models.OpenAsync);
     }
 
     private void StopRecordingShortcut()
@@ -245,7 +250,7 @@ public sealed class MainWindow : Window
             Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 12, 0, 6), IsHitTestVisible = false });
         void Item(MainPage page, IconKind icon, string title) { var item = new NavItem(icon, title, () => Navigate(page)); _nav[page] = item; items.Children.Add(item); }
         Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
-        Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.About, IconKind.Update, "关于");
+        Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.About, IconKind.Update, "关于");
         var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
         DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(version, Dock.Bottom);
         // macOS draws the traffic lights over the top-left corner, so the brand moves below them.
@@ -271,6 +276,8 @@ public sealed class MainWindow : Window
             Spaced(Ui.GroupHeader("启动"), 8), _startup,
             Ui.GroupHeader("提示"), new SettingsLine("失败时提示", "截图或识别失败时，在屏幕角落说明原因", _failureToggle),
             Spaced(Ui.Note("关闭窗口后 Tbox 继续在托盘运行，快捷键照常可用。右键托盘图标可退出。"), 18));
+
+        AddPage(MainPage.Models, PageHeader(IconKind.Model, "模型服务", "统一管理连接与模型，供未来工具复用", null), _models);
 
         var feedback = new SurfaceButton("反馈问题", () => _controller.Run(async () =>
         {

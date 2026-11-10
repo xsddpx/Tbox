@@ -35,10 +35,14 @@ public sealed class SettingsTests
             {
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Empty(window.GetVisualDescendants().OfType<SplitView>());
-                Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
+                // Model-service fields are intentional inputs, not the removed application-search box.
+                if (page != MainPage.Models)
+                    Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
+                else
+                    Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible && AutomationProperties.GetName(t) == "API 基础地址");
                 Assert.True(window.CurrentPageView.Bounds.Width > width - 208 - 10 - 10);
                 foreach (var control in window.CurrentPageView.GetVisualDescendants().OfType<Control>()
-                    .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or ToggleSwitch or ComboBox))
+                    .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or ToggleSwitch or ComboBox or TextBox))
                 {
                     var point = control.TranslatePoint(default, window)!.Value;
                     Assert.True(point.X >= -1 && point.X + control.Bounds.Width <= width + 1,
