@@ -1,7 +1,8 @@
+#if WINDOWS
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 
-namespace Tbox.App;
+namespace Tbox.Desktop.Platform;
 
 internal static partial class NativeMethods
 {
@@ -431,3 +432,4 @@ internal static partial class NativeMethods
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 80)] internal string typeName;
     }
 }
+#endif

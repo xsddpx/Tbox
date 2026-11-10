@@ -12,7 +12,7 @@
     <AssemblyVersion>1.1.33.0</AssemblyVersion>
     <FileVersion>1.1.33.0</FileVersion>
     <TboxWindowsFfmpegRoot>$(MSBuildThisFileDirectory)../../TEMP/media-runtime/windows</TboxWindowsFfmpegRoot>
-    <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">../Tbox.App/Assets/Tbox.ico</ApplicationIcon>
+    <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">Assets/Tbox.ico</ApplicationIcon>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -23,11 +23,10 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />
     <ProjectReference Include="../Tbox.Core/Tbox.Core.csproj" />
-    <AvaloniaResource Include="../Tbox.App/Assets/AppIcon.png" Link="Assets/AppIcon.png" />
-    <AvaloniaResource Include="../Tbox.App/Assets/StoreLogo.png" Link="Assets/StoreLogo.png" />
+    <AvaloniaResource Include="Assets/AppIcon.png" />
+    <AvaloniaResource Include="Assets/StoreLogo.png" />
     <AvaloniaResource Include="Platform/macos/menu-bar-icon.png" Link="Assets/MenuBarIcon.png" />
     <Content Include="ThirdParty/**" CopyToOutputDirectory="PreserveNewest" />
-    <Compile Include="../Tbox.App/AppLog.cs" Link="Platform/AppLog.cs" />
     <InternalsVisibleTo Include="Tbox.Desktop.Tests" />
     <InternalsVisibleTo Include="Tbox.MediaSmoke" />
     <EmbeddedResource Include="Updates/install-macos-update.sh" />
@@ -35,11 +34,6 @@
   <ItemGroup Condition="'$(TboxWindows)' == 'true'">
     <PackageReference Include="ScreenRecorderLib" Version="6.6.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.24" />
-    <Compile Include="../Tbox.App/ScreenRegionRecorder.cs" Link="Platform/windows/ScreenRegionRecorder.cs" />
-    <Compile Include="../Tbox.App/NativeMethods.cs" Link="Platform/windows/LegacyNativeMethods.cs" />
-    <Compile Include="../Tbox.App/ExplorerFolderTracker.cs" Link="Platform/windows/ExplorerFolderTracker.cs" />
-    <Compile Include="../Tbox.App/ExplorerShellViewResolver.cs" Link="Platform/windows/ExplorerShellViewResolver.cs" />
-    <Compile Include="../Tbox.App/FileDialogNavigator.cs" Link="Platform/windows/FileDialogNavigator.cs" />
     <Content Include="$(TboxWindowsFfmpegRoot)/**" Link="ThirdParty/FFmpeg/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="RequireWindowsExporter" BeforeTargets="PrepareForBuild" Condition="'$(TboxWindows)' == 'true' and '$(DesignTimeBuild)' != 'true'">

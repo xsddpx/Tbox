@@ -57,7 +57,7 @@ try {
         Invoke-Checked python @('scripts/verify-windows-media.py', (Join-Path $layout 'ThirdParty\FFmpeg'))
         New-Item -ItemType Directory -Path (Join-Path $layout 'Assets') -Force | Out-Null
         foreach ($asset in 'StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png') {
-            Copy-Item -LiteralPath (Join-Path $root "src\Tbox.App\Assets\$asset") -Destination (Join-Path $layout 'Assets')
+            Copy-Item -LiteralPath (Join-Path $root "src\Tbox.Desktop\Assets\$asset") -Destination (Join-Path $layout 'Assets')
         }
         Copy-Item -LiteralPath $manifest -Destination (Join-Path $layout 'AppxManifest.xml')
         Invoke-Checked dotnet @('run', '--project', 'tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj', '-c', 'Release', '--',

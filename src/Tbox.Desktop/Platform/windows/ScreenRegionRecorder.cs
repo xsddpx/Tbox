@@ -1,8 +1,9 @@
+#if WINDOWS
 using ScreenRecorderLib;
 using Tbox.Core;
 using Windows.Graphics;
 
-namespace Tbox.App;
+namespace Tbox.Desktop.Platform;
 
 internal sealed class ScreenRegionRecorder : IDisposable
 {
@@ -149,3 +150,4 @@ internal sealed class ScreenRegionRecorder : IDisposable
         _disposed = true;
     }
 }
+#endif

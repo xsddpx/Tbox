@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "assets/branding/tbox.svg"
-DESTINATION = ROOT / "src/Tbox.App/Assets"
+DESTINATION = ROOT / "src/Tbox.Desktop/Assets"
 MENU_ICON = ROOT / "src/Tbox.Desktop/Platform/macos/menu-bar-icon.png"
 NS = "{http://www.w3.org/2000/svg}"
 

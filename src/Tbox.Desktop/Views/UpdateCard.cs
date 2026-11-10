@@ -1,10 +1,11 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Tbox.Desktop.Platform;
 using Tbox.Desktop.Updates;
 
 namespace Tbox.Desktop.Views;
@@ -82,7 +83,7 @@ internal sealed class UpdateCard : StackPanel
         catch (OperationCanceledException) { Detail(stop.IsCancellationRequested ? "已取消，可以重新尝试。" : "连接超时，请稍后重试。"); }
         catch (Exception ex)
         {
-            Tbox.App.AppLog.Write("Update: " + ex);
+            AppLog.Write("Update: " + ex);
             Detail(ex is HttpRequestException ? "无法连接更新服务，请检查网络后重试。" : ex.Message);
         }
         finally

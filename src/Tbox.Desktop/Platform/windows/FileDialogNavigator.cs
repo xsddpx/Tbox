@@ -1,4 +1,5 @@
-namespace Tbox.App;
+#if WINDOWS
+namespace Tbox.Desktop.Platform;
 
 internal enum NavigationResult
 {
@@ -278,3 +279,4 @@ internal static class FileDialogNavigator
         }
     };
 }
+#endif

@@ -1,4 +1,4 @@
-namespace Tbox.App;
+namespace Tbox.Desktop.Platform;
 
 internal static class AppLog
 {

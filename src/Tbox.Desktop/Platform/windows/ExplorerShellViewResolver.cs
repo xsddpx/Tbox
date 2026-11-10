@@ -1,6 +1,7 @@
+#if WINDOWS
 using System.Runtime.InteropServices;
 
-namespace Tbox.App;
+namespace Tbox.Desktop.Platform;
 
 internal static class ExplorerShellViewResolver
 {
@@ -114,3 +115,4 @@ internal static class ExplorerShellViewResolver
         [PreserveSig] int ContextSensitiveHelp([MarshalAs(UnmanagedType.Bool)] bool enterMode);
     }
 }
+#endif

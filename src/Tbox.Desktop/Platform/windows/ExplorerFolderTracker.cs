@@ -1,7 +1,8 @@
+#if WINDOWS
 using System.Runtime.InteropServices;
 using Tbox.Core;
 
-namespace Tbox.App;
+namespace Tbox.Desktop.Platform;
 
 internal sealed class ExplorerFolderTracker : IDisposable
 {
@@ -300,3 +301,4 @@ internal sealed class ExplorerFolderTracker : IDisposable
         _disposed = true;
     }
 }
+#endif
