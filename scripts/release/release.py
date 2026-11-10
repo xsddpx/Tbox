@@ -10,10 +10,12 @@ import plistlib
 import re
 import subprocess
 import sys
+import time
 import xml.etree.ElementTree as ET
 
 REPOSITORY = 'xsddpx/Tbox'
 NS = {'m': 'http://schemas.microsoft.com/appx/manifest/foundation/windows10'}
+SUPPORT_FILES = ('Tbox-Development.cer', 'Tbox_third-party-sources.tar.gz')
 
 
 def version_from_tag(tag):
@@ -75,53 +77,50 @@ def build_record(root, directory, tag, platform):
     (directory / f'{platform}-build.json').write_text(json.dumps(record) + '\n', encoding='utf-8')
 
 
-def collect(directory, tag, install_notes, source_manifest):
+def collect(directory, tag, source_manifest):
     version = version_from_tag(tag)
-    expected = {f'Tbox_{version}_osx-arm64.zip', f'Tbox_{version}.0_win-x64.msix', 'Tbox-Development.cer', 'Tbox_third-party-sources.tar.gz'}
+    expected = {f'Tbox_{version}_osx-arm64.zip', f'Tbox_{version}.0_win-x64.msix', *SUPPORT_FILES}
     records = {'osx-arm64-build.json', 'win-x64-build.json', 'third-party-build.json'}
     if {p.name for p in directory.iterdir()} != expected | records:
         raise ValueError('Expected the two installers, public certificate and corresponding source materials.')
     for path in directory.iterdir():
         if path.is_symlink() or not path.is_file() or not 0 < path.stat().st_size <= 2 * 1024**3:
             raise ValueError('Missing, empty, linked or oversized artifact.')
-    times = {}
+    assets = {name: {'name': name, 'size': (directory / name).stat().st_size,
+                     'sha256': sha256(directory / name)} for name in sorted(expected)}
     source_record = json.loads((directory / 'third-party-build.json').read_text(encoding='utf-8'))
-    source_name = 'Tbox_third-party-sources.tar.gz'
-    if source_record.get('name') != source_name or source_record.get('sha256') != sha256(directory / source_name) or source_record.get('size') != (directory / source_name).stat().st_size or source_record.get('manifestSha256') != sha256(source_manifest):
+    source = assets['Tbox_third-party-sources.tar.gz']
+    if (any(source_record.get(key) != value for key, value in source.items())
+            or source_record.get('manifestSha256') != sha256(source_manifest)):
         raise ValueError('Source material differs from the reviewed manifest or build audit.')
-    for name in records:
-        if name == 'third-party-build.json':
-            continue
+    for name in sorted(records - {'third-party-build.json'}):
         record = json.loads((directory / name).read_text(encoding='utf-8'))
         platform = name.removesuffix('-build.json')
         expected_name = f'Tbox_{version}_osx-arm64.zip' if platform == 'osx-arm64' else f'Tbox_{version}.0_win-x64.msix'
-        if record['name'] != expected_name or record['sha256'] != sha256(directory / expected_name) or record['size'] != (directory / expected_name).stat().st_size:
+        asset = assets[expected_name]
+        if any(record.get(key) != value for key, value in asset.items()):
             raise ValueError('Package differs from the signed build audit.')
         if datetime.fromisoformat(record['packagedAt']).tzinfo is None:
             raise ValueError('Build timestamp must include timezone.')
-        times[expected_name] = record['packagedAt']
-    for name in records:
-        (directory / name).unlink()
-    (directory / 'INSTALL.md').write_bytes(install_notes.read_bytes())
-    assets = [{'name': p.name, 'size': p.stat().st_size, 'sha256': sha256(p)} for p in sorted(directory.iterdir())]
-    for asset in assets:
-        if asset['name'] in times:
-            asset['packagedAt'] = times[asset['name']]
-    manifest = {'version': version, 'createdAt': datetime.now(timezone.utc).isoformat(), 'assets': assets}
-    (directory / 'release-manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    (directory / 'SHA256SUMS').write_text(''.join(f"{a['sha256']}  {a['name']}\n" for a in assets), encoding='utf-8')
-    return manifest
+        asset['packagedAt'] = record['packagedAt']
+    return {'version': version, 'assets': assets}
 
 
-def validate_assets(release, paths):
-    expected = {p.name: p for p in paths}
-    actual = release.get('assets', [])
-    if len(actual) != len(expected) or {a['name'] for a in actual} != expected.keys():
+def same_asset(actual, expected):
+    return (actual.get('state') == 'uploaded' and actual.get('size') == expected['size']
+            and actual.get('digest') == 'sha256:' + expected['sha256'])
+
+
+def validate_assets(release, expected, *, allow_missing=False):
+    assets = release.get('assets', [])
+    actual = {asset['name']: asset for asset in assets}
+    missing = expected.keys() - actual.keys()
+    if len(actual) != len(assets) or actual.keys() - expected.keys() or (missing and not allow_missing):
         raise ValueError('Release does not contain the complete asset set.')
-    for asset in actual:
-        path = expected[asset['name']]
-        if asset.get('state') != 'uploaded' or asset.get('size') != path.stat().st_size or asset.get('digest') != 'sha256:' + sha256(path):
-            raise ValueError('Uploaded asset is incomplete or its SHA-256 differs: ' + path.name)
+    for name, asset in actual.items():
+        if not same_asset(asset, expected[name]):
+            raise ValueError('Uploaded asset is incomplete or its SHA-256 differs: ' + name)
+    return sorted(missing)
 
 
 def command(*args, env=None, input=None):
@@ -145,36 +144,83 @@ def remote_preflight():
         raise ValueError('Release repository must be public.')
 
 
-def assert_unused_tag(tag):
+def releases():
     pages = json.loads(command('gh', 'api', '--paginate', '--slurp', f'repos/{REPOSITORY}/releases?per_page=100'))
-    if any(r.get('tag_name') == tag for page in pages for r in page):
-        raise ValueError('Public release or draft already exists. Do not overwrite; inspect the failed run or use a new version.')
+    return {item['tag_name']: item for page in pages for item in page}
+
+
+def source_commit(tag):
+    version_from_tag(tag)
+    commit = command('git', 'rev-parse', 'HEAD')
+    if command('git', 'rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}') != commit:
+        raise ValueError('Check out the release tag itself before building or publishing.')
+    return commit
+
+
+def audit_rows(manifest):
+    version = manifest['version']
+    rows = []
+    for package_version, platform, name in (
+        (version, 'macOS osx-arm64', f'Tbox_{version}_osx-arm64.zip'),
+        (version + '.0', 'Windows win-x64', f'Tbox_{version}.0_win-x64.msix'),
+    ):
+        asset = manifest['assets'][name]
+        stamp = datetime.fromisoformat(asset['packagedAt']).astimezone(timezone(timedelta(hours=8)))
+        rows.append(f"| {package_version} | {platform} | {stamp:%Y-%m-%d %H:%M:%S %z} | `{asset['sha256']}` |")
+    return rows
+
+
+def has_audit(history, tag, rows):
+    sections = re.findall(rf'^## 自动发布 {re.escape(tag)}[ \t]*\n(.*?)(?=^## |\Z)', history, re.M | re.S)
+    if not sections:
+        return False
+    if len(sections) != 1 or sorted(re.findall(r'^\|\s*\d.*$', sections[0], re.M)) != sorted(rows):
+        raise ValueError(f'Existing release history for {tag} differs from the signed packages.')
+    return True
 
 
 def record_history(root, tag, manifest):
-    # Keep a committed audit before publication, without rewriting the immutable release tag.
     branch = 'codex/release-record-' + tag
-    command('git', 'fetch', 'origin', 'main')
+    ref = f'refs/heads/{branch}'
+    rows = audit_rows(manifest)
+    command('git', 'fetch', 'origin', 'refs/heads/main:refs/remotes/origin/main')
+    before = command('git', 'show', 'origin/main:docs/release-history.md')
+    if has_audit(before, tag, rows):
+        return
+
+    def remote_audit_exists():
+        if not command('git', 'ls-remote', '--refs', 'origin', ref):
+            return False
+        command('git', 'fetch', 'origin', ref)
+        if not has_audit(command('git', 'show', 'FETCH_HEAD:docs/release-history.md'), tag, rows):
+            raise ValueError(f'Existing branch {branch} does not contain the release audit.')
+        return True
+
+    if remote_audit_exists():
+        return
     command('git', 'switch', '-c', branch, 'origin/main')
-    history = root / 'docs/release-history.md'
-    marker = f'## 自动发布 {tag}'
-    before = history.read_text(encoding='utf-8')
-    if marker in before:
-        raise ValueError('Release audit already exists; refuse to overwrite.')
-    lines = [f'\n\n{marker}\n', '持久证书签名；CI 安装/运行检查不代替用户设备的完整功能验收。\n',
-             '| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |', '| --- | --- | --- | --- |']
-    for a in manifest['assets']:
-        stamp = datetime.fromisoformat(a.get('packagedAt', manifest['createdAt'])).astimezone(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S %z')
-        if a['name'] == f"Tbox_{manifest['version']}_osx-arm64.zip":
-            lines.append(f"| {manifest['version']} | macOS osx-arm64 | {stamp} | `{a['sha256']}` |")
-        if a['name'] == f"Tbox_{manifest['version']}.0_win-x64.msix":
-            lines.append(f"| {manifest['version']}.0 | Windows win-x64 | {stamp} | `{a['sha256']}` |")
-    history.write_text(before.rstrip() + '\n'.join(lines) + '\n', encoding='utf-8')
-    command('git', 'config', 'user.name', 'github-actions[bot]')
-    command('git', 'config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+    section = [f'## 自动发布 {tag}', '', '两平台使用持久证书签名。', '',
+               '| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |', '| --- | --- | --- | --- |', *rows]
+    (root / 'docs/release-history.md').write_text(before.rstrip() + '\n\n' + '\n'.join(section) + '\n', encoding='utf-8')
     command('git', 'add', 'docs/release-history.md')
-    command('git', 'commit', '-m', '[codex] docs: 记录自动发布 ' + tag)
-    command('git', 'push', 'origin', f'HEAD:refs/heads/{branch}')
+    command('git', '-c', 'user.name=github-actions[bot]', '-c',
+            'user.email=41898282+github-actions[bot]@users.noreply.github.com',
+            'commit', '-m', '[codex] docs: 记录自动发布 ' + tag)
+    for attempt in range(3):
+        try:
+            command('git', 'push', 'origin', f'HEAD:{ref}')
+            break
+        except subprocess.CalledProcessError:
+            # A failed response can follow a successful write. Reuse only a matching remote record.
+            try:
+                if remote_audit_exists():
+                    break
+            except subprocess.CalledProcessError:
+                if attempt == 2:
+                    raise
+            if attempt == 2:
+                raise
+            time.sleep(2 ** (attempt + 1))
     # Some personal repositories disallow Actions-created PRs. The committed audit
     # remains durable even then; do not weaken repository settings automatically.
     try:
@@ -184,41 +230,130 @@ def record_history(root, tag, manifest):
         })
         print('Release history PR: ' + pr['html_url'])
     except subprocess.CalledProcessError:
-        print(f'::warning::发布历史已提交到 {branch}；仓库禁止 Actions 创建 PR，请从该分支合并记录。')
+        print(f'::warning::发布历史已提交到 {branch}；自动创建 PR 失败。')
+
+
+def download_url(tag, name):
+    return f'https://github.com/{REPOSITORY}/releases/download/{tag}/{name}'
+
+
+def check_release(release, identity, *, draft_name=None):
+    if any(release.get(key) != value for key, value in identity.items()) or type(release.get('draft')) is not bool:
+        raise ValueError(f"Existing release {identity['tag_name']} does not match this transaction.")
+    if release['draft'] and draft_name is not None and release.get('name') != draft_name:
+        raise ValueError(f"Draft {identity['tag_name']} does not match this transaction.")
+
+
+def stage_release(directory, existing, identity, assets, *, name, commit):
+    release = existing
+    if release is None:
+        release = api(f'repos/{REPOSITORY}/releases', 'POST', {
+            **identity, 'name': name, 'target_commitish': commit, 'draft': True, 'make_latest': 'false'
+        })
+        if release.get('draft') is not True:
+            raise ValueError('Expected a draft before uploading.')
+    check_release(release, identity, draft_name=name)
+    if not release['draft']:
+        validate_assets(release, assets)
+        return release
+
+    missing = validate_assets(release, assets, allow_missing=True)
+    if missing:
+        command('gh', 'release', 'upload', identity['tag_name'], '--repo', REPOSITORY,
+                *(str(directory / name) for name in missing))
+    release = api(f"repos/{REPOSITORY}/releases/{release['id']}")
+    check_release(release, identity, draft_name=name)
+    validate_assets(release, assets)
+    return release
+
+
+def finish_release(release, identity, assets, *, name):
+    path = f"repos/{REPOSITORY}/releases/{release['id']}"
+    current = api(path)
+    check_release(current, identity, draft_name=release.get('name'))
+    validate_assets(current, assets)
+    if not current['draft']:
+        return current
+    published = api(path, 'PATCH', {
+        'name': name, 'draft': False, 'prerelease': identity['prerelease'],
+        'make_latest': 'false' if identity['prerelease'] else 'true'
+    })
+    check_release(published, identity)
+    if published['draft'] or published.get('name') != name:
+        raise ValueError('Publication was not confirmed.')
+    validate_assets(published, assets)
+    return published
+
+
+def support_identity(existing, assets):
+    # Reuse the already published files when their bytes match the current build.
+    legacy = existing.get('v1.1.50', {})
+    previous = {asset['name']: asset for asset in legacy.get('assets', [])}
+    if legacy.get('draft') is False and all(same_asset(previous.get(name, {}), asset) for name, asset in assets.items()):
+        return {'tag_name': 'v1.1.50'}, None
+
+    # A new archive is needed only when the certificate or corresponding sources change.
+    fingerprint = hashlib.sha256(''.join(asset['sha256'] for asset in assets.values()).encode('ascii')).hexdigest()
+    tag = 'support-' + fingerprint
+    body = ('Tbox 的 Windows 公钥证书和第三方对应源码。各应用版本的发布正文会链接所用文件。\n\n'
+            f'<!-- tbox-release-support:{fingerprint} -->')
+    return {'tag_name': tag, 'prerelease': True, 'body': body}, existing.get(tag)
+
+
+def release_notes(root, tag, installers, support_tag):
+    version = version_from_tag(tag)
+    windows = f'Tbox_{version}.0_win-x64.msix'
+    mac = f'Tbox_{version}_osx-arm64.zip'
+    certificate, sources = (download_url(support_tag, name) for name in SUPPORT_FILES)
+    checksums = '\n'.join(f"| `{name}` | `{installers[name]['sha256']}` |" for name in (windows, mac))
+    notes = (root / 'docs/releases' / (tag + '.md')).read_text(encoding='utf-8').strip()
+    return f"""## 下载并安装
+
+- [Windows 11 x64]({download_url(tag, windows)})
+- [Apple Silicon Mac]({download_url(tag, mac)})
+
+[安装与升级说明](https://github.com/{REPOSITORY}/blob/{tag}/docs/releases/INSTALL.md) · [Windows 首次安装证书]({certificate}) · [第三方对应源码]({sources})
+
+GitHub 自动生成的 `Source code (zip)` 和 `Source code (tar.gz)` 用于查看项目源码。安装请使用上面的两个链接。
+
+<details>
+<summary>安装包 SHA-256</summary>
+
+| 文件 | SHA-256 |
+| --- | --- |
+{checksums}
+
+</details>
+
+{notes}
+"""
 
 
 def publish(root, directory, tag, prerelease, *, audit=record_history):
-    version = version_from_tag(tag)
-    assert_unused_tag(tag)
-    paths = sorted(directory.iterdir())
-    manifest = json.loads((directory / 'release-manifest.json').read_text(encoding='utf-8'))
-    notes = f"""## 下载并安装
+    commit = source_commit(tag)
+    run_id = os.environ.get('GITHUB_RUN_ID', '')
+    if not re.fullmatch(r'[0-9]+', run_id):
+        raise ValueError('Publish through the release workflow so the draft can be tied to its run.')
+    manifest = collect(directory, tag, root / 'assets/third-party/media-sources.json')
+    installers = {name: asset for name, asset in manifest['assets'].items() if name not in SUPPORT_FILES}
+    support = {name: manifest['assets'][name] for name in SUPPORT_FILES}
+    existing = releases()
+    support_fields, support_release = support_identity(existing, support)
+    support_tag = support_fields['tag_name']
+    name = 'Tbox ' + tag
+    support_name = 'Tbox 第三方源码与 Windows 证书'
+    identity = {'tag_name': tag, 'target_commitish': commit, 'prerelease': prerelease,
+                'body': release_notes(root, tag, installers, support_tag)}
+    app = stage_release(directory, existing.get(tag), identity, installers,
+                        name=f'{name} · Actions {run_id}', commit=commit)
+    if support_tag != 'v1.1.50':
+        support_release = stage_release(directory, support_release, support_fields, support,
+                                        name=support_name, commit=commit)
 
-- **Windows 11 x64**：下载 `Tbox_{version}.0_win-x64.msix`
-- **Apple Silicon Mac**：下载 `Tbox_{version}_osx-arm64.zip`
-
-GitHub 自动显示的 `Source code (zip)` 和 `Source code (tar.gz)` 不是安装包。安装与权限说明见附件 `INSTALL.md`；校验值见 `SHA256SUMS`；第三方对应源码与构建材料见 `Tbox_third-party-sources.tar.gz`。
-
-""" + (root / 'docs/releases' / (tag + '.md')).read_text(encoding='utf-8')
-    # GitHub rejects a duplicate tag. Never clobber assets, edit an old release,
-    # or automatically adopt a leftover draft from an earlier failed attempt.
-    release = api(f'repos/{REPOSITORY}/releases', 'POST', {
-        'tag_name': tag, 'name': 'Tbox ' + tag, 'body': notes, 'draft': True,
-        'prerelease': prerelease, 'make_latest': 'false',
-        'target_commitish': os.environ.get('GITHUB_SHA', 'main')
-    })
-    if release.get('draft') is not True:
-        raise ValueError('Expected a draft before uploading.')
-    command('gh', 'release', 'upload', tag, '--repo', REPOSITORY, *map(str, paths))
-    release = api(f"repos/{REPOSITORY}/releases/{release['id']}")
-    validate_assets(release, paths)
     audit(root, tag, manifest)
-    published = api(f"repos/{REPOSITORY}/releases/{release['id']}", 'PATCH', {
-        'draft': False, 'prerelease': prerelease, 'make_latest': 'false' if prerelease else 'true'
-    })
-    if published.get('draft') is not False or published.get('prerelease') != prerelease:
-        raise ValueError('Publication was not confirmed.')
-    validate_assets(published, paths)
+    if support_release is not None:
+        finish_release(support_release, support_fields, support, name=support_name)
+    published = finish_release(app, identity, installers, name=name)
     print('Published: ' + published['html_url'])
 
 
@@ -235,13 +370,15 @@ def main():
         print(preflight(root, args.tag))
         if os.environ.get('GITHUB_ACTIONS') == 'true':
             remote_preflight()
-            assert_unused_tag(args.tag)
+            source_commit(args.tag)
+            if args.tag in releases():
+                raise ValueError('Release already exists. Rerun failed jobs to reuse the signed builds and draft.')
     elif args.action == 'build-record':
         if not args.platform:
             raise ValueError('Choose a build platform.')
         build_record(root, args.directory, args.tag, args.platform)
     elif args.action == 'collect':
-        collect(args.directory, args.tag, root / 'docs/releases/INSTALL.md', root / 'assets/third-party/media-sources.json')
+        print(json.dumps(collect(args.directory, args.tag, root / 'assets/third-party/media-sources.json'), indent=2))
     else:
         publish(root, args.directory.resolve(), args.tag, args.prerelease)
 

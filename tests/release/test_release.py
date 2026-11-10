@@ -19,19 +19,18 @@ class ReleaseTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.directory = self.root / 'assets'
+        self.directory = self.root / 'release-assets'
         self.directory.mkdir()
         self.notes = self.root / 'docs/releases/v2.3.4.md'
         self.notes.parent.mkdir(parents=True)
         self.notes.write_text('公开版本说明', encoding='utf-8')
-        self.install = self.notes.parent / 'INSTALL.md'
-        self.install.write_text('安装说明', encoding='utf-8')
         for name in ['Tbox_2.3.4_osx-arm64.zip', 'Tbox_2.3.4.0_win-x64.msix', 'Tbox-Development.cer', 'Tbox_third-party-sources.tar.gz']:
             (self.directory / name).write_bytes(name.encode())
         for platform, name in [('osx-arm64', 'Tbox_2.3.4_osx-arm64.zip'), ('win-x64', 'Tbox_2.3.4.0_win-x64.msix')]:
             path = self.directory / name
             (self.directory / (platform + '-build.json')).write_text(json.dumps({'name': name, 'size': path.stat().st_size, 'sha256': release.sha256(path), 'packagedAt': '2026-11-07T12:00:00+08:00'}))
-        self.source_manifest = self.root / 'source-manifest.json'
+        self.source_manifest = self.root / 'assets/third-party/media-sources.json'
+        self.source_manifest.parent.mkdir(parents=True)
         self.source_manifest.write_text('{"pinned": "source inputs"}')
         archive = self.directory / 'Tbox_third-party-sources.tar.gz'
         (self.directory / 'third-party-build.json').write_text(json.dumps({'name': archive.name, 'size': archive.stat().st_size, 'sha256': release.sha256(archive), 'manifestSha256': release.sha256(self.source_manifest)}))
@@ -47,10 +46,11 @@ class ReleaseTests(unittest.TestCase):
         self.history.write_text('# History')
 
     def collected(self):
-        return release.collect(self.directory, 'v2.3.4', self.install, self.source_manifest)
+        return release.collect(self.directory, 'v2.3.4', self.source_manifest)
 
-    def remote_assets(self):
-        return [{'name': p.name, 'size': p.stat().st_size, 'state': 'uploaded', 'digest': 'sha256:' + release.sha256(p)} for p in sorted(self.directory.iterdir())]
+    def remote_asset(self, name):
+        path = self.directory / name
+        return {'name': name, 'size': path.stat().st_size, 'state': 'uploaded', 'digest': 'sha256:' + release.sha256(path)}
 
     def test_accepts_consistent_new_version(self):
         self.assertEqual('2.3.4', release.preflight(self.root, 'v2.3.4'))
@@ -139,16 +139,18 @@ class ReleaseTests(unittest.TestCase):
         self.source_manifest.write_text('{"pinned": "other inputs"}')
         with self.assertRaises(ValueError): self.collected()
 
-    def test_checksums_match_artifacts(self):
-        manifest = self.collected()
-        for a in manifest['assets']:
-            self.assertEqual(release.sha256(self.directory / a['name']), a['sha256'])
-            self.assertIn(a['sha256'] + '  ' + a['name'], (self.directory / 'SHA256SUMS').read_text())
-        release.validate_assets({'assets': self.remote_assets()}, list(self.directory.iterdir()))
+    def test_collection_keeps_signed_artifacts_and_audits_reusable(self):
+        before = set(self.directory.iterdir())
+        first = self.collected()
+        self.assertEqual(first, self.collected())
+        self.assertEqual(before, set(self.directory.iterdir()))
+        for name, asset in first['assets'].items():
+            self.assertEqual(release.sha256(self.directory / name), asset['sha256'])
+        release.validate_assets({'assets': [self.remote_asset(name) for name in first['assets']]}, first['assets'])
 
     def test_rejects_incomplete_or_tampered_upload(self):
-        self.collected()
-        valid = self.remote_assets()
+        expected = self.collected()['assets']
+        valid = [self.remote_asset(name) for name in expected]
         variations = [valid[:-1], valid + [valid[0]]]
         for field, value in [('digest', 'sha256:' + '0' * 64), ('size', 0), ('state', 'starter')]:
             altered = copy.deepcopy(valid)
@@ -156,66 +158,168 @@ class ReleaseTests(unittest.TestCase):
             variations.append(altered)
         for assets in variations:
             with self.subTest(assets=assets), self.assertRaises(ValueError):
-                release.validate_assets({'assets': assets}, list(self.directory.iterdir()))
+                release.validate_assets({'assets': assets}, expected)
 
-    def test_rejects_existing_draft_without_modifying_it(self):
-        with patch.object(release, 'command', return_value=json.dumps([[{'tag_name': 'v2.3.4', 'draft': True}]])):
-            with self.assertRaises(ValueError):
-                release.assert_unused_tag('v2.3.4')
-
-    def transaction(self, *, bad_upload=False, audit_fails=False, upload_fails=False, prerelease=False):
-        self.collected()
+    def transaction(self, *, legacy_support=True):
+        state = {}
         calls = []
-        assets = self.remote_assets()
-        if bad_upload:
-            assets[0]['digest'] = None
-        def fake_api(path, method='GET', body=None, **kwargs):
-            calls.append((method, body))
-            if method == 'POST':
-                return {'id': 7, 'draft': True}
-            return {'id': 7, 'draft': method != 'PATCH', 'prerelease': prerelease, 'assets': assets, 'html_url': 'https://example.invalid/release'}
-        def audit(*args):
-            calls.append(('AUDIT', None))
-            if audit_fails:
-                raise RuntimeError('Simulated persistence failure')
-        def upload(*args, **kwargs):
-            calls.append(('UPLOAD', None))
-            if upload_fails:
-                raise subprocess.CalledProcessError(1, 'mock upload')
-        with patch.object(release, 'assert_unused_tag'), patch.object(release, 'api', side_effect=fake_api), patch.object(release, 'command', side_effect=upload):
-            if bad_upload or audit_fails or upload_fails:
-                with self.assertRaises((ValueError, RuntimeError, subprocess.CalledProcessError)):
-                    release.publish(self.root, self.directory, 'v2.3.4', prerelease, audit=audit)
-                self.assertFalse(any(method == 'PATCH' for method, body in calls))
-            else:
-                release.publish(self.root, self.directory, 'v2.3.4', prerelease, audit=audit)
-        return calls
+        commit = 'a' * 40
+        if legacy_support:
+            state['v1.1.50'] = {'id': 1, 'tag_name': 'v1.1.50', 'draft': False,
+                                'assets': [self.remote_asset(name) for name in release.SUPPORT_FILES]}
 
-    def test_publishes_only_after_complete_upload_and_audit(self):
-        with patch.dict(release.os.environ, {'GITHUB_SHA': 'tested-commit'}):
-            calls = self.transaction()
-        self.assertEqual(['POST', 'UPLOAD', 'GET', 'AUDIT', 'PATCH'], [c[0] for c in calls])
-        self.assertTrue(calls[0][1]['draft'])
-        self.assertEqual('tested-commit', calls[0][1]['target_commitish'])
-        self.assertIn('Tbox_2.3.4.0_win-x64.msix', calls[0][1]['body'])
-        self.assertIn('Tbox_2.3.4_osx-arm64.zip', calls[0][1]['body'])
-        self.assertIn('Source code (zip)', calls[0][1]['body'])
-        self.assertFalse(calls[-1][1]['draft'])
-        self.assertEqual('true', calls[-1][1]['make_latest'])
+        def fake_api(path, method='GET', body=None):
+            if method == 'POST':
+                tag = body['tag_name']
+                self.assertNotIn(tag, state)
+                calls.append(('POST', tag))
+                state[tag] = {**body, 'id': len(state) + 1, 'assets': [],
+                              'html_url': 'https://example.invalid/' + tag}
+                return copy.deepcopy(state[tag])
+            current = next(value for value in state.values() if path.endswith(f"/{value['id']}"))
+            if method == 'PATCH':
+                calls.append(('PATCH', current['tag_name']))
+                current.update(body)
+            return copy.deepcopy(current)
+
+        def upload(*args):
+            self.assertEqual(('gh', 'release', 'upload'), args[:3])
+            self.assertNotIn('--clobber', args)
+            tag = args[3]
+            names = [Path(path).name for path in args[6:]]
+            calls.append(('UPLOAD', tag, names))
+            for name in names:
+                self.assertNotIn(name, [asset['name'] for asset in state[tag]['assets']])
+                state[tag]['assets'].append(self.remote_asset(name))
+
+        def publish(*, run='128', prerelease=False, audit_fails=False, upload_handler=upload):
+            def audit(*args):
+                calls.append(('AUDIT',))
+                if audit_fails:
+                    raise RuntimeError('Simulated persistence failure')
+
+            with patch.dict(release.os.environ, {'GITHUB_RUN_ID': run}), \
+                 patch.object(release, 'source_commit', return_value=commit), \
+                 patch.object(release, 'releases', side_effect=lambda: copy.deepcopy(state)), \
+                 patch.object(release, 'api', side_effect=fake_api), \
+                 patch.object(release, 'command', side_effect=upload_handler):
+                release.publish(self.root, self.directory, 'v2.3.4', prerelease, audit=audit)
+
+        return state, calls, publish, upload
+
+    def test_publishes_only_the_two_installers_after_audit(self):
+        state, calls, publish, _ = self.transaction()
+        publish()
+        app = state['v2.3.4']
+        self.assertEqual([('POST', 'v2.3.4'), ('UPLOAD', 'v2.3.4', ['Tbox_2.3.4.0_win-x64.msix', 'Tbox_2.3.4_osx-arm64.zip']),
+                          ('AUDIT',), ('PATCH', 'v2.3.4')], calls)
+        self.assertEqual('a' * 40, app['target_commitish'])
+        self.assertEqual('Tbox v2.3.4', app['name'])
+        self.assertNotIn('Actions 128', app['body'])
+        self.assertIn('/blob/v2.3.4/docs/releases/INSTALL.md', app['body'])
+        self.assertIn('/download/v1.1.50/Tbox-Development.cer', app['body'])
+        self.assertIn('/download/v1.1.50/Tbox_third-party-sources.tar.gz', app['body'])
+        for asset in app['assets']:
+            self.assertIn(asset['digest'].removeprefix('sha256:'), app['body'])
+        self.assertFalse(app['draft'])
+        self.assertEqual('true', app['make_latest'])
 
     def test_prerelease_never_promoted_to_latest(self):
-        calls = self.transaction(prerelease=True)
-        self.assertTrue(calls[-1][1]['prerelease'])
-        self.assertEqual('false', calls[-1][1]['make_latest'])
+        state, _, publish, _ = self.transaction()
+        publish(prerelease=True)
+        self.assertTrue(state['v2.3.4']['prerelease'])
+        self.assertEqual('false', state['v2.3.4']['make_latest'])
 
-    def test_upload_failure_keeps_draft(self):
-        self.transaction(upload_fails=True)
+    def test_resumes_uploaded_draft_after_audit_failure(self):
+        state, calls, publish, _ = self.transaction()
+        with self.assertRaisesRegex(RuntimeError, 'persistence failure'):
+            publish(audit_fails=True)
+        self.assertTrue(state['v2.3.4']['draft'])
+        self.assertEqual('Tbox v2.3.4 · Actions 128', state['v2.3.4']['name'])
+        self.assertNotIn(('PATCH', 'v2.3.4'), calls)
+        calls.clear()
+        publish()
+        self.assertEqual([('AUDIT',), ('PATCH', 'v2.3.4')], calls)
+        calls.clear()
+        publish()
+        self.assertEqual([('AUDIT',)], calls)
 
-    def test_hash_mismatch_keeps_draft(self):
-        self.transaction(bad_upload=True)
+    def test_resumes_partial_upload_without_replacing_existing_file(self):
+        state, calls, publish, upload = self.transaction()
 
-    def test_history_failure_keeps_draft(self):
-        self.transaction(audit_fails=True)
+        def partial(*args):
+            upload(*args[:-1])
+            raise subprocess.CalledProcessError(1, 'mock upload')
+
+        with self.assertRaises(subprocess.CalledProcessError):
+            publish(upload_handler=partial)
+        self.assertTrue(state['v2.3.4']['draft'])
+        self.assertEqual(1, len(state['v2.3.4']['assets']))
+        calls.clear()
+        publish()
+        self.assertEqual([('UPLOAD', 'v2.3.4', ['Tbox_2.3.4_osx-arm64.zip']),
+                          ('AUDIT',), ('PATCH', 'v2.3.4')], calls)
+
+    def test_refuses_other_run_and_tampered_draft(self):
+        state, calls, publish, _ = self.transaction()
+        with self.assertRaises(RuntimeError):
+            publish(audit_fails=True)
+        calls.clear()
+        with self.assertRaisesRegex(ValueError, 'does not match this transaction'):
+            publish(run='129')
+        state['v2.3.4']['assets'][0]['digest'] = 'sha256:' + '0' * 64
+        with self.assertRaisesRegex(ValueError, 'SHA-256 differs'):
+            publish()
+        self.assertEqual([], calls)
+        self.assertTrue(state['v2.3.4']['draft'])
+
+    def test_archives_new_support_materials_separately_and_reuses_them(self):
+        state, calls, publish, _ = self.transaction(legacy_support=False)
+        with self.assertRaises(RuntimeError):
+            publish(audit_fails=True)
+        support_tag = next(tag for tag in state if tag.startswith('support-'))
+        self.assertTrue(state[support_tag]['draft'])
+        self.assertTrue(state['v2.3.4']['draft'])
+        self.assertNotIn(('PATCH', support_tag), calls)
+        calls.clear()
+        publish()
+        self.assertEqual([('AUDIT',), ('PATCH', support_tag), ('PATCH', 'v2.3.4')], calls)
+        self.assertEqual(set(release.SUPPORT_FILES), {asset['name'] for asset in state[support_tag]['assets']})
+        self.assertTrue(state[support_tag]['prerelease'])
+        self.assertEqual('false', state[support_tag]['make_latest'])
+        self.assertIn(f'/download/{support_tag}/Tbox_third-party-sources.tar.gz', state['v2.3.4']['body'])
+
+    def test_retries_audit_push_and_reuses_verified_remote_record(self):
+        manifest = self.collected()
+        calls = []
+        pushed = False
+        attempts = 0
+
+        def git(*args):
+            nonlocal pushed, attempts
+            calls.append(args)
+            if args[1] == 'ls-remote':
+                return 'matching-ref' if pushed else ''
+            if args[1] == 'show':
+                return self.history.read_text() if args[2].startswith('FETCH_HEAD:') else '# History'
+            if args[1] == 'push':
+                attempts += 1
+                if attempts == 1:
+                    raise subprocess.CalledProcessError(1, 'mock git push')
+                pushed = True
+            return ''
+
+        with patch.object(release, 'command', side_effect=git), patch.object(release.time, 'sleep'), \
+             patch.object(release, 'api', return_value={'html_url': 'https://example.invalid/pr'}):
+            release.record_history(self.root, 'v2.3.4', manifest)
+            self.assertEqual(2, attempts)
+            release.record_history(self.root, 'v2.3.4', manifest)
+        self.assertEqual(2, attempts)
+        self.assertEqual(1, sum(args[1] == 'switch' for args in calls))
+        rows = release.audit_rows(manifest)
+        self.assertTrue(release.has_audit(self.history.read_text(), 'v2.3.4', rows))
+        with self.assertRaisesRegex(ValueError, 'differs from the signed packages'):
+            release.has_audit(self.history.read_text().replace(rows[0], ''), 'v2.3.4', rows)
 
 
 if __name__ == '__main__':

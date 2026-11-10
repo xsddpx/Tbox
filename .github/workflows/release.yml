@@ -191,12 +191,11 @@ jobs:
         with:
           name: third-party-sources
           path: TEMP/release-assets
-      - name: Create checksums, upload draft and publish complete release
+      - name: Verify or resume draft, record audit, then publish
         env:
           GH_TOKEN: ${{ github.token }}
           IS_PRERELEASE: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
         run: |
-          python scripts/release/release.py collect --tag "$RELEASE_TAG"
           args=()
           if [[ "$IS_PRERELEASE" == true ]]; then args+=(--prerelease); fi
           python scripts/release/release.py publish --tag "$RELEASE_TAG" "${args[@]}"

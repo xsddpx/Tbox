@@ -1,6 +1,6 @@
 # 第三方源码与构建材料
 
-`Tbox_third-party-sources.tar.gz` 随每个公开安装版本提供，包含 FFmpeg 8.1.2、libwebp 1.6.0、VLC 3.0.24、LibVLCSharp 3.10.2 的上游源码及 VLC contrib 依赖材料。`source-manifest.json` 记录来源、固定提交和 SHA-256；VLC 归档输入还保留上游 SHA-512。Git 源码归档由清单中的完整提交生成，不包含本地 Git 凭据。
+每个公开版本的发布正文都链接对应的 `Tbox_third-party-sources.tar.gz`。归档包含 FFmpeg 8.1.2、libwebp 1.6.0、VLC 3.0.24、LibVLCSharp 3.10.2 的上游源码及 VLC contrib 依赖材料。`source-manifest.json` 记录来源、固定提交和 SHA-256，并保留 VLC 归档输入的上游 SHA-512。Git 源码归档由清单中的完整提交生成。
 
 VLC contrib 材料包含可选组件，因此清单不等于安装包实际加载的插件清单。WiX 通用安装工具没有进入本材料包或 Tbox 运行库。VLC 核心使用 LGPL，部分插件及依赖使用 GPL 或其他许可；各组件归档中的 COPYING、LICENSE、NOTICE、PATENTS 等文件保留原许可和版权声明，`licenses/` 另外提供应用随附的许可副本。Tbox 自身的私有业务源码不属于本归档。
 
@@ -22,4 +22,4 @@ Windows 使用 VideoLAN.LibVLC.Windows 3.0.24 的官方 NuGet 重分发；Mac �
 
 ## 发布核对
 
-发布任务逐项验证源码归档及 Git 提交，不运行下载的上游代码；源材料缺失或哈希不一致时停止发布。最终归档的 SHA-256 与两平台安装包一起写入 Release 的 `SHA256SUMS`。版本升级时应同步更新 `assets/third-party/media-sources.json`、构建配方、组件声明和本说明。
+发布任务逐项验证源码归档及 Git 提交。源材料缺失或哈希不一致时停止发布。归档的 SHA-256 由 GitHub 附件元数据提供，发布任务核对匹配后才会使用其下载链接。依赖升级时同步更新 `assets/third-party/media-sources.json`、构建配方、组件声明和本说明。
