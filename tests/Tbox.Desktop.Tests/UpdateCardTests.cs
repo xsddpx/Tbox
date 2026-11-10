@@ -1,12 +1,14 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Tbox.Desktop.Platform;
 using Tbox.Desktop.Updates;
 using Tbox.Desktop.Views;
 using Xunit;
@@ -33,19 +35,34 @@ public sealed class UpdateCardTests
         card.Release(); window.Close(); controller.Main.Close();
     }
 
-    [AvaloniaFact]
-    public async Task InstallExplainsTheOpenResultAndCanBeRetriedWithoutDownloadingAgain()
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OneClickInstallsAndExitsWhetherOrNotWorkIsOpen(bool hasWork)
     {
         using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         // Headless tests do not run AppBuilder's internal lifetime setup.
         typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
             .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
-        using var controller = new DesktopController(new FakePlatform(), lifetime);
+        var recorder = new FakeRecorder();
+        using var controller = new DesktopController(new FakePlatform { Recorder = recorder }, lifetime);
         controller.Main = new MainWindow(controller);
+        var temp = Path.Combine(Path.GetTempPath(), "tbox-update-card-" + Guid.NewGuid().ToString("N"));
+        controller.UseCacheDirectoryForTests(Path.Combine(temp, "captures"));
         var handler = new AvailableRelease();
-        var card = new UpdateCard(controller, new GitHubUpdateClient(handler));
+        var invalidPackage = new TaskCompletionSource<PreparedUpdate>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var validated = new TaskCompletionSource<PreparedUpdate>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lifetime.Exit += (_, _) => exited.TrySetResult();
+        var validationAttempts = 0;
+        var installerLaunched = false;
+        var card = new UpdateCard(controller, new GitHubUpdateClient(handler), (file, _, token) =>
+        {
+            Assert.True(File.Exists(file));
+            validationAttempts++;
+            return (validationAttempts == 1 ? invalidPackage.Task : validated.Task).WaitAsync(token);
+        });
         controller.Main.Content = card;
-        var result = new ImageResultWindow(controller, Models.Picture.FromPixels([0, 0, 0, 255], 1, 1), false);
         try
         {
             controller.Main.Show();
@@ -58,22 +75,66 @@ public sealed class UpdateCardTests
             using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             while (!install.IsVisible) await Task.Delay(10, wait.Token);
 
-            result.Show();
+            string? savedCapture = null;
+            var area = new RecordingArea(new DesktopPlacement(0, 0, 320, 240), 320, 240);
+            if (hasWork)
+            {
+                controller.ShowImageResult(Models.Picture.FromPixels([0, 0, 0, 255], 1, 1), false);
+                using var picture = Models.Picture.FromPixels([1, 2, 3, 255], 1, 1);
+                await controller.PinPictureAsync(picture);
+                savedCapture = picture.CachePath;
+                controller.TogglePins();
+                Assert.True(controller.PinsHidden);
+                await controller.StartRecordingAsync(area);
+                var recording = Assert.Single(lifetime.Windows.OfType<RecordingControlWindow>());
+                Click(Assert.Single(recording.GetVisualDescendants().OfType<Button>(),
+                    b => AutomationProperties.GetName(b)?.StartsWith("开始录制") == true));
+                Assert.True(recorder.Started);
+                controller.Main.Show();
+            }
             Click(install);
-            var blocked = Assert.Single(lifetime.Windows.OfType<ConfirmWindow>());
-            Assert.Contains(blocked.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "暂时无法安装更新");
-            Assert.Contains(blocked.GetVisualDescendants().OfType<TextBlock>(), text => text.Text!.Contains("请先关闭图片预览窗口"));
-            blocked.UpdateLayout();
-            TaskToolbarTests.Preview(blocked, "update-blocker");
-            Assert.True(result.IsVisible);
-            Click(Assert.Single(blocked.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "知道了")));
+            Assert.Equal(1, validationAttempts);
+            Assert.Empty(lifetime.Windows.OfType<ConfirmWindow>());
+            if (hasWork)
+            {
+                controller.Main.UpdateLayout();
+                TaskToolbarTests.Preview(controller.Main, "force-update");
+            }
+            invalidPackage.SetException(new InvalidDataException("测试安装包验证失败"));
+            while (!install.IsVisible) await Task.Delay(10, wait.Token);
+            Assert.Contains(card.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "测试安装包验证失败");
+            Assert.Equal(hasWork ? 1 : 0, controller.PinCount);
+            Assert.False(recorder.Disposed);
 
-            result.Close();
-            Assert.Null(controller.GetUpdateBlockReason());
-            Assert.True(install.IsVisible);
             Click(install);
-            var confirmation = Assert.Single(lifetime.Windows.OfType<ConfirmWindow>());
-            Assert.Contains(confirmation.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, installLabel));
+            Assert.Equal(2, validationAttempts);
+            Assert.Empty(lifetime.Windows.OfType<ConfirmWindow>());
+            Assert.False(controller.IsQuitting);
+            Assert.False(installerLaunched);
+
+            Task<bool>? closingReview = null;
+            if (hasWork)
+            {
+                Assert.True(Assert.Single(lifetime.Windows.OfType<ImageResultWindow>()).IsVisible);
+                var workspace = new Models.RecordingWorkspace(temp);
+                File.WriteAllBytes(workspace.MasterFilePath, [1, 2, 3]);
+                controller.ShowRecordingReview(workspace, area, new RecordingOutput(workspace.MasterFilePath, false, 1), TimeSpan.FromSeconds(1));
+                closingReview = Assert.Single(lifetime.Windows.OfType<RecordingReviewWindow>()).RequestCloseAsync();
+                Assert.False(closingReview.IsCompleted);
+                Assert.True(File.Exists(workspace.MasterFilePath));
+            }
+
+            validated.SetResult(new PreparedUpdate(() => installerLaunched = true, () => { }));
+            await exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(installerLaunched);
+            Assert.Equal(0, controller.PinCount);
+            Assert.Empty(lifetime.Windows.OfType<ImageResultWindow>());
+            if (closingReview is not null)
+            {
+                Assert.True(await closingReview);
+                Assert.True(recorder.Disposed);
+                Assert.True(File.Exists(savedCapture));
+            }
             Assert.Equal(1, handler.Downloads);
         }
         finally
@@ -81,6 +142,7 @@ public sealed class UpdateCardTests
             card.Release();
             controller.Dispose();
             foreach (var window in lifetime.Windows.ToArray()) window.Close();
+            if (Directory.Exists(temp)) Directory.Delete(temp, true);
         }
     }
 

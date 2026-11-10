@@ -226,25 +226,6 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
-    public async Task HiddenPinsBlockUpdateAndExplainHowToShowThem()
-    {
-        using var scope = new Scope(new FakePlatform());
-        var controller = scope.Controller;
-        using var picture = Picture.FromPixels([10, 20, 30, 255], 1, 1);
-        await controller.PinPictureAsync(picture);
-        var pin = Assert.Single(scope.Lifetime.Windows.OfType<PinnedWindow>());
-        Assert.Contains("还有 1 张贴图", controller.GetUpdateBlockReason());
-
-        controller.TogglePins();
-        Assert.False(pin.IsVisible);
-        Assert.Contains("还有 1 张隐藏的贴图", controller.GetUpdateBlockReason());
-        Assert.Contains(ShortcutLabels.Toggle, controller.GetUpdateBlockReason());
-
-        pin.Close();
-        Assert.Null(controller.GetUpdateBlockReason());
-    }
-
-    [AvaloniaFact]
     public void EmptyCacheExplainsWhereCapturesWillAppear()
     {
         var directory = Path.Combine(Path.GetTempPath(), "tbox-main-empty-" + Guid.NewGuid().ToString("N"));

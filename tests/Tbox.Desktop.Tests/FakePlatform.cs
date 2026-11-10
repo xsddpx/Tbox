@@ -80,9 +80,10 @@ internal sealed class FakePlatform : IPlatformServices
 internal sealed class FakeRecorder : IRegionRecorder
 {
     public bool Started { get; private set; }
+    public bool Disposed { get; private set; }
     public Task StartAsync(string path, CancellationToken cancellationToken) { Started = true; return Task.CompletedTask; }
     public void Pause() { }
     public void Resume() { }
     public Task<RecordingOutput> StopAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
-    public void Dispose() { }
+    public void Dispose() => Disposed = true;
 }

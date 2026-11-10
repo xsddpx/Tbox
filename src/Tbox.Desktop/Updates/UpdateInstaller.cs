@@ -9,9 +9,8 @@ internal sealed class PreparedUpdate : IDisposable
     private readonly Action _launch;
     private readonly Action _cleanup;
     private bool _launched;
-    public bool RequiresExit { get; }
-    public PreparedUpdate(bool requiresExit, Action launch, Action cleanup)
-    { RequiresExit = requiresExit; _launch = launch; _cleanup = cleanup; }
+    public PreparedUpdate(Action launch, Action cleanup)
+    { _launch = launch; _cleanup = cleanup; }
     public void Launch() { _launch(); _launched = true; }
     public void Dispose() { if (!_launched) _cleanup(); }
 }
@@ -36,7 +35,7 @@ internal static class UpdateInstaller
             UpdatePackagePolicy.ValidateWindowsManifest(file, release.Version, package.Id.Name, package.Id.Publisher);
             // App Installer verifies the MSIX signature and trust before showing the
             // system confirmation. Windows owns replacement, rollback and app identity.
-            return new(false, () => Process.Start(new ProcessStartInfo(file) { UseShellExecute = true }), () => { });
+            return new(() => Process.Start(new ProcessStartInfo(file) { UseShellExecute = true }), () => { });
         }
 #endif
         throw new NotSupportedException("当前系统不支持在线安装。");
@@ -77,7 +76,7 @@ internal static class UpdateInstaller
             await File.WriteAllTextAsync(Path.Combine(stage, "requirement.txt"), requirement, token);
             var info = new ProcessStartInfo("/bin/bash") { UseShellExecute = false, WorkingDirectory = stage };
             foreach (var arg in new[] { script, installed, stage, Environment.ProcessId.ToString(), release.Version.ToString(4), installedVersion }) info.ArgumentList.Add(arg);
-            return new(true, () => { using var process = Process.Start(info) ?? throw new IOException("无法启动安装程序。"); }, () => Directory.Delete(stage, true));
+            return new(() => { using var process = Process.Start(info) ?? throw new IOException("无法启动安装程序。"); }, () => Directory.Delete(stage, true));
         }
         catch { if (Directory.Exists(stage)) Directory.Delete(stage, true); throw; }
     }
