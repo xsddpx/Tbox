@@ -136,3 +136,5 @@
 | --- | --- | --- | --- |
 | 1.1.33.0 | Windows win-x64 | 2026-11-10 08:57:32 +0800 | `f33e07436f056712fbe34c2b6548579fb607634ea68377f4f78d43a1e6e2d85b` |
 | 1.1.33 | macOS osx-arm64 | 2026-11-10 08:57:44 +0800 | `ab8db78bcf5c0cde75b5bf8d88273f1ca2dfbf42084da37b7a4035c1a47732ac` |
+
+于 2026-11-10 08:58:58 +0800 公开为 GitHub 最新正式版。未登录完整下载 Windows MSIX（109089734 字节）与 Mac ZIP（52150177 字节），核对包内版本、大小和 SHA-256。Mac ZIP 通过原持久签名身份验签。[正式发布](https://github.com/xsddpx/Tbox/releases/tag/v1.1.33) · [发布流程](https://github.com/xsddpx/Tbox/actions/runs/42731603060)
