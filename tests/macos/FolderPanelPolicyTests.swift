@@ -6,6 +6,12 @@ import Foundation
     static func main() {
         let host: pid_t = 41
         let service: pid_t = 42
+        precondition(!shouldInspectFolderPanel(host: host, ownProcess: host, hasLocalFilePanel: { false }),
+            "Polling an ordinary Tbox window must skip its in-process accessibility tree")
+        precondition(shouldInspectFolderPanel(host: host, ownProcess: host, hasLocalFilePanel: { true }),
+            "A native Open/Save panel shown by Tbox is eligible for accessibility checks")
+        precondition(shouldInspectFolderPanel(host: service, ownProcess: host, hasLocalFilePanel: { fatalError("Unrelated host") }),
+            "Inspect external applications without querying Tbox's window state")
         func recognized(_ role: String?, _ identifier: String?, _ owner: pid_t, serviceChild: pid_t? = nil) -> Bool {
             standardFolderPanelService(role: role, identifier: identifier, owner: owner, host: host,
                 isService: { $0 == service }, serviceChild: { serviceChild }) == service
@@ -45,6 +51,6 @@ import Foundation
             "An unrelated title does not authorize navigation")
         precondition(finderFolderFromItems([], title: "目标 同名") == nil,
             "A title alone cannot identify a directory")
-        print("PASS: 16 native folder panel and path regressions")
+        print("PASS: 19 native folder panel and path regressions")
     }
 }

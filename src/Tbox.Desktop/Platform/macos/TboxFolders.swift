@@ -1,11 +1,24 @@
 import AppKit
 import Carbon
 
+private func onFolderMainThread<T>(_ work: () -> T) -> T {
+    if Thread.isMainThread { return work() }
+    return DispatchQueue.main.sync(execute: work)
+}
+
+private func withFolderAXOwner<T>(_ element: AXUIElement, _ work: () -> T) -> T {
+    // Self-owned AX elements invoke AppKit in this process, on the caller's thread.
+    if elementProcess(element) == ProcessInfo.processInfo.processIdentifier { return onFolderMainThread(work) }
+    return work()
+}
+
 private func folderAttribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
-    var value: CFTypeRef?
-    AXUIElementSetMessagingTimeout(element, 0.12)
-    guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
-    return value
+    withFolderAXOwner(element) {
+        var value: CFTypeRef?
+        AXUIElementSetMessagingTimeout(element, 0.12)
+        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else { return nil }
+        return value
+    }
 }
 
 private func folderElement(_ value: CFTypeRef?) -> AXUIElement? {
@@ -192,10 +205,24 @@ private func appElement(_ host: pid_t, _ attribute: String) -> AXUIElement? {
     folderElement(folderAttribute(AXUIElementCreateApplication(host), attribute))
 }
 
+func shouldInspectFolderPanel(host: pid_t, ownProcess: pid_t, hasLocalFilePanel: () -> Bool) -> Bool {
+    host != ownProcess || hasLocalFilePanel()
+}
+
+private func hasLocalFilePanel() -> Bool {
+    onFolderMainThread {
+        guard let window = NSApp?.keyWindow else { return false }
+        return window is NSSavePanel || window.attachedSheet is NSSavePanel
+    }
+}
+
 private func focusedStandardPanel() -> StandardPanel? {
     guard let front = NSWorkspace.shared.frontmostApplication,
           !["com.apple.SecurityAgent", "com.apple.LocalAuthentication.UIAgent", "com.apple.LocalAuthenticationRemoteService"].contains(front.bundleIdentifier ?? "") else { return nil }
     let host = front.processIdentifier
+    // Polling the app's regular Avalonia windows is unnecessary and can invoke a stale automation peer.
+    guard shouldInspectFolderPanel(host: host, ownProcess: ProcessInfo.processInfo.processIdentifier,
+        hasLocalFilePanel: hasLocalFilePanel) else { return nil }
     for attribute in [kAXFocusedWindowAttribute, kAXFocusedUIElementAttribute] {
         if let focused = appElement(host, attribute), let panel = panelRoot(focused, host: host) { return panel }
     }
@@ -218,7 +245,7 @@ private var retainedPanelID: Int64 = 0
 
 private func folderBarIsKey(_ handle: UnsafeRawPointer?) -> Bool {
     guard let handle else { return false }
-    return DispatchQueue.main.sync {
+    return onFolderMainThread {
         guard NSRunningApplication.current.isActive, let keyWindow = NSApp.keyWindow else { return false }
         if UnsafeRawPointer(Unmanaged.passUnretained(keyWindow).toOpaque()) == handle { return true }
         guard let content = keyWindow.contentView else { return false }
@@ -256,7 +283,7 @@ public func folderDialog(_ previous: Int64, _ bar: UnsafeRawPointer?) -> UnsafeM
         return nil
     }
     guard let (target, id) = identified, let bounds = panelBounds(target) else { return response([:]) }
-    let work: CGRect? = DispatchQueue.main.sync {
+    let work: CGRect? = onFolderMainThread {
         let primaryHeight = CGDisplayBounds(CGMainDisplayID()).height
         let rect = CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
         let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) } ??
@@ -279,7 +306,7 @@ public func restoreFolderDialog(_ id: Int64, _ bar: UnsafeRawPointer?) -> Int32 
           let app = NSRunningApplication(processIdentifier: target.host) else { return 0 }
     guard app.activate(options: []) else { return 0 }
     if target.host == ProcessInfo.processInfo.processIdentifier {
-        AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
+        _ = withFolderAXOwner(target.element) { AXUIElementPerformAction(target.element, kAXRaiseAction as CFString) }
     }
     let deadline = Date().addingTimeInterval(0.4)
     repeat {
@@ -426,7 +453,8 @@ private func navigateFolder(_ destination: UnsafePointer<CChar>?, _ hotkeyCode: 
         return folderJumpFailure("未找到系统“前往文件夹”输入框。", stage: "sheet")
     }
     let input = path.hasSuffix("/") ? path : path + "/"
-    guard AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, input as CFString) == .success else {
+    let filled = withFolderAXOwner(field) { AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, input as CFString) }
+    guard filled == .success else {
         return folderJumpFailure("无法填写文件夹路径。", stage: "fill")
     }
     let suggestionDeadline = Date().addingTimeInterval(1.5)
