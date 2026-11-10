@@ -131,6 +131,19 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
+    public async Task HotkeyStartsBeforeAlreadyQueuedNormalPriorityWork()
+    {
+        var order = new List<string>();
+        var platform = new FakePlatform { HasScreenPermission = true, CaptureStarting = () => order.Add("capture") };
+        using var scope = new Scope(platform);
+        await scope.InitializeAsync();
+        Dispatcher.UIThread.Post(() => order.Add("normal"), DispatcherPriority.Normal);
+        platform.HotkeyHandler!(HotkeyAction.Capture);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new[] { "capture", "normal" }, order);
+    }
+
+    [AvaloniaFact]
     public void ReopeningAHiddenWindowReturnsToTheCapturePage()
     {
         using var scope = new Scope(new FakePlatform());

@@ -133,7 +133,7 @@ public sealed class DesktopController : IDisposable
         if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
         if (action == HotkeyAction.Toggle) TogglePins();
         if (action == HotkeyAction.Folder) Run(JumpFolderAsync);
-    }, DispatcherPriority.Input);
+    }, DispatcherPriority.Send);
 
     // Every shortcut whose module is on, at its saved or default combination.
     private void ApplyHotkeys(AppSettings settings)
