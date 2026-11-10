@@ -14,7 +14,8 @@ public sealed class ClipboardImageLifetimeTests
     public void ReleasingClipboardOwnershipLeavesTheOriginalImageIntact()
     {
         using var picture = Picture.FromPixels([10, 20, 30, 255, 100, 110, 120, 255], 2, 1);
-        var transfer = new ClipboardImageTransfer(picture.Png);
+        var transfer = new ClipboardImageTransfer(picture);
+        Assert.False(picture.HasEncodedPng);
         var item = ((IDataTransfer)transfer).Items.Single();
         Assert.NotSame(picture.Bitmap, item.TryGetValue(DataFormat.Bitmap));
         transfer.Dispose(); transfer.Dispose();

@@ -42,7 +42,8 @@ internal sealed class RecordingReviewWindow : Window
     private Task _saveTask = Task.CompletedTask;
     private Task _initialization = Task.CompletedTask;
     private Task<bool>? _closeRequest;
-    private bool _updating, _saving, _saved, _closing, _allowClose;
+    private ConfirmWindow? _discardConfirmation;
+    private bool _updating, _saving, _selectingSavePath, _saved, _closing, _allowClose, _discardUnsaved;
     public event Action? Released;
 
     public RecordingReviewWindow(DesktopController controller, RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
@@ -156,12 +157,19 @@ internal sealed class RecordingReviewWindow : Window
         var profile = RecordingExportProfiles.Get(format);
         try
         {
-            var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            IStorageFile? file;
+            _selectingSavePath = true;
+            try
             {
-                Title = "保存录屏", SuggestedFileName = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + profile.Extension,
-                DefaultExtension = profile.Extension.TrimStart('.'), ShowOverwritePrompt = true,
-                FileTypeChoices = [new FilePickerFileType(profile.DisplayName) { Patterns = ["*" + profile.Extension] }]
-            });
+                file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                {
+                    Title = "保存录屏", SuggestedFileName = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + profile.Extension,
+                    DefaultExtension = profile.Extension.TrimStart('.'), ShowOverwritePrompt = true,
+                    FileTypeChoices = [new FilePickerFileType(profile.DisplayName) { Patterns = ["*" + profile.Extension] }]
+                });
+            }
+            finally { _selectingSavePath = false; }
+            _exportCancellation.Token.ThrowIfCancellationRequested();
             if (file is null) return;
             if (file.TryGetLocalPath() is not { } path) throw new InvalidOperationException("请选择本机可写入的文件位置。");
             _save.IsEnabled = false; _enableFormat(false); _rerecord.IsEnabled = false;
@@ -182,8 +190,13 @@ internal sealed class RecordingReviewWindow : Window
         }
     }
 
-    public async Task<bool> RequestCloseAsync()
+    public async Task<bool> RequestCloseAsync(bool discardUnsaved = false)
     {
+        if (discardUnsaved)
+        {
+            _discardUnsaved = true;
+            _discardConfirmation?.Close(true);
+        }
         if (_closeRequest is not null) return await _closeRequest;
         _closeRequest = CloseCoreAsync();
         try { return await _closeRequest; }
@@ -193,8 +206,19 @@ internal sealed class RecordingReviewWindow : Window
     private async Task<bool> CloseCoreAsync()
     {
         if (_closing) { await _released.Task; return true; }
-        if (_saving) { _exportCancellation?.Cancel(); await _saveTask; if (_closing) { await _released.Task; return true; } }
-        if (!_saved && !await new ConfirmWindow("录屏尚未保存，是否放弃？", "放弃录屏", "放弃后本次录制的内容会被删除，无法恢复。", destructive: true).ShowDialog<bool>(this)) return false;
+        if (_saving)
+        {
+            _exportCancellation?.Cancel();
+            // A native picker can stay open until its owner closes. A cancelled picker cannot start an export.
+            if (!_selectingSavePath) await _saveTask;
+            if (_closing) { await _released.Task; return true; }
+        }
+        if (!_saved && !_discardUnsaved)
+        {
+            _discardConfirmation = new ConfirmWindow("录屏尚未保存，是否放弃？", "放弃录屏", "放弃后本次录制的内容会被删除，无法恢复。", destructive: true);
+            try { if (!await _discardConfirmation.ShowDialog<bool>(this)) return false; }
+            finally { _discardConfirmation = null; }
+        }
         if (_closing) { await _released.Task; return true; }
         _closing = true; _timer.Stop();
         try

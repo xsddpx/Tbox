@@ -3,8 +3,10 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using Tbox.Core;
 using Windows.ApplicationModel;
 using Windows.Graphics.Imaging;
@@ -33,11 +35,14 @@ public sealed class WindowsPlatformServices : IPlatformServices
             cancellationToken.ThrowIfCancellationRequested();
             var info = ReadMonitor(monitor);
             var r = info.Monitor;
-            return new CapturedDisplay((uint)index, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, Capture(r));
+            return new CapturedDisplay((uint)index, r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top, [])
+            {
+                BgraPixels = CapturePixels(r), PixelWidth = r.Right - r.Left, PixelHeight = r.Bottom - r.Top
+            };
         }).ToArray();
     }, cancellationToken);
 
-    private static byte[] Capture(NativeRect bounds)
+    private static byte[] CapturePixels(NativeRect bounds)
     {
         var width = bounds.Right - bounds.Left; var height = bounds.Bottom - bounds.Top;
         var screen = GetDC(0);
@@ -61,18 +66,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
             if (previous == 0 || previous == -1) throw Error("无法选择截图位图");
             if (!BitBlt(memory, 0, 0, width, height, screen, bounds.Left, bounds.Top, 0x00CC0020 | 0x40000000))
                 throw Error("截图失败");
-            using var image = new WriteableBitmap(new PixelSize(width, height), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Opaque);
-            using (var target = image.Lock())
-            {
-                var row = new byte[checked(width * 4)];
-                for (var y = 0; y < height; y++)
-                {
-                    Marshal.Copy(bits + y * row.Length, row, 0, row.Length);
-                    for (var x = 3; x < row.Length; x += 4) row[x] = 255;
-                    Marshal.Copy(row, 0, target.Address + y * target.RowBytes, row.Length);
-                }
-            }
-            using var output = new MemoryStream(); image.Save(output); return output.ToArray();
+            var pixels = new byte[checked(width * height * 4)];
+            Marshal.Copy(bits, pixels, 0, pixels.Length);
+            for (var x = 3; x < pixels.Length; x += 4) pixels[x] = 255;
+            return pixels;
         }
         finally
         {
@@ -87,8 +84,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (region.Width < 1 || region.Height < 1) throw new ArgumentOutOfRangeException(nameof(region));
-        return Capture(new NativeRect { Left = (int)Math.Round(region.Left), Top = (int)Math.Round(region.Top),
-            Right = (int)Math.Round(region.Left + region.Width), Bottom = (int)Math.Round(region.Top + region.Height) });
+        var bounds = new NativeRect { Left = (int)Math.Round(region.Left), Top = (int)Math.Round(region.Top),
+            Right = (int)Math.Round(region.Left + region.Width), Bottom = (int)Math.Round(region.Top + region.Height) };
+        using var picture = Models.Picture.FromPixels(CapturePixels(bounds), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+        return picture.Png;
     }, cancellationToken);
 
     public void PrepareCaptureOverlay(nint handle, bool clickThrough)
@@ -168,7 +167,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
     }
     public ICaptureTargetSource CreateCaptureTargets() => WindowsCaptureTargets.CreateSnapshot();
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new WindowsRegionRecorder(area, systemAudio, framesPerSecond);
-    public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation();
+    internal WindowsFolderPicker FolderPicker { get; } = new();
+    public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation(FolderPicker, this);
+    public async Task<string?> PickFolderAsync(Window owner, string title) => await Dispatcher.UIThread.InvokeAsync(
+        () => FolderPicker.Show(owner.TryGetPlatformHandle()?.Handle ?? 0, title), DispatcherPriority.Background);
     public IStartupRegistration CreateStartupRegistration() => new WindowsStartupRegistration();
     public void Dispose() { _hotkeys?.Dispose(); _hotkeys = null; }
     private static Win32Exception Error(string message) => new(Marshal.GetLastWin32Error(), message);

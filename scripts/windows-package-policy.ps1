@@ -53,3 +53,17 @@ function Assert-DesktopPayload {
         throw 'Signing credentials must never be included in a package.'
     }
 }
+
+function Assert-DesktopIconAssets {
+    param([string]$Directory)
+    $targetSizes = @(16, 20, 24, 30, 32, 36, 40, 44, 48, 60, 64, 72, 80, 96, 256)
+    $required = @('StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png')
+    foreach ($size in $targetSizes) {
+        $required += "Square44x44Logo.targetsize-${size}_altform-unplated.png"
+    }
+    foreach ($name in $required) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Directory "Assets\$name") -PathType Leaf)) {
+            throw "Missing packaged icon asset: $name"
+        }
+    }
+}

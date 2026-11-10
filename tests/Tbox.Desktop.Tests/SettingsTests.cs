@@ -156,11 +156,49 @@ public sealed class SettingsTests
         finally { FailureNotificationWindow.Dismiss(); if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
+    [AvaloniaFact]
+    public async Task PassiveStartupRefreshFailurePreservesStateAndDoesNotOpenNotification()
+    {
+        var registration = new FakeStartup { State = new(true) };
+        using var lifetime = new ClassicDesktopStyleApplicationLifetime();
+        using var controller = new DesktopController(new FakePlatform { StartupRegistration = registration }, lifetime);
+        controller.Main = new MainWindow(controller);
+        try
+        {
+            await controller.RefreshStartupAsync();
+            registration.ReadError = new System.Runtime.InteropServices.COMException("", unchecked((int)0x8001010D));
+            await controller.RefreshStartupAsync();
+            Assert.True(controller.Startup.Enabled);
+            Assert.False(FailureNotificationWindow.IsShowing);
+        }
+        finally { controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task FolderJumpReportsItsOwnFailureWhileTheMainWindowIsHidden()
+    {
+        const string reason = "无法控制当前文件对话框。";
+        using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
+            .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
+        using var controller = new DesktopController(new FakePlatform { FolderJumpResult = new(false, reason) }, lifetime);
+        controller.Main = new MainWindow(controller);
+        try
+        {
+            await controller.JumpFolderAsync();
+            var notice = Assert.Single(lifetime.Windows.OfType<FailureNotificationWindow>());
+            Assert.Contains(notice.GetVisualDescendants().OfType<TextBlock>(), label => label.Text == reason);
+            Assert.False(controller.Main.IsVisible);
+        }
+        finally { FailureNotificationWindow.Dismiss(); controller.Main.Close(); }
+    }
+
     private sealed class FakeStartup : IStartupRegistration
     {
         public StartupState State = new(false);
         public bool ThrowOnSet;
-        public Task<StartupState> ReadAsync() => Task.FromResult(State);
+        public Exception? ReadError;
+        public Task<StartupState> ReadAsync() => ReadError is { } error ? Task.FromException<StartupState>(error) : Task.FromResult(State);
         public Task<StartupState> SetEnabledAsync(bool enabled)
         {
             if (ThrowOnSet) throw new IOException("system rejected change");

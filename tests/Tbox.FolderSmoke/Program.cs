@@ -58,23 +58,43 @@ internal static class Program
                     Focus(handle);
                     await UntilAsync(() => SamePath(navigation.CurrentDirectory, targets[i]),
                         $"Foreground folder tracking failed: {navigation.CurrentDirectory}");
+                    var opened = await navigation.GetOpenFoldersAsync(CancellationToken.None);
+                    if (opened.Count == 0 || !SamePath(opened[0], targets[i]))
+                        throw new InvalidOperationException("The most recently used open directory was not recommended first.");
                     // Repeat the open/save transition: the file-name Edit can
                     // retain focus briefly while Ctrl+L is still in the queue.
-                    foreach (var save in new[] { false, true, false, true })
+                    foreach (var kind in new[] { "open", "save", "folder", "tbox-folder", "open", "save", "folder", "tbox-folder" })
                     {
                         host.Activate();
                         Focus(host.Handle);
                         await Task.Delay(100);
                         var title = "Tbox Folder " + Guid.NewGuid().ToString("N");
-                        using Forms.FileDialog dialog = save ? new Forms.SaveFileDialog() : new Forms.OpenFileDialog();
-                        dialog.Title = title; dialog.InitialDirectory = initial;
-                        dialog.FileName = "TBOX_FILENAME_UNCHANGED";
                         var marker = $"TBOX_MARKER_{i}";
                         var target = targets[i];
-                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory));
+                        if (kind == "tbox-folder")
+                        {
+                            var pickerWorker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory,
+                                hasFileName: false, owner: host));
+                            var selected = platform.FolderPicker.Show(host.Handle, title);
+                            var outcome = await pickerWorker;
+                            if (selected is not null) throw new InvalidOperationException("Jumping or closing selected a folder without confirmation.");
+                            outcomes.Add(new { kind, target, outcome.elapsedMs, markerVerified = true });
+                            continue;
+                        }
+                        using Forms.CommonDialog dialog = kind == "folder"
+                            ? new Forms.FolderBrowserDialog { Description = title, UseDescriptionForTitle = true, InitialDirectory = initial }
+                            : kind == "save" ? new Forms.SaveFileDialog() : new Forms.OpenFileDialog();
+                        if (dialog is Forms.FileDialog fileDialog)
+                        {
+                            fileDialog.Title = title; fileDialog.InitialDirectory = initial;
+                            fileDialog.FileName = "TBOX_FILENAME_UNCHANGED";
+                        }
+                        var useBar = kind == "save" && i == 1;
+                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory, kind != "folder",
+                            barOwner: useBar ? host : null));
                         dialog.ShowDialog(host);
                         var result = await worker;
-                        outcomes.Add(new { kind = save ? "save" : "open", target, result.elapsedMs, markerVerified = true });
+                        outcomes.Add(new { kind, target, result.elapsedMs, markerVerified = true, usedBar = useBar });
                     }
                 }
                 host.Activate();
@@ -111,7 +131,8 @@ internal static class Program
     }
 
     private static async Task<(long elapsedMs, string marker)> ExerciseDialogAsync(
-        IFolderNavigation navigation, string title, string target, string marker, string directory)
+        IFolderNavigation navigation, string title, string target, string marker, string directory, bool hasFileName,
+        Forms.Form? owner = null, Forms.Form? barOwner = null)
     {
         nint dialog = 0;
         try
@@ -121,16 +142,36 @@ internal static class Program
             // or activated it. Wait for the native modal transition to finish.
             await UntilAsync(() => IsWindowVisible(dialog) && GetForegroundWindow() == dialog,
                 "The standard dialog did not become visible and foreground.");
-            await UntilAsync(() => HasFileName(dialog), "The dialog file-name editor was not ready.");
+            if (hasFileName) await UntilAsync(() => HasFileName(dialog), "The dialog file-name editor was not ready.");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var clock = Stopwatch.StartNew();
-            var result = await navigation.JumpAsync(Tbox.Core.ShortcutPolicy.Default(Tbox.Core.HotkeyAction.Folder, false), timeout.Token);
+            var shortcut = Tbox.Core.ShortcutPolicy.Default(Tbox.Core.HotkeyAction.Folder, false);
+            FolderNavigationResult result;
+            if (barOwner is not null)
+            {
+                var candidate = await navigation.FindDialogAsync(null, 0, timeout.Token);
+                if (candidate?.Id != dialog.ToInt64()) throw new InvalidOperationException("The native save dialog was not recognized.");
+                result = await JumpOnOwnerAsync(barOwner, async () =>
+                {
+                    using var bar = new Forms.Form { Text = "Folder bar focus fixture", ShowInTaskbar = false };
+                    bar.Show();
+                    Focus(bar.Handle);
+                    var retained = await navigation.FindDialogAsync(candidate.Id, bar.Handle, timeout.Token);
+                    if (retained?.Id != candidate.Id) throw new InvalidOperationException("The original dialog was lost while the bar had focus.");
+                    var rejected = await navigation.JumpToAsync(candidate.Id, 0, target, null, timeout.Token);
+                    if (rejected.Success || GetForegroundWindow() != bar.Handle)
+                        throw new InvalidOperationException("An unrelated foreground window was accepted.");
+                    return await navigation.JumpToAsync(candidate.Id, bar.Handle, target, null, timeout.Token);
+                }, timeout.Token);
+            }
+            else result = owner is null ? await navigation.JumpAsync(shortcut, timeout.Token)
+                : await JumpOnOwnerAsync(owner, () => navigation.JumpAsync(shortcut, timeout.Token), timeout.Token);
             if (!result.Success) throw new InvalidOperationException(result.Message);
             if (!SamePath(navigation.CurrentDirectory, target)) throw new InvalidOperationException("Tracker returned a different parent directory.");
             // Same basename in two different parents makes a loose address-bar
             // match insufficient. Require the unique directory marker in the UI.
             await UntilAsync(() => HasMarker(dialog, marker), "The dialog did not display the target's unique marker.");
-            if (!HasFileName(dialog)) throw new InvalidOperationException("Folder navigation changed the file name.");
+            if (hasFileName && !HasFileName(dialog)) throw new InvalidOperationException("Folder navigation changed the file name.");
             return (clock.ElapsedMilliseconds, marker);
         }
         catch
@@ -150,6 +191,17 @@ internal static class Program
             throw;
         }
         finally { if (dialog != 0) PostMessage(dialog, 0x0010, 0, 0); }
+    }
+
+    private static Task<FolderNavigationResult> JumpOnOwnerAsync(Forms.Form owner, Func<Task<FolderNavigationResult>> jump, CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource<FolderNavigationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        owner.BeginInvoke(async () =>
+        {
+            try { completion.TrySetResult(await jump()); }
+            catch (Exception error) { completion.TrySetException(error); }
+        });
+        return completion.Task.WaitAsync(cancellationToken);
     }
 
     private static object WindowInfo(nint window)

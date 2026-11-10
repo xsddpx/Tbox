@@ -1,6 +1,8 @@
 ﻿using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Styling;
@@ -16,6 +18,9 @@ internal sealed class CaptureWindow : Window
 {
     private readonly CaptureSession _session;
     private readonly Border _toolbar;
+    private readonly TextBlock _toolbarTipText = Ui.ToolbarLabel("", strong: false);
+    private readonly Popup _toolbarTip;
+    private AnnotationToolbar? _annotationToolbar;
     private readonly AnnotationTextEditor _text;
     private bool _toolbarHidden;
     private readonly StackPanel _hintKeys = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -28,13 +33,29 @@ internal sealed class CaptureWindow : Window
     public CaptureSurface Surface { get; }
     public AnnotationEditor Editor { get; } = new();
 
+    static CaptureWindow()
+    {
+        ToolTip.ToolTipOpeningEvent.AddClassHandler<Button>((button, args) =>
+        {
+            if (GetTopLevel(button) is not CaptureWindow window || ToolTip.GetTip(button) is not string text) return;
+
+            // The native tooltip window can open underneath the full-screen capture overlay.
+            args.Cancel = true;
+            window.ShowToolbarTip(button, text);
+        }, RoutingStrategies.Direct);
+    }
+
     public CaptureWindow(CaptureSession session, CapturedDisplay display, double topSafeInset)
     {
-        _session = session; Display = display; Picture = new Picture(display.Png);
+        _session = session; Display = display; Picture = display.CreatePicture();
         Title = session.Preset switch { CaptureAction.Record => "Tbox 录屏选区", CaptureAction.Long => "Tbox 长截图选区", _ => "Tbox 截图" };
         SystemDecorations = SystemDecorations.None;
         CanResize = false; ShowInTaskbar = false; Topmost = true;
         RequestedThemeVariant = ThemeVariant.Dark;
+        Styles.Add(new Style(selector => selector.Is<Button>())
+        {
+            Setters = { new Setter(ToolTip.ShowDelayProperty, 1000), new Setter(ToolTip.BetweenShowDelayProperty, -1) }
+        });
         Width = display.Width; Height = display.Height;
         Surface = new CaptureSurface(session, this);
         var overlay = new Canvas();
@@ -43,6 +64,16 @@ internal sealed class CaptureWindow : Window
         _toolbar = CreateToolbar();
         _toolbar.IsVisible = false;
         overlay.Children.Add(_toolbar);
+        var tipSurface = Ui.ToolbarSurface(_toolbarTipText);
+        tipSurface.IsHitTestVisible = false;
+        _toolbarTip = new Popup
+        {
+            Child = tipSurface,
+            ShouldUseOverlayLayer = true, IsHitTestVisible = false, TakesFocusFromNativeControl = false,
+            Placement = PlacementMode.Bottom, VerticalOffset = 6,
+            PlacementConstraintAdjustment = PopupPositionerConstraintAdjustment.FlipY | PopupPositionerConstraintAdjustment.SlideX
+        };
+        overlay.Children.Add(_toolbarTip);
         _modeConfirmation = new Border
         {
             IsVisible = false, Background = Ui.ToolbarBackground, BorderBrush = Ui.ToolbarBorder, BorderThickness = new Thickness(1),
@@ -58,14 +89,39 @@ internal sealed class CaptureWindow : Window
         Content = new Grid { Children = { Surface, overlay, CreateHint(topSafeInset) } };
         Editor.Changed += () => Surface.InvalidateVisual();
         KeyDown += OnKeyDown;
+        AddHandler(PointerPressedEvent, (_, _) => HideToolbarTip(), RoutingStrategies.Tunnel);
+        Deactivated += (_, _) => HideToolbarTip();
         AddHandler(KeyDownEvent, (_, args) =>
         {
-            if (args.Key != Key.Tab || _text.IsEditing) return;
+            if (args.Key != Key.Tab || _text.IsEditing || _annotationToolbar?.PropertiesPopup.IsOpen == true || _annotationToolbar?.MorePopup.IsOpen == true) return;
             _session.ToggleDetection(this); args.Handled = true;
         }, RoutingStrategies.Tunnel);
-        Closed += (_, _) => Picture.Dispose();
+        Closed += (_, _) => { HideToolbarTip(); Picture.Dispose(); };
         Opened += (_, _) => Surface.Focus();
     }
+
+    private void ShowToolbarTip(Button button, string text)
+    {
+        if (!button.IsEffectivelyVisible || !button.IsEffectivelyEnabled || !button.IsPointerOver) return;
+        HideToolbarTip();
+        _toolbarTipText.Text = text;
+        _toolbarTip.PlacementTarget = button;
+        button.PointerExited += OnToolbarTipTargetExited;
+        button.DetachedFromVisualTree += OnToolbarTipTargetDetached;
+        _toolbarTip.IsOpen = true;
+    }
+
+    private void HideToolbarTip()
+    {
+        if (_toolbarTip.PlacementTarget is not Button button) return;
+        button.PointerExited -= OnToolbarTipTargetExited;
+        button.DetachedFromVisualTree -= OnToolbarTipTargetDetached;
+        _toolbarTip.IsOpen = false;
+        _toolbarTip.PlacementTarget = null;
+    }
+
+    private void OnToolbarTipTargetExited(object? sender, PointerEventArgs args) => HideToolbarTip();
+    private void OnToolbarTipTargetDetached(object? sender, VisualTreeAttachmentEventArgs args) => HideToolbarTip();
 
     private Border CreateToolbar()
     {
@@ -78,22 +134,18 @@ internal sealed class CaptureWindow : Window
             return Ui.Toolbar([confirm], [AnnotationToolbar.IconButton(IconKind.Close, $"取消 · Esc", _session.Cancel)]);
         }
 
-        // Row 1: annotation tools, colour and size, undo / redo. Row 2: mode, outputs and cancel (spec ⑤).
-        var tools = new AnnotationToolbar(Editor, _text.Commit);
-        var outputs = Ui.Toolbar(
-            [
-                AnnotationToolbar.IconButton(IconKind.Long, "长截图", () => RequestMode(CaptureAction.Long)),
-                AnnotationToolbar.IconButton(IconKind.Record, "录屏", () => RequestMode(CaptureAction.Record), Brush.Parse("#FF6B6E"))
-            ],
+        _annotationToolbar = new AnnotationToolbar(Editor, _text.Commit);
+        _annotationToolbar.Complete(
             [
                 AnnotationToolbar.IconButton(IconKind.Pin, $"贴图 · {ShortcutLabels.Command}T", () => _session.Finish(this, CaptureAction.Pin)),
                 AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", () => _session.Finish(this, CaptureAction.Ocr)),
                 AnnotationToolbar.IconButton(IconKind.Save, $"保存 · {ShortcutLabels.Command}S", () => _session.Finish(this, CaptureAction.Save)),
                 AnnotationToolbar.IconButton(IconKind.Copy, $"复制 · {ShortcutLabels.Command}C / Enter", () => _session.Finish(this, CaptureAction.Copy))
             ],
-            [AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", _session.Cancel)]);
-        tools.HorizontalAlignment = outputs.HorizontalAlignment = HorizontalAlignment.Left;
-        return new Border { Child = new StackPanel { Spacing = 6, Children = { tools, outputs } } };
+            AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", _session.Cancel),
+            (IconKind.Long, "长截图", () => RequestMode(CaptureAction.Long)),
+            (IconKind.Record, "录屏", () => RequestMode(CaptureAction.Record)));
+        return _annotationToolbar;
     }
 
     public void Refresh()
@@ -101,6 +153,11 @@ internal sealed class CaptureWindow : Window
         Surface.InvalidateVisual();
         var bounds = _session.State.ActiveDisplay == Display.Id ? _session.State.Selection : null;
         _toolbar.IsVisible = bounds is { Width: > 0, Height: > 0 } && !Surface.IsDragging && !_toolbarHidden;
+        if (!_toolbar.IsVisible)
+        {
+            HideToolbarTip();
+            _annotationToolbar?.ClosePopovers();
+        }
         if (bounds is not { } selection) return;
         _toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _toolbar.DesiredSize;
@@ -164,6 +221,8 @@ internal sealed class CaptureWindow : Window
 
     private void OnKeyDown(object? sender, KeyEventArgs args)
     {
+        HideToolbarTip();
+        if (args.Key == Key.Escape && _annotationToolbar?.DismissPopover() == true) { args.Handled = true; return; }
         if (_text.IsEditing) return;
         if (_modeConfirmation.IsVisible)
         {
@@ -217,7 +276,7 @@ internal sealed class CaptureSurface : Control
     public CaptureSelectionBounds? DetectedSelection
     {
         get => _detectedSelection;
-        set { _detectedSelection = value; InvalidateVisual(); }
+        set { if (_detectedSelection == value) return; _detectedSelection = value; InvalidateVisual(); }
     }
     public bool IsDragging { get; private set; }
 

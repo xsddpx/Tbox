@@ -22,8 +22,7 @@ public static class AnnotationRenderer
             using (context.PushTransform(Matrix.CreateTranslation(-region.Left, -region.Top)))
                 Draw(context, original, commands);
         }
-        using var output = new MemoryStream(); target.Save(output);
-        return new Picture(output.ToArray());
+        return Picture.FromBitmap(target);
     }
 
     public static void Draw(DrawingContext context, Picture original, IEnumerable<AnnotationCommand> commands)

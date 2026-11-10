@@ -1,10 +1,11 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Tbox.Desktop.Platform;
 using Tbox.Desktop.Updates;
 
 namespace Tbox.Desktop.Views;
@@ -14,6 +15,7 @@ internal sealed class UpdateCard : StackPanel
 {
     private readonly DesktopController _controller;
     private readonly GitHubUpdateClient _client;
+    private readonly Func<string, UpdateRelease, CancellationToken, Task<PreparedUpdate>> _prepareUpdate;
     private readonly TextBlock _title = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22 };
     private readonly TextBlock _detail = Ui.Description("公开下载，无需登录");
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 100, Height = 6, MinHeight = 6, MaxWidth = 360,
@@ -38,9 +40,11 @@ internal sealed class UpdateCard : StackPanel
     public event Action? AvailabilityChanged;
     public bool UpdateAvailable => _release is not null && !_handedToInstaller;
 
-    public UpdateCard(DesktopController controller, GitHubUpdateClient? client = null)
+    public UpdateCard(DesktopController controller, GitHubUpdateClient? client = null,
+        Func<string, UpdateRelease, CancellationToken, Task<PreparedUpdate>>? prepareUpdate = null)
     {
         _controller = controller; _client = client ?? new();
+        _prepareUpdate = prepareUpdate ?? UpdateInstaller.PrepareAsync;
         _check = Ui.Button("检查更新", () => Run(CheckAsync));
         _notesToggle = Ui.Button("更新内容", () => { _notes!.IsVisible = !_notes.IsVisible; _notesToggle!.Content = _notes.IsVisible ? "收起内容" : "更新内容"; });
         _download = Ui.Primary("下载并安装", () => Run(DownloadAsync));
@@ -72,8 +76,6 @@ internal sealed class UpdateCard : StackPanel
         if (_operation is null) { _client.Dispose(); Cleanup(); }
     }
 
-    private Window Owner => TopLevel.GetTopLevel(this) as Window ?? _controller.Main;
-
     private async void Run(Func<CancellationToken, Task> action)
     {
         if (_operation is not null || _closed) return;
@@ -82,7 +84,7 @@ internal sealed class UpdateCard : StackPanel
         catch (OperationCanceledException) { Detail(stop.IsCancellationRequested ? "已取消，可以重新尝试。" : "连接超时，请稍后重试。"); }
         catch (Exception ex)
         {
-            Tbox.App.AppLog.Write("Update: " + ex);
+            AppLog.Write("Update: " + ex);
             Detail(ex is HttpRequestException ? "无法连接更新服务，请检查网络后重试。" : ex.Message);
         }
         finally
@@ -129,19 +131,12 @@ internal sealed class UpdateCard : StackPanel
 
     private async Task InstallAsync(CancellationToken token)
     {
-        if (_controller.HasOpenWorkForUpdate) throw new InvalidOperationException("请先完成截图、录屏并关闭贴图及结果窗口，再安装更新。");
-        var confirm = OperatingSystem.IsMacOS()
-            ? new ConfirmWindow("现在安装并重启 Tbox？", "安装并重启", "已有设置和缓存会保留。")
-            : new ConfirmWindow("现在打开安装程序？", "打开安装程序", "在 Windows 安装程序中确认升级，完成后重新打开 Tbox。");
-        if (!await confirm.ShowDialog<bool>(Owner)) return;
         token.ThrowIfCancellationRequested();
         Detail("正在验证安装包与应用身份…"); _progress.IsVisible = true; _progress.IsIndeterminate = true;
-        using var prepared = await UpdateInstaller.PrepareAsync(_file!, _release!, token);
+        using var prepared = await _prepareUpdate(_file!, _release!, token);
         token.ThrowIfCancellationRequested();
-        if (_controller.HasOpenWorkForUpdate) throw new InvalidOperationException("存在未结束的任务，请完成后重试。");
-        prepared.Launch(); _handedToInstaller = true;
-        if (prepared.RequiresExit) await _controller.QuitAsync();
-        else { Detail("安装程序已打开。完成升级后，请重新打开 Tbox。"); _file = null; _release = null; AvailabilityChanged?.Invoke(); }
+        Detail("正在结束当前任务并启动安装程序…"); _cancel.IsVisible = false;
+        await _controller.InstallUpdateAsync(() => { prepared.Launch(); _handedToInstaller = true; });
     }
 
     private void Detail(string text) { _detail.Inlines = null; _detail.Text = text; }

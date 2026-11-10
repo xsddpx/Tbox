@@ -10,11 +10,13 @@ internal sealed class FakePlatform : IPlatformServices
     public int CaptureRequests { get; private set; }
     public int PermissionSettingsOpens { get; private set; }
     public IReadOnlyList<CapturedDisplay> Displays { get; set; } = [];
+    public Task<IReadOnlyList<CapturedDisplay>>? PendingCapture { get; set; }
+    public Action? CaptureStarting { get; set; }
     public RecognitionResult? OcrResult { get; set; }
     public bool RequestScreenPermission() { PermissionRequests++; return HasScreenPermission; }
     public void OpenScreenPermissionSettings() { PermissionSettingsOpens++; }
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
-    { CaptureRequests++; return Task.FromResult(Displays); }
+    { CaptureRequests++; CaptureStarting?.Invoke(); return PendingCapture ?? Task.FromResult(Displays); }
     public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => throw new NotSupportedException();
     public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) =>
         Task.FromResult(OcrResult ?? throw new NotSupportedException());
@@ -41,7 +43,8 @@ internal sealed class FakePlatform : IPlatformServices
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
     public IRegionRecorder? Recorder { get; set; }
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => Recorder ?? throw new NotSupportedException();
-    public IFolderNavigation CreateFolderNavigation() => new EmptyFolders();
+    public FolderNavigationResult FolderJumpResult { get; set; } = new(true);
+    public IFolderNavigation CreateFolderNavigation() => new FakeFolders(this);
     public IStartupRegistration StartupRegistration { get; set; } = new EmptyStartup();
     public IStartupRegistration CreateStartupRegistration() => StartupRegistration;
     public void Dispose() { }
@@ -55,14 +58,20 @@ internal sealed class FakePlatform : IPlatformServices
         public bool EnableElementDetection() => false;
         public CaptureTargetBounds? FindTarget(CaptureDetectionMode mode, DesktopPoint point) => null;
     }
-    private sealed class EmptyFolders : IFolderNavigation
+    private sealed class FakeFolders(FakePlatform platform) : IFolderNavigation
     {
         public string CurrentDirectory => "";
         public bool HasPermission => true;
         public bool RequestPermission() => true;
         public void Start() { }
         public void Stop() { }
-        public Task<FolderNavigationResult> JumpAsync(Shortcut shortcut, CancellationToken cancellationToken) => Task.FromResult(new FolderNavigationResult(true));
+        public Task<FolderNavigationResult> JumpAsync(Shortcut shortcut, CancellationToken cancellationToken) => Task.FromResult(platform.FolderJumpResult);
+        public Task<FolderDialogTarget?> FindDialogAsync(long? retainedTarget, nint activeBar, CancellationToken cancellationToken) => Task.FromResult<FolderDialogTarget?>(null);
+        public Task<IReadOnlyList<string>> GetOpenFoldersAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<IReadOnlyList<string>> SearchFoldersAsync(string query, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<bool> RestoreDialogAsync(long target, nint activeBar, CancellationToken cancellationToken) => Task.FromResult(false);
+        public Task<FolderNavigationResult> JumpToAsync(long target, nint activeBar, string path, Shortcut? shortcut,
+            CancellationToken cancellationToken) => Task.FromResult(platform.FolderJumpResult);
         public void Dispose() { }
     }
 }
@@ -71,9 +80,10 @@ internal sealed class FakePlatform : IPlatformServices
 internal sealed class FakeRecorder : IRegionRecorder
 {
     public bool Started { get; private set; }
+    public bool Disposed { get; private set; }
     public Task StartAsync(string path, CancellationToken cancellationToken) { Started = true; return Task.CompletedTask; }
     public void Pause() { }
     public void Resume() { }
     public Task<RecordingOutput> StopAsync(CancellationToken cancellationToken) => throw new NotSupportedException();
-    public void Dispose() { }
+    public void Dispose() => Disposed = true;
 }

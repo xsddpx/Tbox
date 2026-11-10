@@ -1,6 +1,4 @@
 bin/
-!src/Tbox.App/ThirdParty/FFmpeg/bin/
-!src/Tbox.App/ThirdParty/FFmpeg/bin/**
 obj/
 .vs/
 *.user

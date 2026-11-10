@@ -2,25 +2,26 @@
 
 ## 项目结构与模块组织
 
-仓库已有 Windows 完整版及正在迁移的跨平台版本。根目录仅放置项目级配置和说明文档；临时下载、验证数据和中间产物放在 Git 忽略的 `TEMP/`。
+Windows 与 macOS 共用同一个桌面应用。根目录仅放置项目级配置和说明文档；临时下载、验证数据和中间产物放在 Git 忽略的 `TEMP/`。
 
 - `src/`：应用或库的源代码
 - `tests/`：自动化测试，目录结构与 `src/` 对应
 - `assets/`：图片、测试夹具、模板等静态资源
 - `docs/`：架构说明、技术决策和贡献文档
 
-`src/Tbox.Core` 保存共用产品规则；`src/Tbox.App` 是现有 WinUI 实现；`src/Tbox.Desktop` 是共用 Avalonia 界面，平台差异限定在 `Platform/`。新功能优先共用，不复制两套交互逻辑。
+`src/Tbox.Core` 保存共用产品规则；`src/Tbox.Desktop` 是共用 Avalonia 应用，平台差异限定在 `Platform/`。新功能优先共用，不复制两套交互逻辑。
 
-代码优先按功能或业务领域组织，避免建立职责模糊的通用工具目录。确定语言和框架后，应根据其惯例更新本指南。
+代码优先按功能或业务领域组织，避免建立职责模糊的通用工具目录。
 
 ## 构建、测试与开发命令
 
-使用 `global.json` 固定的 .NET SDK。Windows 构建遵循 README 的 Visual Studio/MSIX 流程；跨平台测试和 Mac 构建使用：
+使用 `global.json` 固定的 .NET SDK。完整流程见 [本地开发与打包](docs/cross-platform-architecture.md#本地开发与打包)。
 
 - `dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release`
 - `dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release`
 - `bash scripts/build-macos.sh osx-arm64`
 - `bash scripts/package-macos.sh osx-arm64`
+- `.\scripts\package-desktop-windows.ps1 -VerifyOnly`
 
 除非部署流程明确要求，否则不要提交自动生成的构建产物。
 
@@ -37,23 +38,22 @@
 - `docs/product-requirements.md` 是产品需求、交互规则、迁移语义和历史修改要求的唯一活文档。
 - 每次收到新增、变更或撤销需求时，必须在同一轮代码提交中更新对应需求条目、验收标准、状态和文末变更记录；仅修改代码或只写提交信息不算完成。
 - 实现细节可以留在源码或架构文档中，但产品行为必须使用与 Windows API 无关的语言描述，便于迁移到其他平台。
-- `docs/project-handoff.md` 仅作为特定时间点的交接快照；与活需求文档冲突时，以活需求文档和当前源码为准。
 
 ## 提交与拉取请求规范
 
-当前没有可供归纳规范的提交历史。提交标题应简洁并使用祈使语气，可采用 Conventional Commits，例如 `feat: add session validation` 或 `fix: handle empty input`。
+分支、提交和 PR 标题以执行者软件名开头，例如分支 `claude/fix-描述`、提交 `[claude] fix: 修复描述`，类型沿用 Conventional Commits。
 
 拉取请求应说明目的、概括主要改动并列出验证方式。关联相关 Issue；涉及界面变化时附上截图。每个拉取请求只聚焦一个主题，并明确说明配置变更、数据迁移和后续工作。
 
 ## 版本与打包规范
 
-以下 MSIX 规则用于 Windows 应用交付。Mac 修改使用对应 `.app` 构建、签名、运行验证及版本唯一的 ZIP 包，在当前 Mac 安装验证；没有 Windows 实机验证时必须明确记录，不能虚构 MSIX 构建或安装结果。
+Windows 交付签名 MSIX，Mac 交付签名 `.app` 的 ZIP。没有对应平台实机验证时必须明确记录，不能虚构构建或安装结果。
 
 Mac 必须复用登录钥匙串中的持久签名身份，保持 Bundle ID 和安装位置稳定，并验证覆盖升级后权限仍可使用。不得每轮生成新证书、改用 ad hoc 签名，或自动清空已有权限。
 
-- 每次生成可交付 MSIX 都必须使用一个从未打包过的新版本号；默认递增补丁版本，禁止覆盖同版本安装包。
-- 每轮代码修改完成后，必须生成新版本 MSIX，并覆盖升级安装到当前电脑；仅完成源码修改不算交付完成。
-- 打包前必须同步更新 `Tbox.App.csproj` 中的 `Version`、`AssemblyVersion`、`FileVersion`，以及 `Package.appxmanifest` 中的包版本。
+- 每个交付包都使用一个从未打包过的新版本号；默认递增补丁版本，禁止覆盖同版本安装包。
+- 每轮应用代码修改完成后，必须生成新版本安装包，并覆盖升级安装到当前电脑；仅完成源码修改不算交付完成。
+- 打包前同步更新 `src/Tbox.Desktop/Tbox.Desktop.csproj` 的 `Version`、`AssemblyVersion`、`FileVersion`，`Platform/windows/Package.appxmanifest` 的包版本，以及 `Platform/macos/Info.plist` 的版本。
 - 每次成功打包后，将版本、打包时间和 SHA-256 记录到 `docs/release-history.md`，并随源码提交。
 - 打包脚本必须拒绝版本不一致、Release 二进制版本过期或目标版本安装包已存在的情况。
 

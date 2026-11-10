@@ -18,13 +18,15 @@ public sealed class PinnedWindow : Window
     private readonly AnnotationTextEditor _text;
     private readonly ContextMenu _menu = new();
     private Window? _toolbarWindow;
+    private AnnotationToolbar? _annotationToolbar;
     private bool _toolbarWanted;
     private bool _closing;
     public Picture Picture { get; }
     public PixelRegion Region { get; private set; }
     public AnnotationEditor Editor { get; } = new();
     public bool CanAnnotate => _toolbarWindow?.IsVisible == true;
-    internal bool IsSelected => IsActive || _toolbarWindow is { IsActive: true, IsVisible: true };
+    internal bool IsSelected => IsActive || _toolbarWindow is { IsActive: true, IsVisible: true }
+        || CanAnnotate && (_annotationToolbar?.PropertiesPopup.IsOpen == true || _annotationToolbar?.MorePopup.IsOpen == true);
 
     public PinnedWindow(DesktopController controller, Picture picture)
     {
@@ -50,7 +52,7 @@ public sealed class PinnedWindow : Window
         PositionChanged += (_, _) => PlaceToolbar(); SizeChanged += (_, _) => PlaceToolbar();
         PropertyChanged += (_, args) =>
         {
-            if (args.Property == IsVisibleProperty && !IsVisible) _toolbarWindow?.Hide();
+            if (args.Property == IsVisibleProperty && !IsVisible) { _annotationToolbar?.ClosePopovers(); _toolbarWindow?.Hide(); }
             else if (args.Property == IsVisibleProperty && IsVisible && _toolbarWanted && !_closing) ShowToolbar();
         };
         AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
@@ -70,15 +72,15 @@ public sealed class PinnedWindow : Window
         if (_toolbarWindow is null)
         {
             var tools = new AnnotationToolbar(Editor, _text.Commit);
-            var outputs = Ui.Toolbar(
+            _annotationToolbar = tools;
+            tools.Complete(
                 [
                     AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", Recognize),
                     AnnotationToolbar.IconButton(IconKind.Save, $"保存 · {ShortcutLabels.Command}S", () => _controller.Run(SaveAsync)),
                     AnnotationToolbar.IconButton(IconKind.Copy, $"复制图片 · {ShortcutLabels.Command}C", () => _controller.Run(CopyAsync))
                 ],
-                [AnnotationToolbar.IconButton(IconKind.Check, "完成 · Enter", FinishEditing)]);
-            tools.HorizontalAlignment = outputs.HorizontalAlignment = HorizontalAlignment.Left;
-            var toolbar = new StackPanel { Spacing = 6, Children = { tools, outputs } };
+                AnnotationToolbar.IconButton(IconKind.Check, "完成 · Enter", FinishEditing));
+            var toolbar = tools;
             toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             _toolbarWindow = new Window
             {
@@ -96,6 +98,7 @@ public sealed class PinnedWindow : Window
     private void PlaceToolbar()
     {
         if (!CanAnnotate || _closing || this.TryGetPlatformHandle() is not { } handle) return;
+        _annotationToolbar?.ClosePopovers();
         var bounds = _controller.Platform.GetWindowPlacement(handle.Handle);
         var work = _controller.Platform.GetWorkArea(handle.Handle);
         var toolbar = _toolbarWindow!;
@@ -107,6 +110,7 @@ public sealed class PinnedWindow : Window
 
     public void FinishEditing()
     {
+        _annotationToolbar?.ClosePopovers();
         _text.Commit(); Editor.FinishPolyline(); Editor.CancelGesture(); Editor.Select(null);
         _toolbarWanted = false; _toolbarWindow?.Hide(); _surface.InvalidateVisual();
     }
@@ -152,6 +156,11 @@ public sealed class PinnedWindow : Window
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && _annotationToolbar?.DismissPopover() == true) { e.Handled = true; return; }
+        // Popup events route through this window's tunnel handler before their own controls.
+        // Let sliders, swatches and menu buttons handle Enter instead of finishing pin editing.
+        if (e.Source is Visual source && (_annotationToolbar?.PropertiesPopup.IsInsidePopup(source) == true
+            || _annotationToolbar?.MorePopup.IsInsidePopup(source) == true)) return;
         if (_text.IsEditing) return;
         if (e.Key == Key.Escape) { if (CanAnnotate) FinishEditing(); else Close(); e.Handled = true; }
         else if (e.Key == Key.Enter && CanAnnotate) { FinishEditing(); e.Handled = true; }

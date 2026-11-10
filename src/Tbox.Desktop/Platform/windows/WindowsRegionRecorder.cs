@@ -1,5 +1,4 @@
 #if WINDOWS
-using Tbox.App;
 using Windows.Graphics;
 
 namespace Tbox.Desktop.Platform;

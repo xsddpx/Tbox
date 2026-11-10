@@ -39,7 +39,7 @@ try {
         $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
         Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\where.exe') -Destination (Join-Path $layout 'Tbox.Desktop.exe')
         foreach ($asset in 'StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png') {
-            Copy-Item -LiteralPath (Join-Path $root "src\Tbox.App\Assets\$asset") -Destination (Join-Path $layout 'Assets')
+            Copy-Item -LiteralPath (Join-Path $root "src\Tbox.Desktop\Assets\$asset") -Destination (Join-Path $layout 'Assets')
         }
         [xml]$manifest = Get-Content -LiteralPath (Join-Path $root 'src\Tbox.Desktop\Platform\windows\Package.appxmanifest') -Raw
         $manifest.Package.Identity.Name = 'Tbox.SigningFixture'

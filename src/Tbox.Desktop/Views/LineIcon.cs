@@ -9,7 +9,7 @@ internal enum IconKind
 {
     Back, Settings, Folder, Capture, Pin, Ocr, Chevron, Record, Long, Eye, EyeOff, Jump, Gear, Copy,
     Rectangle, Ellipse, Line, Polyline, Arrow, Number, Pen, Highlighter, Mosaic, Text, Eraser,
-    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute
+    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute
 }
 
 // 24-unit line icons drawn with one stroke weight. Filled glyphs (record dot, play, stop) set Fill.
@@ -60,6 +60,7 @@ internal sealed class LineIcon : Control
             IconKind.Stop => "M6 6 H18 V18 H6 Z",
             IconKind.Minus => "M6 12 H18",
             IconKind.Plus => "M6 12 H18 M12 6 V18",
+            IconKind.More => "M5 12 H5.1 M12 12 H12.1 M19 12 H19.1",
             IconKind.Update => "M20 12 A8 8 0 1 1 17.7 6.3 M20 4 V8 H16",
             IconKind.Help => "M12 3.5 A8.5 8.5 0 1 1 11.99 3.5 Z M9.5 9.5 Q9.5 7 12 7 Q14.5 7 14.5 9.3 Q14.5 11 12 12 V13.5 M12 16.5 V17",
             IconKind.Keyboard => "M3 7 H21 V17 H3 Z M7 10 H7.01 M11 10 H11.01 M15 10 H15.01 M18 10 H18.01 M8 14 H16",

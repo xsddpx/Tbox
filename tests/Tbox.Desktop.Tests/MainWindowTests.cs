@@ -52,7 +52,9 @@ public sealed class MainWindowTests
             Assert.False(Find(main, tool).IsEffectivelyEnabled, tool);
         Assert.Contains(main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "截图与贴图已关闭，快捷键已释放。打开右上角开关即可恢复。");
         Click(main, "文件夹跳转", sidebar: true); Layout(main);
-        Assert.True(Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<ToggleSwitch>(), t => t.IsEffectivelyVisible).IsEffectivelyEnabled);
+        var switches = main.CurrentPageView.GetVisualDescendants().OfType<ToggleSwitch>().Where(t => t.IsEffectivelyVisible);
+        Assert.Equal(2, switches.Count());
+        Assert.All(switches, toggle => Assert.True(toggle.IsEffectivelyEnabled));
     }
 
     [AvaloniaFact]
@@ -65,6 +67,33 @@ public sealed class MainWindowTests
         Assert.False(main.IsVisible); // Closing hides; Tbox keeps running in the tray.
         scope.Controller.ShowMain();
         Assert.True(main.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public void FolderJumpBarShowsTheOfficialIconAndOnlyThreeRecommendations()
+    {
+        using var scope = new Scope(new FakePlatform());
+        using var navigation = scope.Controller.Platform.CreateFolderNavigation();
+        var bar = new FolderJumpBarWindow(scope.Controller, navigation, (_, _) => Task.CompletedTask,
+            () => Task.FromResult(true), () => { }) { Width = 500, Height = 220 };
+        var paths = Enumerable.Range(1, 4).Select(i => Path.Combine(Path.GetPathRoot(AppContext.BaseDirectory)!, "示例", $"目录 {i}")).ToArray();
+        try
+        {
+            bar.SetOpenFolders(paths);
+            bar.Show();
+            Layout(bar);
+            var icon = Assert.Single(bar.GetVisualDescendants().OfType<Image>(), image => AutomationProperties.GetName(image) == "Tbox");
+            using var official = Ui.Brand();
+            using var expected = new MemoryStream();
+            using var actual = new MemoryStream();
+            official.Save(expected);
+            Assert.IsType<Bitmap>(icon.Source).Save(actual);
+            Assert.Equal(expected.ToArray(), actual.ToArray());
+            foreach (var path in paths.Take(3))
+                Assert.Contains(bar.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == path);
+            Assert.DoesNotContain(bar.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == paths[3]);
+        }
+        finally { bar.Close(); }
     }
 
     [AvaloniaTheory]
@@ -91,7 +120,7 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(mainVisible, main.IsVisible);
 
-        for (var attempt = 0; attempt < 100 && platform.CaptureRequests == 0; attempt++) await Task.Delay(10);
+        for (var attempt = 0; attempt < 100 && !scope.Lifetime.Windows.OfType<CaptureWindow>().Any(); attempt++) await Task.Delay(10);
         Assert.Equal(1, platform.CaptureRequests);
         var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
         Assert.Equal(mainVisible, main.IsVisible);
@@ -99,6 +128,19 @@ public sealed class MainWindowTests
         Assert.Empty(scope.Lifetime.Windows.OfType<CaptureWindow>());
         Assert.Equal(mainVisible, main.IsVisible);
         if (mainVisible) Assert.Equal(page, main.CurrentPage);
+    }
+
+    [AvaloniaFact]
+    public async Task HotkeyStartsBeforeAlreadyQueuedNormalPriorityWork()
+    {
+        var order = new List<string>();
+        var platform = new FakePlatform { HasScreenPermission = true, CaptureStarting = () => order.Add("capture") };
+        using var scope = new Scope(platform);
+        await scope.InitializeAsync();
+        Dispatcher.UIThread.Post(() => order.Add("normal"), DispatcherPriority.Normal);
+        platform.HotkeyHandler!(HotkeyAction.Capture);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new[] { "capture", "normal" }, order);
     }
 
     [AvaloniaFact]
@@ -166,6 +208,21 @@ public sealed class MainWindowTests
             Assert.Single(scope.Lifetime.Windows.OfType<ImageResultWindow>()).Close();
         }
         finally { Directory.Delete(directory, true); }
+    }
+
+    [AvaloniaFact]
+    public async Task ClipboardPinAppearsBeforeCacheEncodingAndGetsItsProtectedCachePathAfterwards()
+    {
+        using var scope = new Scope(new FakePlatform { HasScreenPermission = true });
+        using var picture = Picture.FromPixels([10, 20, 30, 255], 1, 1);
+        var operation = scope.Controller.PinPictureAsync(picture);
+        var pin = Assert.Single(scope.Lifetime.Windows.OfType<PinnedWindow>());
+        Assert.True(pin.IsVisible);
+        Assert.False(pin.Picture.HasEncodedPng);
+        await operation;
+        Assert.NotNull(pin.Picture.CachePath);
+        Assert.Equal(picture.CachePath, pin.Picture.CachePath);
+        Assert.True(File.Exists(pin.Picture.CachePath));
     }
 
     [AvaloniaFact]

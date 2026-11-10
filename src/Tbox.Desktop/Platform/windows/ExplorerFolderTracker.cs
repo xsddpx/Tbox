@@ -1,0 +1,347 @@
+#if WINDOWS
+using System.Runtime.InteropServices;
+using Tbox.Core;
+
+namespace Tbox.Desktop.Platform;
+
+internal sealed class ExplorerFolderTracker : IDisposable
+{
+    private readonly NativeMethods.WinEventDelegate _callback;
+    private readonly string _userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    private readonly object _captureLock = new();
+    private readonly object _stateLock = new();
+    private IntPtr _hook;
+    private IntPtr _pendingWindow;
+    private IntPtr _lastExplorerWindow;
+    private bool _captureWorkerScheduled;
+    private bool _stopRequested;
+    private bool _disposed;
+    private string _currentFolder;
+    private string? _lastShellPath;
+    private string[] _recentPaths = [];
+
+    internal string CurrentFolder => Volatile.Read(ref _currentFolder);
+    internal string? LastShellPathForTesting => Volatile.Read(ref _lastShellPath);
+
+    internal ExplorerFolderTracker()
+    {
+        _currentFolder = _userProfile;
+        _callback = OnForegroundChanged;
+    }
+
+    internal void Start()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_hook != IntPtr.Zero) return;
+
+        lock (_stateLock) _stopRequested = false;
+
+        _hook = NativeMethods.SetWinEventHook(
+            NativeMethods.EventSystemForeground,
+            NativeMethods.EventSystemForeground,
+            IntPtr.Zero,
+            _callback,
+            0,
+            0,
+            NativeMethods.WineventOutofcontext);
+        if (_hook == IntPtr.Zero)
+        {
+            Stop();
+            throw new InvalidOperationException($"无法监听前台窗口，Win32={Marshal.GetLastWin32Error()}。");
+        }
+
+        QueueCapture(NativeMethods.GetForegroundWindow());
+    }
+
+    internal void Stop()
+    {
+        if (_hook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWinEvent(_hook);
+            _hook = IntPtr.Zero;
+        }
+
+        lock (_stateLock)
+        {
+            _stopRequested = true;
+            _pendingWindow = IntPtr.Zero;
+        }
+    }
+
+    private void OnForegroundChanged(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time)
+    {
+        var explorerWindow = GetExplorerRoot(hwnd);
+        if (explorerWindow != IntPtr.Zero)
+        {
+            QueueCapture(explorerWindow, rememberWindow: true);
+            return;
+        }
+
+        // A directory change does not raise EVENT_SYSTEM_FOREGROUND while the
+        // same Explorer window remains active. Refresh that window when focus
+        // moves away so the latest location is normally ready before Ctrl+G.
+        IntPtr lastExplorerWindow;
+        lock (_stateLock)
+        {
+            lastExplorerWindow = _lastExplorerWindow;
+        }
+        if (lastExplorerWindow != IntPtr.Zero)
+        {
+            QueueCapture(lastExplorerWindow, rememberWindow: false);
+        }
+    }
+
+    private void QueueCapture(IntPtr hwnd, bool rememberWindow = true)
+    {
+        var explorerWindow = GetExplorerRoot(hwnd);
+        if (explorerWindow == IntPtr.Zero) return;
+        var scheduleWorker = false;
+        lock (_stateLock)
+        {
+            if (_stopRequested) return;
+            if (rememberWindow) _lastExplorerWindow = explorerWindow;
+            _pendingWindow = explorerWindow;
+            if (!_captureWorkerScheduled)
+            {
+                _captureWorkerScheduled = true;
+                scheduleWorker = true;
+            }
+        }
+        if (scheduleWorker)
+        {
+            ThreadPool.QueueUserWorkItem(_ => DrainCaptures());
+        }
+    }
+
+    internal void CaptureWindowForTesting(IntPtr hwnd)
+    {
+        QueueCapture(hwnd);
+    }
+
+    internal string RefreshCurrentFolder()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        IntPtr explorerWindow;
+        lock (_stateLock)
+        {
+            explorerWindow = _lastExplorerWindow;
+        }
+        if (explorerWindow != IntPtr.Zero)
+        {
+            CaptureSerialized(explorerWindow);
+        }
+        return CurrentFolder;
+    }
+
+    internal IReadOnlyList<string> ReadOpenFolders(CancellationToken cancellationToken)
+    {
+        var paths = new List<string>();
+        object? shellObject = null;
+        object? windowsObject = null;
+        try
+        {
+            if (Type.GetTypeFromProgID("Shell.Application") is not { } shellType) return [];
+            shellObject = Activator.CreateInstance(shellType);
+            if (shellObject is null) return [];
+            windowsObject = ((dynamic)shellObject).Windows();
+            dynamic windows = windowsObject!;
+            var count = Convert.ToInt32(windows.Count);
+            for (var index = 0; index < count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                object? view = null;
+                try
+                {
+                    view = windows.Item(index);
+                    if (view is null) continue;
+                    dynamic item = view;
+                    if (GetExplorerRoot(new IntPtr(Convert.ToInt64(item.HWND))) == IntPtr.Zero) continue;
+                    string? path = item.Document?.Folder?.Self?.Path;
+                    if (path is not null && Path.IsPathFullyQualified(path) && Directory.Exists(path)) paths.Add(path);
+                }
+                catch (COMException) { } // The user can close a view while ShellWindows is being enumerated.
+                finally { ReleaseComObject(view); }
+            }
+        }
+        catch (COMException error) { AppLog.Write("Open Explorer directories: " + error.GetType().Name); }
+        finally { ReleaseComObject(windowsObject); ReleaseComObject(shellObject); }
+        return FolderJumpList.OrderOpened(paths, Volatile.Read(ref _recentPaths)).ToArray();
+    }
+
+    private static void ReleaseComObject(object? value)
+    {
+        if (value is not null && Marshal.IsComObject(value)) Marshal.ReleaseComObject(value);
+    }
+
+    private static IntPtr GetExplorerRoot(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return IntPtr.Zero;
+        var root = NativeMethods.GetAncestor(hwnd, NativeMethods.GaRoot);
+        if (root != IntPtr.Zero) hwnd = root;
+        var className = new char[64];
+        var length = NativeMethods.GetClassName(hwnd, className, className.Length);
+        if (length == 0) return IntPtr.Zero;
+        var name = new string(className, 0, length);
+        return name is "CabinetWClass" or "ExploreWClass" ? hwnd : IntPtr.Zero;
+    }
+
+    private void DrainCaptures()
+    {
+        while (true)
+        {
+            IntPtr window;
+            lock (_stateLock)
+            {
+                if (_stopRequested)
+                {
+                    _captureWorkerScheduled = false;
+                    return;
+                }
+                window = _pendingWindow;
+                _pendingWindow = IntPtr.Zero;
+                if (window == IntPtr.Zero)
+                {
+                    _captureWorkerScheduled = false;
+                    return;
+                }
+            }
+            try
+            {
+                CaptureSerialized(window);
+            }
+            catch (Exception exception)
+            {
+                // A single unexpected Shell/COM failure must not permanently
+                // disable future capture scheduling.
+                AppLog.Write($"Explorer capture worker failed: {exception}");
+            }
+        }
+    }
+
+    private void CaptureSerialized(IntPtr hwnd)
+    {
+        lock (_captureLock)
+        {
+            Capture(hwnd);
+        }
+    }
+
+    private void Capture(IntPtr hwnd)
+    {
+        AppLog.Write("Explorer capture started.");
+        var targetRoot = NativeMethods.GetAncestor(hwnd, NativeMethods.GaRoot);
+        if (targetRoot == IntPtr.Zero) targetRoot = hwnd;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            var titleBeforeCapture = GetWindowTitle(targetRoot);
+            var activeTabWindow = ExplorerShellViewResolver.FindUnambiguousTabWindow(targetRoot);
+            var candidates = new List<ExplorerTabCandidate>();
+            object? shellObject = null;
+            object? windowsObject = null;
+            try
+            {
+                var shellType = Type.GetTypeFromProgID("Shell.Application");
+                if (shellType is null) return;
+                shellObject = Activator.CreateInstance(shellType);
+                if (shellObject is null) return;
+                dynamic shell = shellObject;
+                windowsObject = shell.Windows();
+                dynamic windows = windowsObject;
+                var count = Convert.ToInt32(windows.Count);
+                for (var index = 0; index < count; index++)
+                {
+                    object? itemObject = null;
+                    try
+                    {
+                        itemObject = windows.Item(index);
+                        if (itemObject is null) continue;
+                        dynamic item = itemObject;
+                        var itemWindow = new IntPtr(Convert.ToInt64(item.HWND));
+                        var itemRoot = NativeMethods.GetAncestor(itemWindow, NativeMethods.GaRoot);
+                        if (itemRoot == IntPtr.Zero) itemRoot = itemWindow;
+                        if (itemRoot != targetRoot) continue;
+                        string? shellPath = null;
+                        for (var pathAttempt = 1; pathAttempt <= 3; pathAttempt++)
+                        {
+                            shellPath = item.Document?.Folder?.Self?.Path;
+                            if (IsStableShellPath(shellPath) || pathAttempt == 3) break;
+                            Thread.Sleep(25);
+                        }
+                        var displayName = Convert.ToString(item.LocationName);
+                        var tabWindow = activeTabWindow == IntPtr.Zero
+                            ? IntPtr.Zero
+                            : ExplorerShellViewResolver.TryGetTabWindow(itemObject, targetRoot);
+                        candidates.Add(new ExplorerTabCandidate(
+                            tabWindow.ToInt64(),
+                            shellPath,
+                            displayName));
+                    }
+                    catch (COMException)
+                    {
+                        // Explorer windows may disappear while enumerating.
+                    }
+                }
+
+                var titleAfterCapture = GetWindowTitle(targetRoot);
+                if (!string.Equals(
+                        titleBeforeCapture,
+                        titleAfterCapture,
+                        StringComparison.Ordinal))
+                {
+                    AppLog.Write($"Explorer capture retry #{attempt}: the selected tab changed during capture.");
+                }
+                else
+                {
+                    var selected = ExplorerTabSelectionPolicy.SelectActive(
+                        candidates,
+                        activeTabWindow.ToInt64(),
+                        titleAfterCapture);
+                    if (selected is not null)
+                    {
+                        var selectedShellPath = selected.Value.ShellPath;
+                        Volatile.Write(ref _lastShellPath, selectedShellPath);
+                        var resolved = FolderTargetPolicy.Resolve(selectedShellPath, _userProfile);
+                        Volatile.Write(ref _currentFolder, resolved);
+                        if (selectedShellPath is not null && Path.IsPathFullyQualified(selectedShellPath) && Directory.Exists(selectedShellPath))
+                            Volatile.Write(ref _recentPaths, FolderJumpList.Remember(_recentPaths, selectedShellPath));
+                        AppLog.Write(candidates.Count > 1
+                            ? "Explorer active-tab folder captured from the window title."
+                            : "Explorer folder captured.");
+                        return;
+                    }
+
+                    AppLog.Write($"Explorer capture retry #{attempt}: the active tab could not be resolved among {candidates.Count} views.");
+                }
+            }
+            catch (Exception exception) when (exception is COMException or InvalidCastException)
+            {
+                AppLog.Write($"Explorer capture retry #{attempt} failed: {exception.GetType().Name}");
+            }
+
+            if (attempt < 3) Thread.Sleep(25);
+        }
+
+        AppLog.Write("Explorer capture skipped after three attempts because the active tab could not be resolved.");
+    }
+
+    private static string? GetWindowTitle(IntPtr hwnd)
+    {
+        var title = new char[512];
+        var length = NativeMethods.GetWindowText(hwnd, title, title.Length);
+        return length > 0 ? new string(title, 0, length) : null;
+    }
+
+    private static bool IsStableShellPath(string? shellPath)
+    {
+        if (string.IsNullOrWhiteSpace(shellPath)) return false;
+        return !Path.IsPathRooted(shellPath) || Directory.Exists(shellPath);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        Stop();
+        _disposed = true;
+    }
+}
+#endif

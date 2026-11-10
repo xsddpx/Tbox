@@ -20,6 +20,9 @@ public sealed record HotkeySettings(bool Control = true, bool Alt = false, bool 
 public sealed record AppSettings
 {
     public bool FolderJumpEnabled { get; init; } = true;
+    public bool ShowFolderJumpBar { get; init; } = true;
+    public string[]? FavoriteFolders { get; init; }
+    public string[]? RecentFolderJumps { get; init; }
     public bool ScreenPasteEnabled { get; init; } = true;
     public string? ScreenCaptureCacheDirectory { get; init; }
     public bool StartWithWindows { get; init; }

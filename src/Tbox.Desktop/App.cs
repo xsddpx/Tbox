@@ -88,7 +88,7 @@ public sealed class App : Application
             item.Click += (_, _) => action();
             menu.Add(item);
         }
-        using var trayAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/AppIcon.png"));
+        using var trayAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/WindowsTrayIcon.ico"));
         _tray = new TrayIcon { Icon = new WindowIcon(trayAsset), ToolTipText = "Tbox", Menu = menu, IsVisible = true };
         _tray.Clicked += (_, _) => controller.ShowMain();
         TrayIcon.SetIcons(this, new TrayIcons { _tray });

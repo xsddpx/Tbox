@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -22,6 +22,7 @@ public sealed class DesktopController : IDisposable
     private readonly string? _legacySettingsPath;
     private readonly CancellationTokenSource _stop = new();
     private readonly IFolderNavigation _folders;
+    private readonly FolderJumpBarSession _folderBar;
     private readonly IStartupRegistration _startup;
     private readonly HotkeyConfiguration _hotkeys;
     private bool _recordingShortcut;
@@ -32,10 +33,12 @@ public sealed class DesktopController : IDisposable
     private RecordingControlWindow? _recording;
     private readonly List<RecordingReviewWindow> _reviews = [];
     private bool _quitRequested;
+    private bool _installingUpdate;
     private OcrWindow? _ocr;
     private AppSettings _settings = new();
     private CaptureCache _cache;
     private bool _capturing;
+    private bool _cachePickerOpen;
     private bool _pinsHidden;
     private bool _screenPermissionRequested;
     private bool _capturePermissionNeeded;
@@ -44,8 +47,6 @@ public sealed class DesktopController : IDisposable
     // The one main window. It stays hidden until opened from the tray, a second launch or app reopen.
     public MainWindow Main { get; set; } = null!;
     public bool IsQuitting { get; private set; }
-    internal bool HasOpenWorkForUpdate => _capturing || _capture is not null || _longCapture is not null || _recording is not null ||
-        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window => window != Main && window is not FailureNotificationWindow);
     public string CacheDirectory => _cache.DirectoryPath;
     public AppSettings Settings => _settings;
     public string FolderDirectory => _folders.CurrentDirectory;
@@ -69,6 +70,7 @@ public sealed class DesktopController : IDisposable
     {
         Platform = platform; _lifetime = lifetime;
         _folders = platform.CreateFolderNavigation();
+        _folderBar = new(this, _folders, _stop.Token);
         _startup = platform.CreateStartupRegistration();
         _hotkeys = new HotkeyConfiguration(binding => platform.RegisterHotkey(binding, OnHotkey), platform.UnregisterHotkey);
         // Tooltips and labels across the windows read the shortcuts from this controller's settings.
@@ -91,6 +93,7 @@ public sealed class DesktopController : IDisposable
             ApplyHotkeys(_settings);
             ShortcutsChanged?.Invoke();
             if (_settings.FolderJumpEnabled) _folders.Start();
+            _folderBar.Sync();
             if (HasHotkeyConflict) Main.SetStatus("部分快捷键被其他应用占用，可在主窗口修改或直接启动工具。");
             Main.Refresh();
             await RefreshStartupAsync();
@@ -111,12 +114,14 @@ public sealed class DesktopController : IDisposable
 
     public async void Run(Func<Task> action)
     {
+        if (_installingUpdate) return;
         try { await action(); }
         catch (OperationCanceledException) { }
         catch (Exception exception)
         {
-            Tbox.App.AppLog.Write(exception.ToString()); Main.SetStatus(exception.Message);
-            if (_settings.ShowFailureNotifications && !IsQuitting) FailureNotificationWindow.ShowFailure(this, exception.Message);
+            var message = string.IsNullOrWhiteSpace(exception.Message) ? "操作遇到异常，请重试。" : exception.Message;
+            AppLog.Write(exception.ToString()); Main.SetStatus(message);
+            if (_settings.ShowFailureNotifications && !IsQuitting) FailureNotificationWindow.ShowFailure(this, message);
         }
     }
 
@@ -127,7 +132,7 @@ public sealed class DesktopController : IDisposable
         if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
         if (action == HotkeyAction.Toggle) TogglePins();
         if (action == HotkeyAction.Folder) Run(JumpFolderAsync);
-    });
+    }, DispatcherPriority.Send);
 
     // Every shortcut whose module is on, at its saved or default combination.
     private void ApplyHotkeys(AppSettings settings)
@@ -188,10 +193,39 @@ public sealed class DesktopController : IDisposable
     public async Task JumpFolderAsync()
     {
         if (!_settings.FolderJumpEnabled) return;
-        var result = await _folders.JumpAsync(ShortcutFor(HotkeyAction.Folder), _stop.Token);
-        Main.SetStatus(result.Success ? "文件对话框已跳转。" : result.Message ?? "文件夹跳转未完成。");
-        Main.Refresh();
+        var shortcut = ShortcutFor(HotkeyAction.Folder);
+        if (await _folderBar.TryJumpAsync(shortcut)) return;
+        var result = await _folders.JumpAsync(shortcut, _stop.Token);
+        await ReportFolderJumpAsync(result, _folders.CurrentDirectory);
     }
+
+    internal async Task ReportFolderJumpAsync(FolderNavigationResult result, string path)
+    {
+        var message = result.Success ? "文件对话框已跳转。" : result.Message ?? "文件夹跳转未完成。";
+        Main.SetStatus(message);
+        if (!result.Success && (!Main.IsVisible || _cachePickerOpen) && _settings.ShowFailureNotifications && !IsQuitting)
+            FailureNotificationWindow.ShowFailure(this, message);
+        if (!result.Success) { Main.Refresh(); return; }
+        try
+        {
+            await UpdateSettingsAsync(settings => settings with { RecentFolderJumps = FolderJumpList.Remember(settings.RecentFolderJumps, path) });
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Write("Folder jump history could not be saved: " + error.GetType().Name);
+        }
+    }
+
+    public async Task SetFolderJumpBarAsync(bool enabled)
+    {
+        await UpdateSettingsAsync(settings => settings with { ShowFolderJumpBar = enabled });
+        _folderBar.Sync();
+    }
+
+    internal Task ToggleFavoriteFolderAsync(string path) => UpdateSettingsAsync(settings => settings with
+    {
+        FavoriteFolders = FolderJumpList.ToggleFavorite(settings.FavoriteFolders, path)
+    });
 
     public async Task SetModulesAsync(bool? requestedCapture, bool? requestedFolders)
     {
@@ -227,7 +261,7 @@ public sealed class DesktopController : IDisposable
             }
             Main.SetStatus("模块设置已保存。");
         }
-        finally { _moduleChanges.Release(); Main.Refresh(); }
+        finally { _moduleChanges.Release(); Main.Refresh(); _folderBar.Sync(); }
     }
 
     // Tray click, app reopen and a second launch all bring the main window to the front.
@@ -272,34 +306,44 @@ public sealed class DesktopController : IDisposable
             return;
         }
         _capturing = true;
+        var timer = Stopwatch.StartNew();
         var restore = (preset is CaptureAction.Long or CaptureAction.Record) && Main.IsVisible;
         if (restore) Main.Hide();
         try
         {
-            await Task.Delay(150, _stop.Token);
-            var displays = await Platform.CaptureAsync(_stop.Token);
-            if (IsQuitting) return;
+            // Only a window we just hid needs time to leave the compositor's next capture.
+            // Ordinary hotkey/button captures preserve the main window and start immediately.
+            if (restore) await Task.Delay(150, _stop.Token);
+            // Snapshot external targets before overlays exist, alongside screen capture, not on the input thread.
+            var targetsTask = Task.Run(Platform.CreateCaptureTargets, _stop.Token);
+            var displaysTask = Platform.CaptureAsync(_stop.Token);
+            await Task.WhenAll(targetsTask, displaysTask);
+            var displays = await displaysTask;
+            var capturedMs = timer.Elapsed.TotalMilliseconds;
+            if (IsQuitting || _installingUpdate) return;
             _capture = new CaptureSession(this, displays, cancelled =>
             {
                 _capture = null;
                 if (restore && cancelled && !IsQuitting) ShowMain();
-            }, preset);
+            }, preset, await targetsTask);
             _capture.Show();
+            AppLog.Write($"Capture ready: acquisition={capturedMs:F1}ms, overlay-shown={timer.Elapsed.TotalMilliseconds:F1}ms, displays={displays.Count}");
         }
         catch { if (restore) ShowMain(); throw; }
         finally { _capturing = false; }
     }
 
     public async Task CompleteCaptureAsync(Picture picture, DesktopPlacement placement, CaptureAction action,
-        IReadOnlyList<AnnotationCommand>? annotations = null)
+        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null)
     {
         using (picture)
         {
-            await CacheAsync(picture);
-            if (action == CaptureAction.Pin) Pin(new Picture(picture.Png) { CachePath = picture.CachePath }, placement, annotations);
+            Picture? pinned = null;
+            if (action == CaptureAction.Pin) { pinned = picture.Clone(); Pin(pinned, pinPlacement ?? placement, annotations); }
             if (action == CaptureAction.Copy) await CopyAsync(picture);
-            if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
+            await CacheAsync(picture, pinned);
+            if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             CaptureHistory.Remember(placement);
         }
     }
@@ -314,8 +358,9 @@ public sealed class DesktopController : IDisposable
     public async Task PinPictureAsync(Picture picture)
     {
         if (!_settings.ScreenPasteEnabled) return;
-        await CacheAsync(picture);
-        Pin(new Picture(picture.Png) { CachePath = picture.CachePath });
+        var pinned = picture.Clone();
+        Pin(pinned);
+        await CacheAsync(picture, pinned);
     }
 
     // Recent captures already live in the cache, so pinning one reuses that file instead of saving a copy.
@@ -352,7 +397,7 @@ public sealed class DesktopController : IDisposable
         try
         {
             await Task.Delay(150, _stop.Token);
-            if (IsQuitting) return;
+            if (IsQuitting || _installingUpdate) return;
             _longCapture?.Stop();
             var session = new LongCaptureSession(this, region, () => _longCapture = null);
             _longCapture = session;
@@ -371,7 +416,7 @@ public sealed class DesktopController : IDisposable
         try
         {
             await Task.Delay(150, _stop.Token);
-            if (IsQuitting) return;
+            if (IsQuitting || _installingUpdate) return;
             var session = new RecordingControlWindow(this, area);
             _recording = session;
             session.Released += () => { if (ReferenceEquals(_recording, session)) _recording = null; };
@@ -382,13 +427,14 @@ public sealed class DesktopController : IDisposable
 
     internal void ShowRecordingReview(RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
     {
+        if (IsQuitting || _installingUpdate) { workspace.Dispose(); return; }
         var review = new RecordingReviewWindow(this, workspace, area, output, duration);
         _reviews.Add(review); review.Released += () => _reviews.Remove(review); review.Show();
     }
 
     private void Pin(Picture picture, DesktopPlacement? placement = null, IReadOnlyList<AnnotationCommand>? annotations = null)
     {
-        if (!_settings.ScreenPasteEnabled || IsQuitting) { picture.Dispose(); return; }
+        if (!_settings.ScreenPasteEnabled || IsQuitting || _installingUpdate) { picture.Dispose(); return; }
         var pin = new PinnedWindow(this, picture);
         foreach (var command in annotations ?? []) pin.Editor.Document.Commit(command);
         _pins.Add(pin);
@@ -445,7 +491,7 @@ public sealed class DesktopController : IDisposable
 
     public void ShowOcr(Picture picture, bool topmost)
     {
-        if (!_settings.ScreenPasteEnabled || IsQuitting) return;
+        if (!_settings.ScreenPasteEnabled || IsQuitting || _installingUpdate) return;
         if (_ocr is null)
         {
             _ocr = new OcrWindow(this);
@@ -461,7 +507,7 @@ public sealed class DesktopController : IDisposable
     public async Task CopyAsync(Picture picture)
     {
         var clipboard = Main.Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。");
-        var transfer = new ClipboardImageTransfer(picture.Png);
+        var transfer = new ClipboardImageTransfer(picture);
         try { await clipboard.SetDataAsync(transfer); }
         catch { transfer.Dispose(); throw; }
         // Ownership belongs to the clipboard after SetDataAsync. In particular,
@@ -494,8 +540,7 @@ public sealed class DesktopController : IDisposable
             {
                 using var bitmap = await clipboard.TryGetBitmapAsync();
                 if (bitmap is null) return null;
-                using var output = new MemoryStream(); bitmap.Save(output);
-                return new Picture(output.ToArray());
+                return Picture.FromBitmap(bitmap);
             },
             async () =>
             {
@@ -506,8 +551,7 @@ public sealed class DesktopController : IDisposable
                     {
                         await using var stream = await file.OpenReadAsync();
                         using var image = new Bitmap(stream);
-                        using var output = new MemoryStream(); image.Save(output);
-                        return new Picture(output.ToArray());
+                        return Picture.FromBitmap(image);
                     }
                     catch (Exception error) when (ClipboardReader.IsUnavailableFormat(error)) { }
                 }
@@ -537,22 +581,25 @@ public sealed class DesktopController : IDisposable
         control.Arrange(new Rect(control.DesiredSize));
         using var image = new RenderTargetBitmap(new PixelSize(1280, (int)Math.Ceiling(control.DesiredSize.Height * 2)), new Vector(192, 192));
         image.Render(control);
-        using var output = new MemoryStream(); image.Save(output);
-        return new Picture(output.ToArray());
+        return Picture.FromBitmap(image);
     }
 
-    private async Task CacheAsync(Picture picture)
+    private async Task CacheAsync(Picture picture, Picture? pinned = null)
     {
-        try { picture.CachePath = await _cache.SaveAsync(picture.Png, _stop.Token); }
+        var png = await Task.Run(() => picture.Png, _stop.Token);
+        var cache = _cache;
+        try { picture.CachePath = await Task.Run(() => cache.SaveAsync(png, _stop.Token), _stop.Token); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             _cache = new CaptureCache(CaptureCachePathPolicy.GetFallbackPath(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)));
-            picture.CachePath = await _cache.SaveAsync(picture.Png, _stop.Token);
+            cache = _cache;
+            picture.CachePath = await Task.Run(() => cache.SaveAsync(png, _stop.Token), _stop.Token);
             Main.SetStatus("原缓存目录不可写，本次运行使用应用数据目录。");
         }
+        if (pinned is not null) pinned.CachePath = picture.CachePath;
         // Protect the image about to become a pin as well as all currently visible/hidden pins.
         _cache.Prune(_pins.Select(pin => pin.Picture.CachePath ?? "").Append(picture.CachePath));
-        Main.Refresh();
+        if (Main.IsVisible) Main.Refresh();
     }
 
     private static CaptureCache CreateCache(string? path) => new(CaptureCachePathPolicy.Resolve(path,
@@ -588,6 +635,11 @@ public sealed class DesktopController : IDisposable
     {
         await _moduleChanges.WaitAsync(_stop.Token);
         try { Startup = await _startup.ReadAsync(); }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // A passive refresh must not interrupt a file picker or abort app initialization.
+            AppLog.Write("Startup status refresh failed: " + error);
+        }
         finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
@@ -617,8 +669,12 @@ public sealed class DesktopController : IDisposable
 
     public async Task ChooseCacheAsync()
     {
-        var folders = await Main.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择截图缓存目录", AllowMultiple = false });
-        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } path) return;
+        if (_cachePickerOpen) return;
+        string? path;
+        _cachePickerOpen = true;
+        try { path = await Platform.PickFolderAsync(Main, "选择截图缓存目录"); }
+        finally { _cachePickerOpen = false; }
+        if (path is null) return;
         var cache = CreateCache(path);
         await Task.Run(() => CacheLocation.VerifyWritable(cache.DirectoryPath));
         await UpdateSettingsAsync(settings => settings with { ScreenCaptureCacheDirectory = path });
@@ -629,19 +685,34 @@ public sealed class DesktopController : IDisposable
     public void Quit() => Run(QuitAsync);
     public async Task QuitAsync()
     {
-        if (_quitRequested) return;
+        if (_quitRequested || _installingUpdate) return;
         _quitRequested = true;
         try
         {
             foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
             if (_recording is { } recording) await recording.CancelAsync();
+            if (_installingUpdate) return;
             IsQuitting = true; _lifetime.Shutdown();
         }
         finally { _quitRequested = false; }
     }
+
+    internal async Task InstallUpdateAsync(Action launchInstaller)
+    {
+        _installingUpdate = true;
+        try
+        {
+            if (_recording is { } recording) await recording.CancelAsync();
+            foreach (var review in _reviews.ToArray()) await review.RequestCloseAsync(discardUnsaved: true);
+            launchInstaller();
+            IsQuitting = true; _lifetime.Shutdown();
+        }
+        finally { _installingUpdate = false; }
+    }
     public void Dispose()
     {
         IsQuitting = true; _stop.Cancel();
+        _folderBar.Dispose();
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();
         _folders.Dispose();

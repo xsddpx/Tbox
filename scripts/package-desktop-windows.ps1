@@ -56,9 +56,11 @@ try {
         Assert-DesktopPayload $layout $version
         Invoke-Checked python @('scripts/verify-windows-media.py', (Join-Path $layout 'ThirdParty\FFmpeg'))
         New-Item -ItemType Directory -Path (Join-Path $layout 'Assets') -Force | Out-Null
-        foreach ($asset in 'StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.png', 'Wide310x150Logo.png') {
-            Copy-Item -LiteralPath (Join-Path $root "src\Tbox.App\Assets\$asset") -Destination (Join-Path $layout 'Assets')
+        $assetSource = Join-Path $root 'src\Tbox.Desktop\Assets'
+        foreach ($pattern in 'StoreLogo.png', 'Square44x44Logo*.png', 'Square150x150Logo.png', 'Wide310x150Logo.png') {
+            Copy-Item -Path (Join-Path $assetSource $pattern) -Destination (Join-Path $layout 'Assets')
         }
+        Assert-DesktopIconAssets $layout
         Copy-Item -LiteralPath $manifest -Destination (Join-Path $layout 'AppxManifest.xml')
         Invoke-Checked dotnet @('run', '--project', 'tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj', '-c', 'Release', '--',
             'assets/media-test/fixture.mp4', (Join-Path $work 'media'),
@@ -68,6 +70,7 @@ try {
     Invoke-Checked $makeAppx @('pack', '/d', $layout, '/p', $candidate, '/h', 'SHA256')
     Invoke-Checked $makeAppx @('unpack', '/p', $candidate, '/d', $unpacked)
     Assert-DesktopPayload $unpacked $version
+    Assert-DesktopIconAssets $unpacked
     if ($VerifyOnly) {
         # Deliberately not a release artifact: no signing, trust changes or installation in CI.
         $report = [ordered]@{ version = $version; kind = 'verification-unsigned'; package = $candidate;
