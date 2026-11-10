@@ -7,6 +7,20 @@ namespace Tbox.Desktop.Tests;
 
 public sealed class AnnotationTests
 {
+    [Theory]
+    [InlineData(AnnotationTool.Pen, 1, 32)]
+    [InlineData(AnnotationTool.Text, 10, 120)]
+    [InlineData(AnnotationTool.Number, 10, 120)]
+    public void DirectSizeChangesRespectToolLimitsAndIgnoreNonFiniteInput(AnnotationTool tool, double min, double max)
+    {
+        var editor = new AnnotationEditor(); editor.Select(tool);
+        editor.SetSize(-100); Assert.Equal(min, editor.CurrentSize);
+        editor.ChangeSize(-1); Assert.Equal(min, editor.CurrentSize);
+        editor.SetSize(1000); Assert.Equal(max, editor.CurrentSize);
+        editor.SetSize(double.NaN); editor.SetSize(double.PositiveInfinity);
+        Assert.Equal(max, editor.CurrentSize);
+    }
+
     [Fact]
     public void CancelledGesturesNeverEnterUndoHistory()
     {

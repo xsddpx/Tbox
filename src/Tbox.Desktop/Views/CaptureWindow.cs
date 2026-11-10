@@ -16,6 +16,7 @@ internal sealed class CaptureWindow : Window
 {
     private readonly CaptureSession _session;
     private readonly Border _toolbar;
+    private AnnotationToolbar? _annotationToolbar;
     private readonly AnnotationTextEditor _text;
     private bool _toolbarHidden;
     private readonly StackPanel _hintKeys = new() { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -60,7 +61,7 @@ internal sealed class CaptureWindow : Window
         KeyDown += OnKeyDown;
         AddHandler(KeyDownEvent, (_, args) =>
         {
-            if (args.Key != Key.Tab || _text.IsEditing) return;
+            if (args.Key != Key.Tab || _text.IsEditing || _annotationToolbar?.PropertiesPopup.IsOpen == true || _annotationToolbar?.MorePopup.IsOpen == true) return;
             _session.ToggleDetection(this); args.Handled = true;
         }, RoutingStrategies.Tunnel);
         Closed += (_, _) => Picture.Dispose();
@@ -78,22 +79,18 @@ internal sealed class CaptureWindow : Window
             return Ui.Toolbar([confirm], [AnnotationToolbar.IconButton(IconKind.Close, $"取消 · Esc", _session.Cancel)]);
         }
 
-        // Row 1: annotation tools, colour and size, undo / redo. Row 2: mode, outputs and cancel (spec ⑤).
-        var tools = new AnnotationToolbar(Editor, _text.Commit);
-        var outputs = Ui.Toolbar(
-            [
-                AnnotationToolbar.IconButton(IconKind.Long, "长截图", () => RequestMode(CaptureAction.Long)),
-                AnnotationToolbar.IconButton(IconKind.Record, "录屏", () => RequestMode(CaptureAction.Record), Brush.Parse("#FF6B6E"))
-            ],
+        _annotationToolbar = new AnnotationToolbar(Editor, _text.Commit);
+        _annotationToolbar.Complete(
             [
                 AnnotationToolbar.IconButton(IconKind.Pin, $"贴图 · {ShortcutLabels.Command}T", () => _session.Finish(this, CaptureAction.Pin)),
                 AnnotationToolbar.IconButton(IconKind.Ocr, "识别文字", () => _session.Finish(this, CaptureAction.Ocr)),
                 AnnotationToolbar.IconButton(IconKind.Save, $"保存 · {ShortcutLabels.Command}S", () => _session.Finish(this, CaptureAction.Save)),
                 AnnotationToolbar.IconButton(IconKind.Copy, $"复制 · {ShortcutLabels.Command}C / Enter", () => _session.Finish(this, CaptureAction.Copy))
             ],
-            [AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", _session.Cancel)]);
-        tools.HorizontalAlignment = outputs.HorizontalAlignment = HorizontalAlignment.Left;
-        return new Border { Child = new StackPanel { Spacing = 6, Children = { tools, outputs } } };
+            AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", _session.Cancel),
+            (IconKind.Long, "长截图", () => RequestMode(CaptureAction.Long)),
+            (IconKind.Record, "录屏", () => RequestMode(CaptureAction.Record)));
+        return _annotationToolbar;
     }
 
     public void Refresh()
@@ -101,6 +98,7 @@ internal sealed class CaptureWindow : Window
         Surface.InvalidateVisual();
         var bounds = _session.State.ActiveDisplay == Display.Id ? _session.State.Selection : null;
         _toolbar.IsVisible = bounds is { Width: > 0, Height: > 0 } && !Surface.IsDragging && !_toolbarHidden;
+        if (!_toolbar.IsVisible) _annotationToolbar?.ClosePopovers();
         if (bounds is not { } selection) return;
         _toolbar.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = _toolbar.DesiredSize;
@@ -164,6 +162,7 @@ internal sealed class CaptureWindow : Window
 
     private void OnKeyDown(object? sender, KeyEventArgs args)
     {
+        if (args.Key == Key.Escape && _annotationToolbar?.DismissPopover() == true) { args.Handled = true; return; }
         if (_text.IsEditing) return;
         if (_modeConfirmation.IsVisible)
         {

@@ -25,9 +25,17 @@ public sealed class AnnotationEditor
 
     public void ChangeSize(int direction)
     {
-        if (Tool == AnnotationTool.Number) NumberSize = Math.Clamp(NumberSize + direction * 2, 10, 120);
-        else if (Tool == AnnotationTool.Text) FontSize = Math.Clamp(FontSize + direction * 2, 10, 120);
-        else StrokeWidth = Math.Clamp(StrokeWidth + direction, 1, 32);
+        SetSize(CurrentSize + direction * (Tool is AnnotationTool.Number or AnnotationTool.Text ? 2 : 1));
+    }
+
+    public double CurrentSize => Tool == AnnotationTool.Number ? NumberSize : Tool == AnnotationTool.Text ? FontSize : StrokeWidth;
+
+    public void SetSize(double value)
+    {
+        if (!double.IsFinite(value)) return;
+        if (Tool == AnnotationTool.Number) NumberSize = Math.Clamp(value, 10, 120);
+        else if (Tool == AnnotationTool.Text) FontSize = Math.Clamp(value, 10, 120);
+        else StrokeWidth = Math.Clamp(value, 1, 32);
         Changed?.Invoke();
     }
 

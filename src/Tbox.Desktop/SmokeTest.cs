@@ -23,6 +23,7 @@ internal static class SmokeTest
             if (cropped.Bitmap.PixelSize != new PixelSize(200, 50)) throw new InvalidOperationException("裁剪像素尺寸错误。");
             var captureVerified = false;
             var displayCount = 0;
+            object? toolbar = null;
             if (args.Contains("--verify-capture") && controller.Platform.HasScreenPermission)
             {
                 var displays = await controller.Platform.CaptureAsync(CancellationToken.None);
@@ -34,6 +35,7 @@ internal static class SmokeTest
                         throw new InvalidOperationException("截图未保留屏幕原始像素。");
                 }
                 captureVerified = displayCount > 0;
+                if (captureVerified) toolbar = await ToolbarSmokeTest.RunAsync(controller, displays, directory);
             }
             // The installed app starts in the tray, so verification opens the main window explicitly.
             controller.ShowMain();
@@ -46,7 +48,7 @@ internal static class SmokeTest
             {
                 success = true, nativeOcr = true, pixelCrop = true, uiRendered = true,
                 screenPermission = controller.Platform.HasScreenPermission, captureVerified, displayCount, recognizedText = ocr.Text,
-                recording
+                recording, toolbar
             }, new JsonSerializerOptions { WriteIndented = true }));
         }
         catch (Exception error)
