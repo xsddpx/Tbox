@@ -2,6 +2,11 @@
 
 最新公开安装包见 [GitHub Releases](https://github.com/xsddpx/Tbox/releases/latest)。
 
+## 2026-11-10 Windows 1.1.36 无边距 VI 图标
+
+- 源提交 `f8c0357` 的 [Windows 签名安装作业](https://github.com/xsddpx/Tbox/actions/runs/42767824008) 通过。下载包与打包记录的 SHA-256 一致，签名证书与 1.1.34 相同。本机从 1.1.34 覆盖安装至 1.1.36，包身份保持一致，系统文字识别、像素裁剪、共用窗口渲染及安装版正常启动通过。
+- 1024×1024 原稿渲染、两种方形基础图块和全部 8 个托盘图帧的底座贴齐画板四边，圆角保持透明。Windows 原生解码覆盖 16、20、24、28、32、40、48、64 像素。托盘未出现在可截图窗口列表中，实际外观待屏幕复核。本轮没有 macOS 安装包或实机覆盖安装记录。
+
 ## 2026-11-10 Windows 1.1.34 图标与一致性清理
 
 源提交 `fd458a1` 的[双平台检查与 Windows 签名安装工作流](https://github.com/xsddpx/Tbox/actions/runs/42763581032) 全部通过。Windows 作业使用持久 Tbox 证书签名 MSIX，在干净机器安装并验证系统文字识别、共用窗口渲染、实际取帧、录屏和三格式导出；Windows/macOS 共用测试与媒体检查同时通过。
