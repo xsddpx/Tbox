@@ -46,6 +46,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock _recentEmpty = Ui.Description("截图后会显示在这里。");
     // 文件夹跳转
     private readonly ToggleSwitch _folderToggle = Switch("启用文件夹跳转");
+    private readonly ToggleSwitch _folderBarToggle = Switch("显示文件对话框跳转栏");
     private readonly Border _folderPermission;
     private readonly Border _folderOff = Ui.Note("文件夹跳转已关闭，快捷键已释放。打开右上角开关即可恢复。");
     private readonly Control _folderHero;
@@ -177,6 +178,8 @@ public sealed class MainWindow : Window
         var folders = settings.FolderJumpEnabled;
         _updating = true;
         _captureToggle.IsChecked = capture; _folderToggle.IsChecked = folders;
+        _folderBarToggle.IsChecked = settings.ShowFolderJumpBar;
+        _folderBarToggle.IsEnabled = folders;
         _startupToggle.IsChecked = _controller.Startup.Enabled; _failureToggle.IsChecked = settings.ShowFailureNotifications;
         _updating = false;
 
@@ -227,6 +230,7 @@ public sealed class MainWindow : Window
             toggle.IsCheckedChanged += (_, _) => { if (!_updating) _controller.Run(() => change(toggle.IsChecked == true)); };
         On(_captureToggle, enabled => _controller.SetModulesAsync(enabled, null));
         On(_folderToggle, enabled => _controller.SetModulesAsync(null, enabled));
+        On(_folderBarToggle, _controller.SetFolderJumpBarAsync);
         On(_startupToggle, _controller.SetStartupAsync);
         On(_failureToggle, _controller.SetFailureNotificationsAsync);
     }
@@ -260,7 +264,8 @@ public sealed class MainWindow : Window
 
         AddPage(MainPage.Folders, PageHeader(IconKind.Jump, "文件夹跳转", "打开或保存文件时，一键跳到正在用的文件夹", _folderToggle),
             Spaced(_folderPermission, 14), Spaced(_folderOff, 16), _folderHero,
-            Ui.GroupHeader("状态"), Ui.Rows(_shortcuts[HotkeyAction.Folder], _folderTarget));
+            Ui.GroupHeader("状态"), Ui.Rows(_shortcuts[HotkeyAction.Folder], _folderTarget,
+                new SettingsLine("显示跳转栏", "在系统文件对话框旁显示已打开的文件夹、搜索、收藏和最近跳转", _folderBarToggle)));
 
         AddPage(MainPage.General, PageHeader(IconKind.Sliders, "通用", "启动与提示", null),
             Spaced(Ui.GroupHeader("启动"), 8), _startup,

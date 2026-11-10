@@ -64,6 +64,12 @@ internal sealed class FakePlatform : IPlatformServices
         public void Start() { }
         public void Stop() { }
         public Task<FolderNavigationResult> JumpAsync(Shortcut shortcut, CancellationToken cancellationToken) => Task.FromResult(platform.FolderJumpResult);
+        public Task<FolderDialogTarget?> FindDialogAsync(long? retainedTarget, nint activeBar, CancellationToken cancellationToken) => Task.FromResult<FolderDialogTarget?>(null);
+        public Task<IReadOnlyList<string>> GetOpenFoldersAsync(CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<IReadOnlyList<string>> SearchFoldersAsync(string query, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<bool> RestoreDialogAsync(long target, nint activeBar, CancellationToken cancellationToken) => Task.FromResult(false);
+        public Task<FolderNavigationResult> JumpToAsync(long target, nint activeBar, string path, Shortcut? shortcut,
+            CancellationToken cancellationToken) => Task.FromResult(platform.FolderJumpResult);
         public void Dispose() { }
     }
 }

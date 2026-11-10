@@ -15,6 +15,10 @@ internal static class FileDialogNavigator
     private const ushort AltKey = 0x12;
     private const ushort DKey = 0x44;
 
+    internal static bool IsStandardDialog(IntPtr window) =>
+        window != IntPtr.Zero && NativeMethods.IsWindowVisible(window) && HasClass(window, "#32770") &&
+        FindAddressBand(window) != IntPtr.Zero;
+
     internal static NavigationResult Navigate(IntPtr window, string path)
     {
         if (!Directory.Exists(path)) return NavigationResult.InvalidPath;
