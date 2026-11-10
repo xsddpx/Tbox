@@ -59,7 +59,8 @@ internal sealed class FolderJumpBarWindow : Window
         Topmost = true;
         CanResize = false;
         SystemDecorations = SystemDecorations.None;
-        Background = Brushes.White;
+        TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
+        Background = Brushes.Transparent;
         var brandBitmap = Ui.Brand();
         var brand = new Image
         {
@@ -84,6 +85,7 @@ internal sealed class FolderJumpBarWindow : Window
         Content = new Border
         {
             Padding = new Thickness(7), BorderBrush = Outline, BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(10), Background = Brushes.White,
             Child = new Grid { RowDefinitions = new("Auto,Auto,*,Auto,Auto"),
                 Children = { header, Row(_heading, 1), Row(scroller, 2), Row(_hint, 3), Row(_failure, 4) } }
         };

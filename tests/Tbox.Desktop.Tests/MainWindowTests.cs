@@ -76,7 +76,7 @@ public sealed class MainWindowTests
         using var navigation = scope.Controller.Platform.CreateFolderNavigation();
         var bar = new FolderJumpBarWindow(scope.Controller, navigation, (_, _) => Task.CompletedTask,
             () => Task.FromResult(true), () => { }) { Width = 500, Height = 220 };
-        var paths = Enumerable.Range(1, 4).Select(i => Path.Combine(Path.GetTempPath(), $"tbox-open-{i}")).ToArray();
+        var paths = Enumerable.Range(1, 4).Select(i => Path.Combine(Path.GetPathRoot(AppContext.BaseDirectory)!, "示例", $"目录 {i}")).ToArray();
         try
         {
             bar.SetOpenFolders(paths);
