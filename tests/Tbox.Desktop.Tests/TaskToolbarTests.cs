@@ -194,6 +194,8 @@ public sealed class TaskToolbarTests
     }
 
     [AvaloniaTheory]
+    [InlineData(AnnotationTool.Rectangle, "线宽", 5, "5 px")]
+    [InlineData(AnnotationTool.Ellipse, "线宽", 5, "5 px")]
     [InlineData(AnnotationTool.Text, "字号", 32, "32 px")]
     [InlineData(AnnotationTool.Number, "序号大小", 36, "36 px")]
     [InlineData(AnnotationTool.Highlighter, "线宽", 5, "30 px")]
@@ -204,7 +206,17 @@ public sealed class TaskToolbarTests
         using var scope = await CaptureScope.StartAsync(null);
         var toolbar = Assert.Single(scope.Window.GetVisualDescendants().OfType<AnnotationToolbar>());
         scope.Window.Editor.Select(tool); Layout(scope.Window);
-        var slider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
+        var surface = toolbar.PropertiesSurface;
+        var row = Assert.IsType<StackPanel>(surface.Child);
+        var title = Assert.IsType<TextBlock>(row.Children[0]);
+        var divider = Assert.IsType<Border>(row.Children[1]);
+        var titleCenter = title.TranslatePoint(new Point(title.Bounds.Width / 2, title.Bounds.Height / 2), surface)!.Value;
+        var dividerLeft = divider.TranslatePoint(default, surface)!.Value.X;
+        Assert.Equal(TextAlignment.Center, title.TextAlignment);
+        Assert.InRange(Math.Abs(titleCenter.X - dividerLeft / 2), 0, 1);
+        Assert.InRange(Math.Abs(titleCenter.Y - surface.Bounds.Height / 2), 0, 1);
+
+        var slider = Assert.Single(surface.GetVisualDescendants().OfType<Slider>());
         Assert.Equal(name, AutomationProperties.GetName(slider));
         slider.Value = value; Layout(scope.Window);
         Assert.Equal(value, scope.Window.Editor.CurrentSize);

@@ -154,7 +154,12 @@ public sealed class AnnotationToolbar : Border
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         var name = Specs.First(s => s.Tool == tool).Name.Split(" · ")[0];
-        row.Children.Add(Label(name)); _swatches.Clear();
+        var title = Label(name);
+        title.MinWidth = 36;
+        title.TextAlignment = TextAlignment.Center;
+        // Match the gap before the divider with equal space on the leading side.
+        title.Margin = new Thickness(4, 0, 0, 0);
+        row.Children.Add(title); _swatches.Clear();
         if (tool is not (AnnotationTool.Mosaic or AnnotationTool.Eraser))
         {
             row.Children.Add(Ui.ToolbarDivider());
