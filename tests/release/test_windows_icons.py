@@ -16,6 +16,22 @@ def png_size(path):
 
 
 class WindowsIconTests(unittest.TestCase):
+    def test_tray_icon_provides_native_frames_for_common_display_scales(self):
+        data = (ASSETS / "WindowsTrayIcon.ico").read_bytes()
+        reserved, kind, count = struct.unpack_from("<HHH", data)
+        self.assertEqual((0, 1), (reserved, kind))
+        frames = set()
+        for index in range(count):
+            width, height, _, _, _, depth, length, offset = struct.unpack_from("<BBBBHHII", data, 6 + index * 16)
+            with self.subTest(width=width):
+                self.assertEqual(width, height)
+                self.assertEqual(32, depth)
+                self.assertLessEqual(offset + length, len(data))
+                self.assertEqual(b"\x89PNG\r\n\x1a\n", data[offset:offset + 8])
+                self.assertEqual((width, height), struct.unpack_from(">II", data, offset + 16))
+                frames.add(width)
+        self.assertEqual({16, 20, 24, 28, 32, 40, 48, 64}, frames)
+
     def test_unplated_shell_assets_cover_common_target_sizes(self):
         for size in TARGET_SIZES:
             path = ASSETS / f"Square44x44Logo.targetsize-{size}_altform-unplated.png"

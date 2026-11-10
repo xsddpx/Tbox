@@ -12,6 +12,7 @@ DESTINATION = ROOT / "src/Tbox.Desktop/Assets"
 MENU_ICON = ROOT / "src/Tbox.Desktop/Platform/macos/menu-bar-icon.png"
 NS = "{http://www.w3.org/2000/svg}"
 WINDOWS_TARGET_SIZES = (16, 20, 24, 30, 32, 36, 40, 44, 48, 60, 64, 72, 80, 96, 256)
+WINDOWS_TRAY_SIZES = (16, 20, 24, 28, 32, 40, 48, 64)
 
 
 def polygon(svg, path_id):
@@ -58,6 +59,15 @@ def fitted_icon(source, size):
     return canvas
 
 
+def save_windows_tray_icon(source):
+    # Crop to the tile, ignoring the faint shadow outside it. At 16–24 px
+    # even a single transparent pixel on each side noticeably shrinks the mark.
+    tile = source.crop(source.getchannel("A").point(lambda alpha: 255 if alpha >= 128 else 0).getbbox())
+    frames = [tile.resize((size, size), Image.Resampling.LANCZOS) for size in WINDOWS_TRAY_SIZES]
+    frames[-1].save(DESTINATION / "WindowsTrayIcon.ico", sizes=[frame.size for frame in frames],
+                    append_images=frames[:-1])
+
+
 def main():
     svg = ET.parse(SOURCE).getroot()
     if svg.get("viewBox") != "0 0 1024 1024":
@@ -78,9 +88,8 @@ def main():
         wide.alpha_composite(render(150), (80, 0))
         wide.save(DESTINATION / "Wide310x150Logo.png", optimize=True)
 
-        # Windows uses target-size resources in Start, the taskbar, Alt+Tab and
-        # the notification area. The unplated variants prevent the shell from
-        # shrinking the artwork and adding its own backplate.
+        # Start and task switching use shell assets. The notification area
+        # instead uses the icon supplied by the running application.
         for size in WINDOWS_TARGET_SIZES:
             fitted_icon(source, size).save(
                 DESTINATION / f"Square44x44Logo.targetsize-{size}_altform-unplated.png",
@@ -92,6 +101,7 @@ def main():
             DESTINATION / "Tbox.ico", sizes=[(size, size) for size in sizes],
             append_images=[fitted_icon(source, size) for size in sizes[:-1]],
         )
+        save_windows_tray_icon(source)
     template.save(MENU_ICON, optimize=True)
     print("Generated Windows PNG/ICO and macOS menu bar template.")
 
