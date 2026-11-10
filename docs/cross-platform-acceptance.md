@@ -2,6 +2,11 @@
 
 最新公开安装包见 [GitHub Releases](https://github.com/xsddpx/Tbox/releases/latest)。
 
+## 2026-11-10 Windows 1.1.37 截图保存位置的文件夹跳转
+
+- 源提交 `b45abf0` 的 [Windows 原生集成检查](https://github.com/xsddpx/Tbox/actions/runs/42771910649) 通过。打开、保存、文件夹选择各 4 次，两个同名目标目录均以唯一内容标记验证，保存文件名保留，普通窗口不接收导航输入。
+- [Windows 签名安装作业](https://github.com/xsddpx/Tbox/actions/runs/42772141387) 通过。下载包的 SHA-256 与打包记录一致，复用 1.1.36 签名身份。本机覆盖安装 1.1.37 后通过包身份、正常启动、OCR、像素裁剪和窗口渲染验证。Computer Use 运行时启动崩溃，安装版「截图 → 保存位置」路径待手动复验。本轮没有 macOS 实机升级记录。
+
 ## 2026-11-10 Windows 1.1.36 无边距 VI 图标
 
 - 源提交 `f8c0357` 的 [Windows 签名安装作业](https://github.com/xsddpx/Tbox/actions/runs/42767824008) 通过。下载包与打包记录的 SHA-256 一致，签名证书与 1.1.34 相同。本机从 1.1.34 覆盖安装至 1.1.36，包身份保持一致，系统文字识别、像素裁剪、共用窗口渲染及安装版正常启动通过。
