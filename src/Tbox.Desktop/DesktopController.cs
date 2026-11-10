@@ -46,9 +46,6 @@ public sealed class DesktopController : IDisposable
     // The one main window. It stays hidden until opened from the tray, a second launch or app reopen.
     public MainWindow Main { get; set; } = null!;
     public bool IsQuitting { get; private set; }
-    internal bool HasOpenWorkForUpdate => _capturing || _capture is not null || _longCapture is not null || _recording is not null ||
-        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window =>
-            window != Main && window is not (FailureNotificationWindow or FolderJumpBarWindow));
     public string CacheDirectory => _cache.DirectoryPath;
     public AppSettings Settings => _settings;
     public string FolderDirectory => _folders.CurrentDirectory;
@@ -67,6 +64,29 @@ public sealed class DesktopController : IDisposable
     public bool IsDefaultShortcut(HotkeyAction action) => ShortcutFor(action) == ShortcutPolicy.Default(action, OperatingSystem.IsMacOS());
     // Raised after a shortcut changes so labels (tray menu, buttons, hints) can follow.
     public event Action? ShortcutsChanged;
+
+    internal string? GetUpdateBlockReason()
+    {
+        if (_recording is not null) return "请先结束正在进行的录屏。";
+        if (_reviews.Count != 0) return "请先处理并关闭录屏结果。";
+        if (_capturing || _capture is not null || _longCapture is not null) return "请先完成或取消正在进行的截图、长截图或录屏选区。";
+        if (_pins.Count != 0)
+        {
+            var shortcut = ShortcutFor(HotkeyAction.Toggle).Display(OperatingSystem.IsMacOS());
+            return _pinsHidden
+                ? $"还有 {_pins.Count} 张隐藏的贴图。按 {shortcut} 显示贴图，再逐一关闭。"
+                : $"还有 {_pins.Count} 张贴图。请先关闭贴图。";
+        }
+
+        return _lifetime.Windows.FirstOrDefault(window => window != Main && window is not (FailureNotificationWindow or FolderJumpBarWindow)) switch
+        {
+            OcrWindow => "请先关闭文字识别结果窗口。",
+            ImageResultWindow => "请先关闭图片预览窗口。",
+            { Title: { Length: > 0 } title } => $"请先关闭「{title}」窗口。",
+            { } => "请先关闭其他打开的 Tbox 窗口。",
+            null => null
+        };
+    }
 
     public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime, string? settingsPath = null)
     {

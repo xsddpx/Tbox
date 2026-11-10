@@ -130,7 +130,7 @@ internal sealed class UpdateCard : StackPanel
 
     private async Task InstallAsync(CancellationToken token)
     {
-        if (_controller.HasOpenWorkForUpdate) throw new InvalidOperationException("请先完成截图、录屏并关闭贴图及结果窗口，再安装更新。");
+        if (await ShowUpdateBlockAsync()) return;
         var confirm = OperatingSystem.IsMacOS()
             ? new ConfirmWindow("现在安装并重启 Tbox？", "安装并重启", "已有设置和缓存会保留。")
             : new ConfirmWindow("现在打开安装程序？", "打开安装程序", "在 Windows 安装程序中确认升级，完成后重新打开 Tbox。");
@@ -139,10 +139,20 @@ internal sealed class UpdateCard : StackPanel
         Detail("正在验证安装包与应用身份…"); _progress.IsVisible = true; _progress.IsIndeterminate = true;
         using var prepared = await UpdateInstaller.PrepareAsync(_file!, _release!, token);
         token.ThrowIfCancellationRequested();
-        if (_controller.HasOpenWorkForUpdate) throw new InvalidOperationException("存在未结束的任务，请完成后重试。");
+        if (await ShowUpdateBlockAsync()) return;
         prepared.Launch(); _handedToInstaller = true;
         if (prepared.RequiresExit) await _controller.QuitAsync();
         else { Detail("安装程序已打开。完成升级后，请重新打开 Tbox。"); _file = null; _release = null; AvailabilityChanged?.Invoke(); }
+    }
+
+    private async Task<bool> ShowUpdateBlockAsync()
+    {
+        if (_controller.GetUpdateBlockReason() is not { } reason) return false;
+        var message = reason + " 安装包已保留，处理后可再次安装。";
+        Detail(message);
+        _progress.IsVisible = false;
+        await new ConfirmWindow("暂时无法安装更新", "知道了", message, showBack: false).ShowDialog<bool>(Owner);
+        return true;
     }
 
     private void Detail(string text) { _detail.Inlines = null; _detail.Text = text; }

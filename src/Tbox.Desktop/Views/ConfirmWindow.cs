@@ -10,7 +10,7 @@ namespace Tbox.Desktop.Views;
 // "返回" on the left, the action itself on the right; destructive actions are red. Esc = 返回.
 internal sealed class ConfirmWindow : Window
 {
-    public ConfirmWindow(string title, string confirm, string? detail = null, bool destructive = false)
+    public ConfirmWindow(string title, string confirm, string? detail = null, bool destructive = false, bool showBack = true)
     {
         Ui.Configure(this, "Tbox", 400, 160);
         CanResize = false; WindowStartupLocation = WindowStartupLocation.CenterOwner; SizeToContent = SizeToContent.Height;
@@ -26,7 +26,7 @@ internal sealed class ConfirmWindow : Window
                 action.Resources["ButtonBorderBrush" + state] = Brush.Parse(color);
             }
         }
-        var actions = Ui.Row(Ui.Button("返回", () => Close(false)), action);
+        var actions = showBack ? Ui.Row(Ui.Button("返回", () => Close(false)), action) : Ui.Row(action);
         actions.HorizontalAlignment = HorizontalAlignment.Right; actions.Margin = new Thickness(0, 18, 0, 0);
         var body = new StackPanel { Margin = new Thickness(20, 20, 20, 16), Children =
         {
