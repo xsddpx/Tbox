@@ -68,3 +68,61 @@ CI 的 `-VerifyOnly` 不签名、不导入证书、不安装、不发布完成�
 `SettingsMigration` 仅在 Windows 正常启动且 `desktop-settings.json` 缺失时尝试导入 `settings.json`。校验有效 JSON 后通过同目录临时文件和不覆盖重命名落盘，保留旧文件原始字节；已有新版设置优先，损坏/无权限的旧配置不删除且返回非致命状态。系统开机启动状态单独读取，不把旧配置字段当作系统授权。
 
 官方机制：[MakeAppx 打包和解包](https://learn.microsoft.com/en-us/windows/msix/package/create-app-package-with-makeappx-tool)、[包身份下运行验证进程](https://learn.microsoft.com/en-us/powershell/module/appx/invoke-commandindesktoppackage?view=windowsserver2025-ps)。
+
+## 本地开发与打包
+
+在仓库根目录运行命令。使用 `global.json` 固定的 .NET SDK、.NET 8 运行时和 Python 3。交付安装包自带 .NET 运行时。
+
+```sh
+dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
+dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
+python3 -m unittest discover -s tests/release -v
+```
+
+运行桌面测试时设置 `TBOX_UI_PREVIEWS=<目录>` 可导出真实控件的渲染预览。`tests/Tbox.FolderSmoke` 和 `tests/Tbox.MediaSmoke` 分别用于 Windows 文件对话框集成检查与媒体解码、导出检查。构建及验证的中间产物放在 Git 忽略的 `TEMP/`。
+
+### macOS
+
+需要 Apple Command Line Tools、`make` 和 `pkg-config`（`brew install pkgconf`）。首次构建会校验并下载固定版本的媒体源码，构建 FFmpeg 与 libwebp 并准备 VLC 回放插件。后续构建复用 `TEMP/` 中的媒体依赖。SDK 不在 PATH 时可设置 `TBOX_DOTNET=/完整路径/dotnet`。
+
+```bash
+bash scripts/setup-macos-signing.sh   # 仅首次配置持久本地签名身份
+bash scripts/build-macos.sh osx-arm64
+bash scripts/package-macos.sh osx-arm64
+bash scripts/install-macos.sh
+```
+
+构建产物为 `TEMP/build/osx-arm64/Tbox.app`。打包脚本运行测试、构建、签名和验签，启动应用验证离线 OCR 与像素裁剪，再在 `artifacts/` 生成 ZIP 并登记哈希。安装脚本在 `~/Applications/Tbox.app` 覆盖已有应用前校验签名要求。升级后的权限检查见 [权限升级验证](macos-permission-upgrade-verification.md)。
+
+媒体检查使用合成视频。准备好媒体运行库后运行以下命令。
+
+```sh
+dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
+```
+
+### Windows
+
+需要 Windows 11 x64 与 Windows SDK 10.0.26100。将 CI 的 `windows-media-runtime` 产物解压到 `TEMP/media-runtime/windows` 并运行 `python scripts/verify-windows-media.py` 校验。也可在 Linux 上通过 `bash scripts/prepare-windows-media.sh` 从固定源码构建。Windows 上默认选择 Windows 目标。在 Mac 上准备好同一套 Windows 媒体依赖后，可用 `dotnet build src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -p:TboxWindows=true` 检查 Windows 目标编译。
+
+```powershell
+# 验证版本、运行库、媒体导出及 MSIX 结构
+.\scripts\package-desktop-windows.ps1 -VerifyOnly
+
+# 复用已有持久证书签名、安装并验证
+.\scripts\package-desktop-windows.ps1 -CertificateThumbprint '<证书指纹>'
+
+# 安装受信任的签名包，可用 -DependencyPath 提供 VCLibs 框架包
+.\scripts\install-desktop-windows.ps1 -PackagePath '.\artifacts\Tbox_<版本>_win-x64.msix'
+
+# 标准文件对话框集成检查在 GitHub 托管 Windows runner 上执行
+.\scripts\test-windows-folders.ps1
+
+# 使用合成视频验证解码和导出
+dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/windows/bin/ffmpeg.exe
+```
+
+首次安装需要信任证书时，按 [安装与权限说明](releases/INSTALL.md#windows) 处理。
+
+### 正式发布
+
+同步更新项目文件、Windows 包清单与 macOS Info.plist 的版本号，每个交付包使用从未打包过的新版本。代码合入主分支后，通过推送版本标签或手动运行发布工作流触发双平台构建、签名和验收。具体流程见 [自动发布](automatic-releases.md)，包的打包时间和 SHA-256 见 [发布历史](release-history.md)。
