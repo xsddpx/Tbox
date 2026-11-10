@@ -42,45 +42,30 @@ def menu_icon(svg):
     return mask.resize((64, 64), Image.Resampling.LANCZOS)
 
 
-def fitted_icon(source, size):
-    """Fill Windows icon canvases without clipping the approved artwork."""
-    bounds = source.getchannel("A").getbbox()
-    if bounds is None:
-        raise ValueError("AppIcon.png must contain visible pixels.")
-    cropped = source.crop(bounds)
-    margin = max(1, round(size * 0.02))
-    available = size - margin * 2
-    scale = min(available / cropped.width, available / cropped.height)
-    width = max(1, round(cropped.width * scale))
-    height = max(1, round(cropped.height * scale))
-    icon = cropped.resize((width, height), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", (size, size))
-    canvas.alpha_composite(icon, ((size - width) // 2, (size - height) // 2))
-    return canvas
-
-
-def save_windows_tray_icon(source):
-    # Crop to the tile, ignoring the faint shadow outside it. At 16–24 px
-    # even a single transparent pixel on each side noticeably shrinks the mark.
-    tile = source.crop(source.getchannel("A").point(lambda alpha: 255 if alpha >= 128 else 0).getbbox())
-    frames = [tile.resize((size, size), Image.Resampling.LANCZOS) for size in WINDOWS_TRAY_SIZES]
-    frames[-1].save(DESTINATION / "WindowsTrayIcon.ico", sizes=[frame.size for frame in frames],
-                    append_images=frames[:-1])
-
-
 def main():
     svg = ET.parse(SOURCE).getroot()
-    if svg.get("viewBox") != "0 0 1024 1024":
-        raise ValueError("图标原稿画布须为 1024×1024。")
+    if (svg.get("width"), svg.get("height")) != ("1024", "1024"):
+        raise ValueError("图标原稿输出尺寸须为 1024×1024。")
     template = menu_icon(svg)
     # The full-size export preserves the SVG gradients and drop shadows exactly
     # as reviewed. Pillow only resizes those pixels for the platform assets.
     with Image.open(DESTINATION / "AppIcon.png") as source:
-        if source.size != (1024, 1024) or source.mode != "RGBA" or source.getchannel("A").getextrema() != (0, 255):
-            raise ValueError("AppIcon.png 须为具有透明边缘的 1024×1024 已确认渲染图。")
+        if source.size != (1024, 1024) or source.mode != "RGBA":
+            raise ValueError("AppIcon.png 须为 1024×1024 的 RGBA 渲染图。")
+        alpha = source.getchannel("A")
+        # The solid tile must touch all four sides. Ignore any faint shadow.
+        if alpha.point(lambda value: 255 if value >= 128 else 0).getbbox() != (0, 0, *source.size):
+            raise ValueError("AppIcon.png 的底座须贴齐画板四边，不留透明边距。")
+        if alpha.getextrema() != (0, 255):
+            raise ValueError("AppIcon.png 须保留圆角外的透明区域。")
 
         def render(size):
             return source.resize((size, size), Image.Resampling.LANCZOS)
+
+        def save_ico(name, sizes):
+            frames = [render(size) for size in sizes]
+            frames[-1].save(DESTINATION / name, sizes=[frame.size for frame in frames],
+                            append_images=frames[:-1])
 
         for name, size in {"StoreLogo.png": 50, "Square44x44Logo.png": 44, "Square150x150Logo.png": 150}.items():
             render(size).save(DESTINATION / name, optimize=True)
@@ -91,17 +76,13 @@ def main():
         # Start and task switching use shell assets. The notification area
         # instead uses the icon supplied by the running application.
         for size in WINDOWS_TARGET_SIZES:
-            fitted_icon(source, size).save(
+            render(size).save(
                 DESTINATION / f"Square44x44Logo.targetsize-{size}_altform-unplated.png",
                 optimize=True,
             )
 
-        sizes = (16, 24, 32, 48, 64, 128, 256)
-        fitted_icon(source, 256).save(
-            DESTINATION / "Tbox.ico", sizes=[(size, size) for size in sizes],
-            append_images=[fitted_icon(source, size) for size in sizes[:-1]],
-        )
-        save_windows_tray_icon(source)
+        save_ico("Tbox.ico", (16, 24, 32, 48, 64, 128, 256))
+        save_ico("WindowsTrayIcon.ico", WINDOWS_TRAY_SIZES)
     template.save(MENU_ICON, optimize=True)
     print("Generated Windows PNG/ICO and macOS menu bar template.")
 
