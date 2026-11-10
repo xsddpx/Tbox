@@ -52,7 +52,9 @@ public sealed class MainWindowTests
             Assert.False(Find(main, tool).IsEffectivelyEnabled, tool);
         Assert.Contains(main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "截图与贴图已关闭，快捷键已释放。打开右上角开关即可恢复。");
         Click(main, "文件夹跳转", sidebar: true); Layout(main);
-        Assert.True(Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<ToggleSwitch>(), t => t.IsEffectivelyVisible).IsEffectivelyEnabled);
+        var switches = main.CurrentPageView.GetVisualDescendants().OfType<ToggleSwitch>().Where(t => t.IsEffectivelyVisible);
+        Assert.Equal(2, switches.Count());
+        Assert.All(switches, toggle => Assert.True(toggle.IsEffectivelyEnabled));
     }
 
     [AvaloniaFact]

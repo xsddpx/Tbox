@@ -58,6 +58,9 @@ internal static class Program
                     Focus(handle);
                     await UntilAsync(() => SamePath(navigation.CurrentDirectory, targets[i]),
                         $"Foreground folder tracking failed: {navigation.CurrentDirectory}");
+                    var opened = await navigation.GetOpenFoldersAsync(CancellationToken.None);
+                    if (opened.Count == 0 || !SamePath(opened[0], targets[i]))
+                        throw new InvalidOperationException("The most recently used open directory was not recommended first.");
                     // Repeat the open/save transition: the file-name Edit can
                     // retain focus briefly while Ctrl+L is still in the queue.
                     foreach (var kind in new[] { "open", "save", "folder", "tbox-folder", "open", "save", "folder", "tbox-folder" })
@@ -86,10 +89,12 @@ internal static class Program
                             fileDialog.Title = title; fileDialog.InitialDirectory = initial;
                             fileDialog.FileName = "TBOX_FILENAME_UNCHANGED";
                         }
-                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory, kind != "folder"));
+                        var useBar = kind == "save" && i == 1;
+                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory, kind != "folder",
+                            barOwner: useBar ? host : null));
                         dialog.ShowDialog(host);
                         var result = await worker;
-                        outcomes.Add(new { kind, target, result.elapsedMs, markerVerified = true });
+                        outcomes.Add(new { kind, target, result.elapsedMs, markerVerified = true, usedBar = useBar });
                     }
                 }
                 host.Activate();
@@ -126,7 +131,8 @@ internal static class Program
     }
 
     private static async Task<(long elapsedMs, string marker)> ExerciseDialogAsync(
-        IFolderNavigation navigation, string title, string target, string marker, string directory, bool hasFileName, Forms.Form? owner = null)
+        IFolderNavigation navigation, string title, string target, string marker, string directory, bool hasFileName,
+        Forms.Form? owner = null, Forms.Form? barOwner = null)
     {
         nint dialog = 0;
         try
@@ -140,7 +146,25 @@ internal static class Program
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var clock = Stopwatch.StartNew();
             var shortcut = Tbox.Core.ShortcutPolicy.Default(Tbox.Core.HotkeyAction.Folder, false);
-            var result = owner is null ? await navigation.JumpAsync(shortcut, timeout.Token)
+            FolderNavigationResult result;
+            if (barOwner is not null)
+            {
+                var candidate = await navigation.FindDialogAsync(null, 0, timeout.Token);
+                if (candidate?.Id != dialog.ToInt64()) throw new InvalidOperationException("The native save dialog was not recognized.");
+                result = await JumpOnOwnerAsync(barOwner, async () =>
+                {
+                    using var bar = new Forms.Form { Text = "Folder bar focus fixture", ShowInTaskbar = false };
+                    bar.Show();
+                    Focus(bar.Handle);
+                    var retained = await navigation.FindDialogAsync(candidate.Id, bar.Handle, timeout.Token);
+                    if (retained?.Id != candidate.Id) throw new InvalidOperationException("The original dialog was lost while the bar had focus.");
+                    var rejected = await navigation.JumpToAsync(candidate.Id, 0, target, null, timeout.Token);
+                    if (rejected.Success || GetForegroundWindow() != bar.Handle)
+                        throw new InvalidOperationException("An unrelated foreground window was accepted.");
+                    return await navigation.JumpToAsync(candidate.Id, bar.Handle, target, null, timeout.Token);
+                }, timeout.Token);
+            }
+            else result = owner is null ? await navigation.JumpAsync(shortcut, timeout.Token)
                 : await JumpOnOwnerAsync(owner, () => navigation.JumpAsync(shortcut, timeout.Token), timeout.Token);
             if (!result.Success) throw new InvalidOperationException(result.Message);
             if (!SamePath(navigation.CurrentDirectory, target)) throw new InvalidOperationException("Tracker returned a different parent directory.");

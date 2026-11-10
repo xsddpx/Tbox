@@ -18,6 +18,7 @@ internal sealed class ExplorerFolderTracker : IDisposable
     private bool _disposed;
     private string _currentFolder;
     private string? _lastShellPath;
+    private string[] _recentPaths = [];
 
     internal string CurrentFolder => Volatile.Read(ref _currentFolder);
     internal string? LastShellPathForTesting => Volatile.Read(ref _lastShellPath);
@@ -130,6 +131,46 @@ internal sealed class ExplorerFolderTracker : IDisposable
             CaptureSerialized(explorerWindow);
         }
         return CurrentFolder;
+    }
+
+    internal IReadOnlyList<string> ReadOpenFolders(CancellationToken cancellationToken)
+    {
+        var paths = new List<string>();
+        object? shellObject = null;
+        object? windowsObject = null;
+        try
+        {
+            if (Type.GetTypeFromProgID("Shell.Application") is not { } shellType) return [];
+            shellObject = Activator.CreateInstance(shellType);
+            if (shellObject is null) return [];
+            windowsObject = ((dynamic)shellObject).Windows();
+            dynamic windows = windowsObject!;
+            var count = Convert.ToInt32(windows.Count);
+            for (var index = 0; index < count; index++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                object? view = null;
+                try
+                {
+                    view = windows.Item(index);
+                    if (view is null) continue;
+                    dynamic item = view;
+                    if (GetExplorerRoot(new IntPtr(Convert.ToInt64(item.HWND))) == IntPtr.Zero) continue;
+                    string? path = item.Document?.Folder?.Self?.Path;
+                    if (path is not null && Path.IsPathFullyQualified(path) && Directory.Exists(path)) paths.Add(path);
+                }
+                catch (COMException) { } // The user can close a view while ShellWindows is being enumerated.
+                finally { ReleaseComObject(view); }
+            }
+        }
+        catch (COMException error) { AppLog.Write("Open Explorer directories: " + error.GetType().Name); }
+        finally { ReleaseComObject(windowsObject); ReleaseComObject(shellObject); }
+        return FolderJumpList.OrderOpened(paths, Volatile.Read(ref _recentPaths)).ToArray();
+    }
+
+    private static void ReleaseComObject(object? value)
+    {
+        if (value is not null && Marshal.IsComObject(value)) Marshal.ReleaseComObject(value);
     }
 
     private static IntPtr GetExplorerRoot(IntPtr hwnd)
@@ -261,6 +302,8 @@ internal sealed class ExplorerFolderTracker : IDisposable
                         Volatile.Write(ref _lastShellPath, selectedShellPath);
                         var resolved = FolderTargetPolicy.Resolve(selectedShellPath, _userProfile);
                         Volatile.Write(ref _currentFolder, resolved);
+                        if (selectedShellPath is not null && Path.IsPathFullyQualified(selectedShellPath) && Directory.Exists(selectedShellPath))
+                            Volatile.Write(ref _recentPaths, FolderJumpList.Remember(_recentPaths, selectedShellPath));
                         AppLog.Write(candidates.Count > 1
                             ? "Explorer active-tab folder captured from the window title."
                             : "Explorer folder captured.");

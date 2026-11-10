@@ -97,6 +97,27 @@ public func finderDirectory(_ refresh: Int32) -> UnsafeMutablePointer<CChar>? {
     }
 }
 
+@_cdecl("tbox_finder_open_folders")
+public func finderOpenFolders() -> UnsafeMutablePointer<CChar>? {
+    guard AXIsProcessTrusted(),
+          let finder = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first else {
+        return response(["paths": []])
+    }
+    let application = AXUIElementCreateApplication(finder.processIdentifier)
+    let windows = folderAttribute(application, kAXWindowsAttribute) as? [AXUIElement] ?? []
+    var paths: [String] = []
+    let deadline = Date().addingTimeInterval(1)
+    for window in windows.prefix(32) {
+        guard Date() < deadline else { break }
+        guard let title = folderAttribute(window, kAXTitleAttribute) as? String,
+              case .path(let path) = readFinderDirectory(window, title: title),
+              title == folderAttribute(window, kAXTitleAttribute) as? String,
+              readFinderDirectory(window, title: title) == .path(path) else { continue }
+        paths.append(path)
+    }
+    return response(["paths": paths])
+}
+
 private struct StandardPanel {
     let element: AXUIElement
     let host: pid_t
@@ -191,6 +212,89 @@ private func stillFocused(_ target: StandardPanel) -> Bool {
         NSWorkspace.shared.frontmostApplication?.processIdentifier == target.host
 }
 
+private let retainedPanelLock = NSLock()
+private var retainedPanel: StandardPanel?
+private var retainedPanelID: Int64 = 0
+
+private func folderBarIsKey(_ handle: UnsafeRawPointer?) -> Bool {
+    guard let handle else { return false }
+    return DispatchQueue.main.sync {
+        guard NSRunningApplication.current.isActive, let keyWindow = NSApp.keyWindow else { return false }
+        if UnsafeRawPointer(Unmanaged.passUnretained(keyWindow).toOpaque()) == handle { return true }
+        guard let content = keyWindow.contentView else { return false }
+        return UnsafeRawPointer(Unmanaged.passUnretained(content).toOpaque()) == handle
+    }
+}
+
+private func panelBounds(_ target: StandardPanel) -> CGRect? {
+    guard let position = folderAttribute(target.element, kAXPositionAttribute),
+          let size = folderAttribute(target.element, kAXSizeAttribute),
+          CFGetTypeID(position) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+    var origin = CGPoint.zero, dimensions = CGSize.zero
+    guard AXValueGetValue(position as! AXValue, .cgPoint, &origin),
+          AXValueGetValue(size as! AXValue, .cgSize, &dimensions),
+          dimensions.width > 1, dimensions.height > 1 else { return nil }
+    return CGRect(origin: origin, size: dimensions)
+}
+
+@_cdecl("tbox_folder_dialog")
+public func folderDialog(_ previous: Int64, _ bar: UnsafeRawPointer?) -> UnsafeMutablePointer<CChar>? {
+    guard AXIsProcessTrusted() else { return response([:]) }
+    let focused = focusedStandardPanel()
+    let keepPrevious = focused == nil && folderBarIsKey(bar)
+    let identified: (StandardPanel, Int64)? = retainedPanelLock.withLock {
+        if let focused {
+            if let previous = retainedPanel, focused.host == previous.host, focused.service == previous.service,
+               CFEqual(focused.element, previous.element) {
+                return (focused, retainedPanelID)
+            }
+            retainedPanel = focused
+            retainedPanelID += 1
+            return (focused, retainedPanelID)
+        }
+        if keepPrevious, previous == retainedPanelID, let retainedPanel { return (retainedPanel, previous) }
+        return nil
+    }
+    guard let (target, id) = identified, let bounds = panelBounds(target) else { return response([:]) }
+    let work: CGRect? = DispatchQueue.main.sync {
+        let primaryHeight = CGDisplayBounds(CGMainDisplayID()).height
+        let rect = CGRect(x: bounds.minX, y: primaryHeight - bounds.maxY, width: bounds.width, height: bounds.height)
+        let screen = NSScreen.screens.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) } ??
+            NSScreen.screens.first { $0.frame.intersects(rect) }
+        guard let frame = screen?.visibleFrame else { return nil }
+        return CGRect(x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+    }
+    guard let work else { return response([:]) }
+    func json(_ rect: CGRect) -> [String: CGFloat] {
+        ["left": rect.minX, "top": rect.minY, "width": rect.width, "height": rect.height]
+    }
+    return response(["target": ["id": id, "bounds": json(bounds), "workArea": json(work), "scale": 1]])
+}
+
+@_cdecl("tbox_restore_folder_dialog")
+public func restoreFolderDialog(_ id: Int64, _ bar: UnsafeRawPointer?) -> Int32 {
+    guard AXIsProcessTrusted(), let target = folderTarget(id) else { return 0 }
+    if stillFocused(target) { return 1 }
+    guard folderBarIsKey(bar), panelBounds(target) != nil,
+          let app = NSRunningApplication(processIdentifier: target.host) else { return 0 }
+    guard app.activate(options: []) else { return 0 }
+    if target.host == ProcessInfo.processInfo.processIdentifier {
+        AXUIElementPerformAction(target.element, kAXRaiseAction as CFString)
+    }
+    let deadline = Date().addingTimeInterval(0.4)
+    repeat {
+        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if front == target.host, stillFocused(target) { return 1 }
+        if front != target.host && front != ProcessInfo.processInfo.processIdentifier { break }
+        Thread.sleep(forTimeInterval: 0.02)
+    } while Date() < deadline
+    return 0
+}
+
+private func folderTarget(_ id: Int64) -> StandardPanel? {
+    retainedPanelLock.withLock { id == retainedPanelID ? retainedPanel : nil }
+}
+
 private func goSheet(in target: StandardPanel) -> AXUIElement? {
     children(target.element).first { hasIdentity($0, role: kAXSheetRole, identifier: "GoToWindow") }
 }
@@ -258,6 +362,26 @@ private func folderJumpFailure(_ message: String, stage: String) -> UnsafeMutabl
 
 @_cdecl("tbox_folder_jump")
 public func folderJump(_ destination: UnsafePointer<CChar>?, _ hotkeyCode: Int32) -> UnsafeMutablePointer<CChar>? {
+    navigateFolder(destination, hotkeyCode, expected: nil)
+}
+
+@_cdecl("tbox_folder_jump_to")
+public func folderJumpTo(_ destination: UnsafePointer<CChar>?, _ hotkeyCode: Int32,
+                         _ id: Int64, _ bar: UnsafeRawPointer?) -> UnsafeMutablePointer<CChar>? {
+    // Let the key that selected the result go up before returning focus to the system dialog.
+    let deadline = Date().addingTimeInterval(0.6)
+    while CGEventSource.keyState(.hidSystemState, key: CGKeyCode(hotkeyCode)) && Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.005)
+    }
+    guard !CGEventSource.keyState(.hidSystemState, key: CGKeyCode(hotkeyCode)),
+          restoreFolderDialog(id, bar) != 0, let target = folderTarget(id) else {
+        return folderJumpFailure("原文件面板已关闭或不在前台。", stage: "restore-panel")
+    }
+    return navigateFolder(destination, hotkeyCode, expected: target)
+}
+
+private func navigateFolder(_ destination: UnsafePointer<CChar>?, _ hotkeyCode: Int32,
+                            expected: StandardPanel?) -> UnsafeMutablePointer<CChar>? {
     guard AXIsProcessTrusted() else {
         return response(["success": false, "message": "文件夹跳转需要在系统设置中允许 Tbox 辅助功能权限。"])
     }
@@ -268,7 +392,7 @@ public func folderJump(_ destination: UnsafePointer<CChar>?, _ hotkeyCode: Int32
     guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else {
         return response(["success": false, "message": "目标文件夹不可用。"])
     }
-    guard let target = focusedStandardPanel() else {
+    guard let target = expected ?? focusedStandardPanel(), expected == nil || stillFocused(target) else {
         return folderJumpFailure("无法确认当前系统文件面板，未执行跳转。", stage: "panel")
     }
     guard goSheet(in: target) == nil else {

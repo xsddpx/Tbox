@@ -22,6 +22,7 @@ public sealed class DesktopController : IDisposable
     private readonly string? _legacySettingsPath;
     private readonly CancellationTokenSource _stop = new();
     private readonly IFolderNavigation _folders;
+    private readonly FolderJumpBarSession _folderBar;
     private readonly IStartupRegistration _startup;
     private readonly HotkeyConfiguration _hotkeys;
     private bool _recordingShortcut;
@@ -46,7 +47,8 @@ public sealed class DesktopController : IDisposable
     public MainWindow Main { get; set; } = null!;
     public bool IsQuitting { get; private set; }
     internal bool HasOpenWorkForUpdate => _capturing || _capture is not null || _longCapture is not null || _recording is not null ||
-        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window => window != Main && window is not FailureNotificationWindow);
+        _pins.Count != 0 || _reviews.Count != 0 || _lifetime.Windows.Any(window =>
+            window != Main && window is not (FailureNotificationWindow or FolderJumpBarWindow));
     public string CacheDirectory => _cache.DirectoryPath;
     public AppSettings Settings => _settings;
     public string FolderDirectory => _folders.CurrentDirectory;
@@ -70,6 +72,7 @@ public sealed class DesktopController : IDisposable
     {
         Platform = platform; _lifetime = lifetime;
         _folders = platform.CreateFolderNavigation();
+        _folderBar = new(this, _folders, _stop.Token);
         _startup = platform.CreateStartupRegistration();
         _hotkeys = new HotkeyConfiguration(binding => platform.RegisterHotkey(binding, OnHotkey), platform.UnregisterHotkey);
         // Tooltips and labels across the windows read the shortcuts from this controller's settings.
@@ -92,6 +95,7 @@ public sealed class DesktopController : IDisposable
             ApplyHotkeys(_settings);
             ShortcutsChanged?.Invoke();
             if (_settings.FolderJumpEnabled) _folders.Start();
+            _folderBar.Sync();
             if (HasHotkeyConflict) Main.SetStatus("部分快捷键被其他应用占用，可在主窗口修改或直接启动工具。");
             Main.Refresh();
             await RefreshStartupAsync();
@@ -190,13 +194,39 @@ public sealed class DesktopController : IDisposable
     public async Task JumpFolderAsync()
     {
         if (!_settings.FolderJumpEnabled) return;
-        var result = await _folders.JumpAsync(ShortcutFor(HotkeyAction.Folder), _stop.Token);
+        var shortcut = ShortcutFor(HotkeyAction.Folder);
+        if (await _folderBar.TryJumpAsync(shortcut)) return;
+        var result = await _folders.JumpAsync(shortcut, _stop.Token);
+        await ReportFolderJumpAsync(result, _folders.CurrentDirectory);
+    }
+
+    internal async Task ReportFolderJumpAsync(FolderNavigationResult result, string path)
+    {
         var message = result.Success ? "文件对话框已跳转。" : result.Message ?? "文件夹跳转未完成。";
         Main.SetStatus(message);
-        Main.Refresh();
         if (!result.Success && (!Main.IsVisible || _cachePickerOpen) && _settings.ShowFailureNotifications && !IsQuitting)
             FailureNotificationWindow.ShowFailure(this, message);
+        if (!result.Success) { Main.Refresh(); return; }
+        try
+        {
+            await UpdateSettingsAsync(settings => settings with { RecentFolderJumps = FolderJumpList.Remember(settings.RecentFolderJumps, path) });
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            AppLog.Write("Folder jump history could not be saved: " + error.GetType().Name);
+        }
     }
+
+    public async Task SetFolderJumpBarAsync(bool enabled)
+    {
+        await UpdateSettingsAsync(settings => settings with { ShowFolderJumpBar = enabled });
+        _folderBar.Sync();
+    }
+
+    internal Task ToggleFavoriteFolderAsync(string path) => UpdateSettingsAsync(settings => settings with
+    {
+        FavoriteFolders = FolderJumpList.ToggleFavorite(settings.FavoriteFolders, path)
+    });
 
     public async Task SetModulesAsync(bool? requestedCapture, bool? requestedFolders)
     {
@@ -232,7 +262,7 @@ public sealed class DesktopController : IDisposable
             }
             Main.SetStatus("模块设置已保存。");
         }
-        finally { _moduleChanges.Release(); Main.Refresh(); }
+        finally { _moduleChanges.Release(); Main.Refresh(); _folderBar.Sync(); }
     }
 
     // Tray click, app reopen and a second launch all bring the main window to the front.
@@ -656,6 +686,7 @@ public sealed class DesktopController : IDisposable
     public void Dispose()
     {
         IsQuitting = true; _stop.Cancel();
+        _folderBar.Dispose();
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();
         _folders.Dispose();

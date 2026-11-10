@@ -171,7 +171,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     public ICaptureTargetSource CreateCaptureTargets() => WindowsCaptureTargets.CreateSnapshot();
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new WindowsRegionRecorder(area, systemAudio, framesPerSecond);
     internal WindowsFolderPicker FolderPicker { get; } = new();
-    public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation(FolderPicker);
+    public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation(FolderPicker, this);
     public async Task<string?> PickFolderAsync(Window owner, string title) => await Dispatcher.UIThread.InvokeAsync(
         () => FolderPicker.Show(owner.TryGetPlatformHandle()?.Handle ?? 0, title), DispatcherPriority.Background);
     public IStartupRegistration CreateStartupRegistration() => new WindowsStartupRegistration();
