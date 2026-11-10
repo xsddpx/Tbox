@@ -334,12 +334,12 @@ public sealed class DesktopController : IDisposable
     }
 
     public async Task CompleteCaptureAsync(Picture picture, DesktopPlacement placement, CaptureAction action,
-        IReadOnlyList<AnnotationCommand>? annotations = null)
+        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null)
     {
         using (picture)
         {
             Picture? pinned = null;
-            if (action == CaptureAction.Pin) { pinned = picture.Clone(); Pin(pinned, placement, annotations); }
+            if (action == CaptureAction.Pin) { pinned = picture.Clone(); Pin(pinned, pinPlacement ?? placement, annotations); }
             if (action == CaptureAction.Copy) await CopyAsync(picture);
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
             await CacheAsync(picture, pinned);
