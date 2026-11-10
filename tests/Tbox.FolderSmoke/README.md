@@ -6,7 +6,7 @@
 ./scripts/test-windows-folders.ps1
 ```
 
-结果目录必须不存在。程序经 `WindowsPlatformServices.CreateFolderNavigation()` 调用共用应用实际使用的适配层，不使用旧 WinUI 测试入口或直接注入最近目录。
+结果目录必须不存在。程序经 `WindowsPlatformServices.CreateFolderNavigation()` 调用应用实际使用的适配层，不直接注入最近目录。
 
 检查范围：
 

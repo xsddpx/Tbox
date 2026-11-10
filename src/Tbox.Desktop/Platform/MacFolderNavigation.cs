@@ -27,7 +27,7 @@ internal sealed class MacFolderNavigation : IFolderNavigation
             {
                 if (!HasPermission || !await _gate.WaitAsync(0, cancellationToken)) continue;
                 try { await Task.Run(() => Refresh(false), cancellationToken); }
-                catch (Exception error) when (error is not OperationCanceledException) { Tbox.App.AppLog.Write("Finder observation: " + error.GetType().Name); }
+                catch (Exception error) when (error is not OperationCanceledException) { AppLog.Write("Finder observation: " + error.GetType().Name); }
                 finally { _gate.Release(); }
             }
         }
@@ -48,7 +48,7 @@ internal sealed class MacFolderNavigation : IFolderNavigation
                 cancellationToken.ThrowIfCancellationRequested(); Refresh(true);
                 var result = MacPlatformServices.ReadJson<NativeJumpResult>(NativeJump(FolderTargetPolicy.Resolve(CurrentDirectory, _home),
                     ShortcutPolicy.MacKeyCode(shortcut.Key) ?? 0x05));
-                if (!result.Success && result.Diagnostic is not null) Tbox.App.AppLog.Write("Folder navigation: " + result.Diagnostic);
+                if (!result.Success && result.Diagnostic is not null) AppLog.Write("Folder navigation: " + result.Diagnostic);
                 return new FolderNavigationResult(result.Success, result.Message);
             }, cancellationToken);
         }

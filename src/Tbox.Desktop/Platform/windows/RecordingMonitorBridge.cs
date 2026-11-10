@@ -2,9 +2,9 @@
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 
-namespace Tbox.App;
+namespace Tbox.Desktop.Platform;
 
-// The existing Windows recorder is linked into both apps; this supplies its small monitor boundary.
+// Supplies the monitor lookup used by ScreenRegionRecorder.
 internal static class ScreenCaptureService
 {
     internal readonly record struct DisplayInfo(string DeviceName, RectInt32 Bounds);

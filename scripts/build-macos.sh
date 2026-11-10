@@ -52,9 +52,9 @@ python3 scripts/verify-macos-deployment-target.py "$APP"
 ICONSET="$BUILD/Tbox.iconset"
 mkdir -p "$ICONSET"
 for SIZE in 16 32 128 256 512; do
-  sips -z "$SIZE" "$SIZE" src/Tbox.App/Assets/AppIcon.png --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
+  sips -z "$SIZE" "$SIZE" src/Tbox.Desktop/Assets/AppIcon.png --out "$ICONSET/icon_${SIZE}x${SIZE}.png" >/dev/null
   DOUBLE=$((SIZE * 2))
-  sips -z "$DOUBLE" "$DOUBLE" src/Tbox.App/Assets/AppIcon.png --out "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" >/dev/null
+  sips -z "$DOUBLE" "$DOUBLE" src/Tbox.Desktop/Assets/AppIcon.png --out "$ICONSET/icon_${SIZE}x${SIZE}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Tbox.icns"
 while IFS= read -r -d '' LIBRARY; do

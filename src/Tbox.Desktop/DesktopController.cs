@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -115,7 +115,7 @@ public sealed class DesktopController : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception exception)
         {
-            Tbox.App.AppLog.Write(exception.ToString()); Main.SetStatus(exception.Message);
+            AppLog.Write(exception.ToString()); Main.SetStatus(exception.Message);
             if (_settings.ShowFailureNotifications && !IsQuitting) FailureNotificationWindow.ShowFailure(this, exception.Message);
         }
     }

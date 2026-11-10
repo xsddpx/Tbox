@@ -4,7 +4,7 @@
 
 2026-11-07：最终目标是 Windows 与 macOS 对齐当前全部已实现功能。先交付可用的 Mac 基础版，再补齐全部行为。产品要求只在 `product-requirements.md` 维护，本文记录技术选择及验证证据，不改变功能语义。
 
-原平台基线为开始迁移时的 `origin/main`，Windows 1.0.45。`Tbox.App` 保留为现有 WinUI 实现和行为参照。迁移完成前，不能用新工程可编译替代 Windows 功能回归。
+原平台基线为开始迁移时的 Windows 1.0.45（提交 `0f88802`，可用 `git show` 查看原 WinUI 实现）。共用版已取代原 WinUI 工程，后者已从仓库删除；Windows 适配沿用的资源管理器跟踪、文件对话框导航和录制器源码已移入 `Platform/windows`。
 
 ## 共用实现
 
@@ -15,13 +15,13 @@
 - `Platform/windows`：Win32 原始像素捕获、窗口位置与全局快捷键（默认 F6/F7/F8/Ctrl+G）；系统 OCR 使用 Windows.Media.Ocr，仍要求 MSIX 包身份和已安装语言。共用工程在 Windows 自动选择 Windows TFM，也可在 Mac 以 `-p:TboxWindows=true` 编译检查。
 - `tests/Tbox.Core.Tests`、`tests/Tbox.Desktop.Tests`：两平台共用规则和实际渲染测试；系统权限及真实桌面集成另做本机验证。
 
-采用 Avalonia 是为了延续 C# 核心并共用桌面交互，不引入第二套 SwiftUI 或 WinUI 业务界面。已有 .NET 8 和 SDK 9 构建基线暂不同时升级，框架升级应作为独立变更。
+采用 Avalonia 是为了延续 C# 核心并共用桌面交互，不另写 SwiftUI 或 WinUI 业务界面。已有 .NET 8 和 SDK 9 构建基线暂不同时升级，框架升级应作为独立变更。
 
 ## 平台依赖选择
 
 | 能力 | 共用部分 | 必要的平台适配 |
 | --- | --- | --- |
-| 设置、主页、结果窗、菜单栏/托盘 | Avalonia | 平台窗口惯例 |
+| 主窗口、结果窗、菜单栏/托盘 | Avalonia | 平台窗口惯例 |
 | 剪贴板图片/文件/文字、复制、文件选择器 | Avalonia | 使用框架后端 |
 | 截图选区、标注、贴图缩放和裁剪 | C# + 既有 Core 规则 | 原始像素捕获、特殊置顶行为 |
 | OCR | 请求生命周期、原图、编辑、行号、复制 | macOS Vision；Windows 系统 OCR |
@@ -33,9 +33,9 @@
 
 ## 权限与发布
 
-屏幕捕获缺少授权时只显示说明；仅显式授权按钮可以申请屏幕录制权限，每次运行最多一次。已有图片的 OCR 和贴图不依赖此权限。macOS 使用登录钥匙串中持久的 `Tbox Local Development` 自签代码签名身份，固定 Bundle ID `com.xsddpx.tbox` 和安装位置 `~/Applications/Tbox.app`；不使用随二进制变化的 ad hoc 身份，不改变系统根证书信任。私钥不进仓库、不分发。签名探针已验证指定要求为标识符和稳定证书根哈希；本机连续升级后的屏幕权限已验证，见 `macos-permission-upgrade-verification.md`。此签名不等于 Apple Developer ID 或公证。Windows 版本继续遵守原有 MSIX 签名、测试和覆盖升级流程。
+屏幕捕获缺少授权时只显示说明；仅显式授权按钮可以申请屏幕录制权限，每次运行最多一次。已有图片的 OCR 和贴图不依赖此权限。macOS 使用登录钥匙串中持久的 `Tbox Local Development` 自签代码签名身份，固定 Bundle ID `com.xsddpx.tbox` 和安装位置 `~/Applications/Tbox.app`；不使用随二进制变化的 ad hoc 身份，不改变系统根证书信任。私钥不进仓库、不分发。签名探针已验证指定要求为标识符和稳定证书根哈希；本机连续升级后的屏幕权限已验证，见 `macos-permission-upgrade-verification.md`。此签名不等于 Apple Developer ID 或公证。Windows 版本使用持久证书签名 MSIX，并按相同身份覆盖升级。
 
-当前迁移工程尚在实现；跨平台代码、编译通过、模拟测试通过、本机实际验收是不同状态，必须分别记录。Intel Mac、混合缩放多屏和 Windows 实机没有证据时标记未验证。
+跨平台代码、编译通过、模拟测试通过、本机实际验收是不同状态，必须分别记录。Intel Mac、混合缩放多屏和 Windows 实机没有证据时标记未验证。
 
 权限升级验收：先从 Finder 或正常应用启动方式打开固定安装位置的 Tbox，再运行 `~/Applications/Tbox.app/Contents/MacOS/Tbox.Desktop --permission-probe`。命令通过仅当前用户可用的命名管道查询已运行应用，由该应用进程检查权限并在内存中取帧；输出只有进程、路径、版本、授权状态和图像尺寸。禁止以直接启动测试进程继承到的终端/Codex 授权代替此结果。每次覆盖升级前后保存探测结果、应用二进制哈希与签名要求，至少比较两个不同构建；探测不会请求或重置授权，不保存屏幕图像。
 
@@ -43,13 +43,13 @@
 
 长截图共用 `ScrollCaptureStitcher` 与稳定帧缓冲；macOS 区域采集通过 ScreenCaptureKit 排除当前应用，Windows 控制窗设置捕获排除并让区域边框穿透鼠标。预览与输出采用同一套 Avalonia 界面。真实连续滚动、音视频录制仍未验收。
 
-录屏新增 `IRegionRecorder` 小型平台边界：Windows 直接链接原录制器源码，Mac 以 ScreenCaptureKit 取屏幕/系统输出、AVAssetWriter 编码 H.264。`RecordingOperation` 统一准备、音频降级、暂停计时、取消与文件所有权转移；取消等待原生写入退出，不提前删除母版。回放使用 LibVLCSharp.Avalonia；首次媒体初始化放到后台，关闭按停止、卸载视图、关闭窗口、释放媒体、删除会话的顺序执行。GIF/WebP 在应用临时目录转换，成功后使用目标目录的临时文件原子替换，取消不会破坏用户已有文件。
+录屏新增 `IRegionRecorder` 小型平台边界：Windows 沿用原 `ScreenRegionRecorder`，Mac 以 ScreenCaptureKit 取屏幕/系统输出、AVAssetWriter 编码 H.264。`RecordingOperation` 统一准备、音频降级、暂停计时、取消与文件所有权转移；取消等待原生写入退出，不提前删除母版。回放使用 LibVLCSharp.Avalonia；首次媒体初始化放到后台，关闭按停止、卸载视图、关闭窗口、释放媒体、删除会话的顺序执行。GIF/WebP 在应用临时目录转换，成功后使用目标目录的临时文件原子替换，取消不会破坏用户已有文件。
 
-本轮已完成 Windows 目标交叉编译和 Swift 桥接编译。CI 配置覆盖 Windows/macOS 的核心与共用 UI 测试；CI 测试不代替屏幕授权、真实文件对话框、混合 DPI 和安装升级验收。
+文件夹跳转通过 `IFolderNavigation` 接入共用模块开关和 Ctrl+G。Windows 沿用原 `ExplorerFolderTracker`、`ExplorerShellViewResolver`、`FileDialogNavigator`，避免重写已验证的活动标签逻辑。Mac 使用辅助功能接口观察 Finder 的选中窗口。窗口未提供目录地址时，从同一窗口的图标或列表视图读取文件 URL，要求父目录一致并与窗口标题相符。无法核实的目录保留上一次可信记录。系统文件面板可能以宿主应用的辅助功能节点呈现。Tbox 用实际 AppKit 服务控件核实面板来源，仅向该服务进程发送导航按键。确认“前往文件夹”子面板获得焦点并选中完整目标路径后才提交，再检查原面板已显示目标目录。失败仅在当前状态区反馈。模块设置只在热键注册完整成功后保存，失败会重新注册上一组热键。
+
+CI 覆盖 Windows/macOS 的核心与共用 UI 测试；CI 测试不代替屏幕授权、真实文件对话框、混合 DPI 和安装升级验收。
 
 ## 主要官方依据
-
-文件夹跳转通过 `IFolderNavigation` 接入共用模块开关和 Ctrl+G。Windows 链接原 `ExplorerFolderTracker`、`ExplorerShellViewResolver`、`FileDialogNavigator`，避免重写已验证的活动标签逻辑。Mac 使用辅助功能接口观察 Finder 的选中窗口。窗口未提供目录地址时，从同一窗口的图标或列表视图读取文件 URL，要求父目录一致并与窗口标题相符。无法核实的目录保留上一次可信记录。系统文件面板可能以宿主应用的辅助功能节点呈现。Tbox 用实际 AppKit 服务控件核实面板来源，仅向该服务进程发送导航按键。确认“前往文件夹”子面板获得焦点并选中完整目标路径后才提交，再检查原面板已显示目标目录。失败仅在当前状态区反馈。模块设置只在热键注册完整成功后保存，失败会重新注册上一组热键。
 
 - [Avalonia 11 平台支持](https://v11.docs.avaloniaui.net/docs/overview/supported-platforms/)
 - [Avalonia 剪贴板 API](https://docs.avaloniaui.net/docs/how-to/clipboard-how-to)
