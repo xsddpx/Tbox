@@ -2,6 +2,7 @@
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -79,10 +80,18 @@ public sealed class TaskToolbarTests
         Assert.Equal(Ui.ToolbarBackground, surface.Background);
         Assert.Equal(Orientation.Horizontal, Assert.IsType<StackPanel>(surface.Child).Orientation);
         var swatches = surface.GetVisualDescendants().OfType<Button>().Where(b => AutomationProperties.GetName(b)?.StartsWith("颜色 ") == true).ToArray();
-        Assert.Equal(new[] { "颜色 E5484D", "颜色 F5B400", "颜色 1F9D61", "颜色 3D7BFF", "颜色 6D4AE8", "颜色 1A1B22", "颜色 FFFFFF" }, swatches.Select(b => AutomationProperties.GetName(b)!));
+        Assert.Equal(new[] { "颜色 E5484D", "颜色 F5B400", "颜色 1F9D61", "颜色 3D7BFF", "颜色 6D4AE8", "颜色 1A1B22" }, swatches.Select(b => AutomationProperties.GetName(b)!));
         Assert.Equal(0xFFE5484D, scope.Window.Editor.Color);
-        Click(swatches[3]);
+        var blue = Assert.IsType<ToggleButton>(swatches[3]);
+        var ring = Assert.IsType<Border>(blue.Content);
+        Assert.InRange(ring.Bounds.Width, 1, 18);
+        // The surrounding hit area still selects blue outside the small colored dot.
+        var hit = blue.TranslatePoint(new Point(2, blue.Bounds.Height / 2), scope.Window)!.Value;
+        scope.Window.MouseDown(hit, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseUp(hit, MouseButton.Left, RawInputModifiers.None);
         Assert.Equal(0xFF3D7BFF, scope.Window.Editor.Color);
+        Assert.True(blue.IsChecked);
+        Assert.False(Assert.IsType<ToggleButton>(swatches[0]).IsChecked);
         Assert.True(toolbar.PropertiesPopup.IsOpen);
         Assert.Contains(surface.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "3 px");
         Preview(scope.Window, "task-capture-properties-below");
@@ -201,7 +210,39 @@ public sealed class TaskToolbarTests
         Assert.Equal(value, scope.Window.Editor.CurrentSize);
         Assert.Contains(toolbar.PropertiesSurface.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == expected);
         var colors = toolbar.PropertiesSurface.GetVisualDescendants().OfType<Button>().Count(b => AutomationProperties.GetName(b)?.StartsWith("颜色 ") == true);
-        Assert.Equal(tool is AnnotationTool.Mosaic or AnnotationTool.Eraser ? 0 : 7, colors);
+        Assert.Equal(tool is AnnotationTool.Mosaic or AnnotationTool.Eraser ? 0 : 6, colors);
+    }
+
+    [AvaloniaFact]
+    public async Task EllipseWidthSliderStaysCenteredAndCanBeDragged()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var window = scope.Window;
+        var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        window.Editor.Select(AnnotationTool.Ellipse);
+        Layout(window);
+        var surface = toolbar.PropertiesSurface;
+        var slider = Assert.Single(surface.GetVisualDescendants().OfType<Slider>());
+        var track = Assert.Single(slider.GetVisualDescendants().OfType<Track>());
+        var thumb = Assert.Single(track.GetVisualDescendants().OfType<Thumb>());
+        var label = Assert.Single(surface.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "线宽");
+        var thumbOrigin = thumb.TranslatePoint(default, slider)!.Value;
+        Assert.True(thumbOrigin.Y >= 0 && thumbOrigin.Y + thumb.Bounds.Height <= slider.Bounds.Height);
+        var thumbCenter = thumb.TranslatePoint(new Point(thumb.Bounds.Width / 2, thumb.Bounds.Height / 2), surface)!.Value;
+        var labelCenter = label.TranslatePoint(new Point(0, label.Bounds.Height / 2), surface)!.Value;
+        Assert.InRange(Math.Abs(thumbCenter.Y - labelCenter.Y), 0, 1);
+        var segment = Assert.Single(track.IncreaseButton!.GetVisualDescendants().OfType<Border>(), border => border.Name == "TrackBackground");
+        var trackCenter = segment.TranslatePoint(new Point(0, segment.Bounds.Height / 2), surface)!.Value;
+        Assert.InRange(Math.Abs(trackCenter.Y - thumbCenter.Y), 0, 1);
+
+        var start = surface.TranslatePoint(thumbCenter, window)!.Value;
+        window.MouseDown(start, MouseButton.Left, RawInputModifiers.None);
+        var end = start + new Vector(28, 0);
+        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+        window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
+        Assert.True(window.Editor.StrokeWidth > 3);
+        Assert.Contains(surface.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == $"{window.Editor.StrokeWidth:0} px");
+        Assert.True(toolbar.PropertiesPopup.IsOpen);
     }
 
     [AvaloniaFact]

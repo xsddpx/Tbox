@@ -15,7 +15,8 @@ namespace Tbox.Desktop.Views;
 // Shared B toolbar: ten tools | undo | outputs, more | finish. Properties are a temporary horizontal strip.
 public sealed class AnnotationToolbar : Border
 {
-    public static readonly uint[] Palette = [0xFFE5484D, 0xFFF5B400, 0xFF1F9D61, 0xFF3D7BFF, 0xFF6D4AE8, 0xFF1A1B22, 0xFFFFFFFF];
+    private static readonly uint[] Palette = [0xFFE5484D, 0xFFF5B400, 0xFF1F9D61, 0xFF3D7BFF, 0xFF6D4AE8, 0xFF1A1B22];
+    private const double PropertyControlHeight = 32;
     private static readonly (AnnotationTool Tool, IconKind Icon, string Name)[] Specs =
     [
         (AnnotationTool.Rectangle, IconKind.Rectangle, "矩形"), (AnnotationTool.Ellipse, IconKind.Ellipse, "椭圆"),
@@ -160,13 +161,18 @@ public sealed class AnnotationToolbar : Border
             var colors = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
             foreach (var color in Palette)
             {
-                var ring = new Border { Width = 24, Height = 24, CornerRadius = new CornerRadius(12), Padding = new Thickness(3),
-                    BorderThickness = new Thickness(1), Child = new Border { CornerRadius = new CornerRadius(9),
+                var ring = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(9), Padding = new Thickness(2),
+                    BorderThickness = new Thickness(1), Child = new Border { CornerRadius = new CornerRadius(6),
                         BorderBrush = Brush.Parse("#808080"), BorderThickness = new Thickness(.5), Background = new SolidColorBrush(Color.FromUInt32(color)) } };
-                var swatch = new ToggleButton { Width = 26, Height = 32, MinWidth = 26, MinHeight = 32, Padding = default,
-                    Background = Brushes.Transparent, BorderThickness = default, Content = ring };
+                var swatch = new ToggleButton { Width = 26, Height = PropertyControlHeight, MinWidth = 26, MinHeight = PropertyControlHeight,
+                    HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center,
+                    Padding = default, Background = Brushes.Transparent, BorderThickness = default, Content = ring };
                 AutomationProperties.SetName(swatch, $"颜色 {color & 0xFFFFFF:X6}"); ToolTip.SetTip(swatch, $"颜色 #{color & 0xFFFFFF:X6}");
-                swatch.Resources["ButtonBackgroundPointerOver"] = Brush.Parse(DesignTokens.TaskHover);
+                var hover = Brush.Parse(DesignTokens.TaskHover);
+                var pressed = Brush.Parse(DesignTokens.TaskBorder);
+                swatch.Resources["ToggleButtonBackgroundChecked"] = Brushes.Transparent;
+                swatch.Resources["ToggleButtonBackgroundPointerOver"] = swatch.Resources["ToggleButtonBackgroundCheckedPointerOver"] = hover;
+                swatch.Resources["ToggleButtonBackgroundPressed"] = swatch.Resources["ToggleButtonBackgroundCheckedPressed"] = pressed;
                 swatch.Click += (_, _) => { _editor.Color = color; UpdateProperties(); };
                 _swatches.Add((color, swatch, ring)); colors.Children.Add(swatch);
             }
@@ -179,7 +185,13 @@ public sealed class AnnotationToolbar : Border
         var textSize = tool is AnnotationTool.Text or AnnotationTool.Number;
         _size = new Slider { Minimum = textSize ? 10 : 1, Maximum = textSize ? 120 : 32,
             TickFrequency = textSize ? 2 : 1, IsSnapToTickEnabled = true, Value = _editor.CurrentSize,
-            Width = 80, Height = 32, MinHeight = 32, VerticalAlignment = VerticalAlignment.Center };
+            Width = 80, Height = PropertyControlHeight, MinHeight = PropertyControlHeight,
+            Padding = default, BorderThickness = default, VerticalAlignment = VerticalAlignment.Center };
+        // Fluent's default 15 + 20 + 15 layout overflows a 32-unit toolbar control.
+        const double thumbSize = 12;
+        var sliderInset = new GridLength((PropertyControlHeight - thumbSize) / 2);
+        _size.Resources["SliderPreContentMargin"] = _size.Resources["SliderPostContentMargin"] = sliderInset;
+        _size.Resources["SliderHorizontalThumbWidth"] = _size.Resources["SliderHorizontalThumbHeight"] = thumbSize;
         AutomationProperties.SetName(_size, sizeName);
         _size.ValueChanged += (_, _) => { if (!_syncing) _editor.SetSize(_size.Value); };
         row.Children.Add(_size);
