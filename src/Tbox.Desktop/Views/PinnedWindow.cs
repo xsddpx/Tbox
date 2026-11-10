@@ -157,6 +157,10 @@ public sealed class PinnedWindow : Window
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape && _annotationToolbar?.DismissPopover() == true) { e.Handled = true; return; }
+        // Popup events route through this window's tunnel handler before their own controls.
+        // Let sliders, swatches and menu buttons handle Enter instead of finishing pin editing.
+        if (e.Source is Visual source && (_annotationToolbar?.PropertiesPopup.IsInsidePopup(source) == true
+            || _annotationToolbar?.MorePopup.IsInsidePopup(source) == true)) return;
         if (_text.IsEditing) return;
         if (e.Key == Key.Escape) { if (CanAnnotate) FinishEditing(); else Close(); e.Handled = true; }
         else if (e.Key == Key.Enter && CanAnnotate) { FinishEditing(); e.Handled = true; }

@@ -138,6 +138,10 @@ public sealed class TaskToolbarTests
             var ellipse = toolbar.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "椭圆");
             Click(ellipse);
             Assert.Equal(AnnotationTool.Ellipse, pin.Editor.Tool);
+            var propertySlider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
+            propertySlider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            Assert.True(pin.CanAnnotate);
+            Assert.True(toolbar.PropertiesPopup.IsOpen);
             Click(ellipse);
             Preview(window, "task-pin-toolbar");
 
@@ -208,6 +212,9 @@ public sealed class TaskToolbarTests
         var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
         window.Editor.Select(AnnotationTool.Text); Layout(window);
         var slider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
+        slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Assert.True(window.IsVisible);
+        Assert.True(toolbar.PropertiesPopup.IsOpen);
         slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
         Assert.False(toolbar.PropertiesPopup.IsOpen);
         Assert.Equal(AnnotationTool.Text, window.Editor.Tool);

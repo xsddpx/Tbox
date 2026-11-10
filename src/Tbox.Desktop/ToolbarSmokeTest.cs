@@ -71,6 +71,9 @@ internal static class ToolbarSmokeTest
                 throw new InvalidOperationException("贴图属性没有使用可伸出主条窗口的原生浮层。");
             var slider = toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>().Single(); slider.Value = 36;
             if (pin.Editor.NumberSize != 36) throw new InvalidOperationException("贴图序号大小未更新。");
+            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            if (!pin.CanAnnotate || !toolbar.PropertiesPopup.IsOpen)
+                throw new InvalidOperationException("属性滑条上的 Enter 不应结束贴图编辑。");
             Render(toolbar, Path.Combine(directory, "pin-toolbar-main.png"));
             Render(toolbar.PropertiesSurface, Path.Combine(directory, "pin-toolbar-properties.png"));
             toolbar.DismissPopover(); pin.FinishEditing();
