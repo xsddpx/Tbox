@@ -15,7 +15,7 @@ Windows 与 macOS 共用同一个桌面应用。根目录仅放置项目级配�
 
 ## 构建、测试与开发命令
 
-使用 `global.json` 固定的 .NET SDK。完整构建、打包流程见 README；常用命令：
+使用 `global.json` 固定的 .NET SDK。完整流程见 [本地开发与打包](docs/cross-platform-architecture.md#本地开发与打包)。
 
 - `dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release`
 - `dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release`
