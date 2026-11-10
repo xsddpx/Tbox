@@ -1,6 +1,8 @@
 # 跨平台逐项验收表
 
-## 当前公开交付：1.1.15
+最新公开安装包见 [GitHub Releases](https://github.com/xsddpx/Tbox/releases/latest)。
+
+## 历史公开交付 1.1.15
 
 2026-11-08 03:48:46 +0800 已公开 Windows 11 x64 与 macOS 14+ Apple Silicon 安装包。[正式流程 42407512233](https://github.com/xsddpx/Tbox/actions/runs/42407512233) 全部通过；源码保持私有。公开包已匿名完整下载，大小、SHA-256 与发布清单一致，Mac 深度签名和当前安装版指定签名要求一致，44 个原生二进制满足最低 macOS 14。Windows 实际安装、OCR、取帧、录屏及三格式导出通过；文件夹导航的八次原生检查在串行干净构建后通过。详见 [首发验收记录](releases/v1.1.15-verification.md)。
 

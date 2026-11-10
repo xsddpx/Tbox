@@ -1,8 +1,8 @@
 # Tbox
 
-Tbox 是面向 Windows 和 macOS 的桌面工具。当前公开交付为共用 Avalonia 界面的 1.1.20，提供截图、标注、贴图、离线 OCR 和区域录屏。原 WinUI 工程保留为迁移基线，完整功能和交互验收仍在继续。
+Tbox 是面向 Windows 和 macOS 的桌面工具。共用 Avalonia 版提供截图、标注、贴图、离线 OCR 和区域录屏。原 WinUI 工程保留为迁移基线，完整功能和交互验收仍在继续。
 
-**[下载最新正式版](https://github.com/xsddpx/Tbox-releases/releases/latest)** · Windows 11 x64 / macOS 14+ Apple Silicon · 无需登录。首次安装见 [安装与权限说明](docs/releases/INSTALL.md)。
+**[下载最新正式版](https://github.com/xsddpx/Tbox/releases/latest)** · Windows 11 x64 / macOS 14+ Apple Silicon · 无需登录。首次安装见 [安装与权限说明](docs/releases/INSTALL.md)。
 
 ## 跨平台迁移
 
@@ -52,7 +52,7 @@ Mac 媒体构建另需 Xcode Command Line Tools、`make` 与 `pkg-config`（`bre
 dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/FFmpeg/bin/ffmpeg TEMP/media-runtime/VLC
 ```
 
-检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试及固定源码构建的 FFmpeg。1.1.15 已发布在独立公开仓库 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases/latest)，两个安装包均经匿名实际下载和 SHA-256 校验；源码仓库也已按用户要求公开。应用内“常规 → 检查更新”使用同一公开渠道，真实在线升级仍待本机解锁及旧 Windows 设备验收，详见 [更新机制](docs/online-updates.md)。
+检查实际 H.264 解码、GIF 12 FPS/循环时长、WebP 循环动画/尺寸及 MP4 复制一致性。Windows CI 使用同一测试及固定源码构建的 FFmpeg。两平台安装包和校验文件发布到 [同仓库 GitHub Releases](https://github.com/xsddpx/Tbox/releases/latest)。应用内「关于 → 检查更新」读取同一公开渠道。详见 [更新机制](docs/online-updates.md)。
 
 ## Windows 完整版
 
@@ -107,7 +107,8 @@ WinUI 3 项目使用 Visual Studio 构建链，避免 Windows App SDK 的独立 
 & .\tests\Tbox.IntegrationHarness\bin\x64\Release\net8.0-windows10.0.26100.0\win-x64\Tbox.IntegrationHarness.exe --capture-only
 ```
 
-Tbox 启动后只驻留系统托盘（Mac 为菜单栏），不弹出窗口。单击托盘图标打开主窗口：左侧侧栏切换截图、文件夹跳转、通用和关于；截图页集中截图、贴出剪贴板、长截图、录屏、识别文字和最近 4 张截图，单击缩略图打开图片预览。开始任何工具时主窗口自动隐藏；关闭主窗口也只是隐藏，快捷键照常可用。右键托盘图标的原生菜单提供“打开 Tbox”和“退出”；只有“退出”才会完全结束应用。 截图页和文件夹跳转页的快捷键行可单击键帽后按下新组合修改，`Esc` 取消；被其他应用占用或与其他 Tbox 快捷键重复时保留原快捷键并在该行说明原因，修改过的项可“恢复默认”。
+Tbox 启动后只驻留系统托盘（Mac 为菜单栏），不弹出窗口。单击托盘图标打开主窗口：左侧侧栏切换截图、文件夹跳转、通用和关于；截图页集中截图、贴出剪贴板、长截图、录屏、识别文字和最近 4 张截图，单击缩略图打开图片预览。开始任何工具时主窗口自动隐藏；关闭主窗口也只是隐藏，快捷键照常可用。右键托盘图标的原生菜单提供“打开 Tbox”和“退出”；只有“退出”才会完全结束应用。
+ 截图页和文件夹跳转页的快捷键行可单击键帽后按下新组合修改，`Esc` 取消；被其他应用占用或与其他 Tbox 快捷键重复时保留原快捷键并在该行说明原因，修改过的项可“恢复默认”。
 
 ## 项目结构
 
@@ -155,4 +156,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\package-msix.ps1 -
 
 ## 发布与下载
 
-2026-11-08 按用户最新要求公开 [Tbox 源码仓库](https://github.com/xsddpx/Tbox) 并恢复 GitHub Actions。普通推送与 PR 执行双平台检查；发布新的源码 Release 时，自动构建、签名和验证 Windows MSIX 与 Apple Silicon Mac ZIP，全部通过后上传到 [Tbox-releases](https://github.com/xsddpx/Tbox-releases/releases)。使用 GitHub 标准构建机器；签名私钥和发布令牌保留在 Actions Secrets，不提交源码。既有 1.1.15 与应用内更新地址不变。配置与验收规则见 [发布流程说明](docs/automatic-releases.md)。
+每次交付新版后，在同一轮从已合入主分支的提交触发正式发布。GitHub Actions 构建、签名并验证 Windows MSIX 和 Apple Silicon Mac ZIP，两端均通过后在同一仓库公开为最新正式版。交付时以未登录访问者能下载两份安装包并核对校验值为准。配置与验收规则见 [发布流程说明](docs/automatic-releases.md)。
