@@ -60,21 +60,26 @@ internal static class Program
                         $"Foreground folder tracking failed: {navigation.CurrentDirectory}");
                     // Repeat the open/save transition: the file-name Edit can
                     // retain focus briefly while Ctrl+L is still in the queue.
-                    foreach (var save in new[] { false, true, false, true })
+                    foreach (var kind in new[] { "open", "save", "folder", "open", "save", "folder" })
                     {
                         host.Activate();
                         Focus(host.Handle);
                         await Task.Delay(100);
                         var title = "Tbox Folder " + Guid.NewGuid().ToString("N");
-                        using Forms.FileDialog dialog = save ? new Forms.SaveFileDialog() : new Forms.OpenFileDialog();
-                        dialog.Title = title; dialog.InitialDirectory = initial;
-                        dialog.FileName = "TBOX_FILENAME_UNCHANGED";
+                        using Forms.CommonDialog dialog = kind == "folder"
+                            ? new Forms.FolderBrowserDialog { Description = title, UseDescriptionForTitle = true, InitialDirectory = initial }
+                            : kind == "save" ? new Forms.SaveFileDialog() : new Forms.OpenFileDialog();
+                        if (dialog is Forms.FileDialog fileDialog)
+                        {
+                            fileDialog.Title = title; fileDialog.InitialDirectory = initial;
+                            fileDialog.FileName = "TBOX_FILENAME_UNCHANGED";
+                        }
                         var marker = $"TBOX_MARKER_{i}";
                         var target = targets[i];
-                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory));
+                        var worker = Task.Run(() => ExerciseDialogAsync(navigation, title, target, marker, directory, kind != "folder"));
                         dialog.ShowDialog(host);
                         var result = await worker;
-                        outcomes.Add(new { kind = save ? "save" : "open", target, result.elapsedMs, markerVerified = true });
+                        outcomes.Add(new { kind, target, result.elapsedMs, markerVerified = true });
                     }
                 }
                 host.Activate();
@@ -111,7 +116,7 @@ internal static class Program
     }
 
     private static async Task<(long elapsedMs, string marker)> ExerciseDialogAsync(
-        IFolderNavigation navigation, string title, string target, string marker, string directory)
+        IFolderNavigation navigation, string title, string target, string marker, string directory, bool hasFileName)
     {
         nint dialog = 0;
         try
@@ -121,7 +126,7 @@ internal static class Program
             // or activated it. Wait for the native modal transition to finish.
             await UntilAsync(() => IsWindowVisible(dialog) && GetForegroundWindow() == dialog,
                 "The standard dialog did not become visible and foreground.");
-            await UntilAsync(() => HasFileName(dialog), "The dialog file-name editor was not ready.");
+            if (hasFileName) await UntilAsync(() => HasFileName(dialog), "The dialog file-name editor was not ready.");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var clock = Stopwatch.StartNew();
             var result = await navigation.JumpAsync(Tbox.Core.ShortcutPolicy.Default(Tbox.Core.HotkeyAction.Folder, false), timeout.Token);
@@ -130,7 +135,7 @@ internal static class Program
             // Same basename in two different parents makes a loose address-bar
             // match insufficient. Require the unique directory marker in the UI.
             await UntilAsync(() => HasMarker(dialog, marker), "The dialog did not display the target's unique marker.");
-            if (!HasFileName(dialog)) throw new InvalidOperationException("Folder navigation changed the file name.");
+            if (hasFileName && !HasFileName(dialog)) throw new InvalidOperationException("Folder navigation changed the file name.");
             return (clock.ElapsedMilliseconds, marker);
         }
         catch

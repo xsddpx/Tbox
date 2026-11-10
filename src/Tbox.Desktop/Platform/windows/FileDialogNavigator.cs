@@ -12,56 +12,34 @@ internal enum NavigationResult
 internal static class FileDialogNavigator
 {
     private const int AddressToolbarId = 1001;
+    private const ushort AltKey = 0x12;
+    private const ushort DKey = 0x44;
 
     internal static NavigationResult Navigate(IntPtr window, string path)
     {
         if (!Directory.Exists(path)) return NavigationResult.InvalidPath;
-        if (!HasClass(window, "#32770")) return NavigationResult.UnsupportedWindow;
+        if (!HasClass(window, "#32770") || !IsForeground(window)) return NavigationResult.UnsupportedWindow;
 
-        var dialogThread = NativeMethods.GetWindowThreadProcessId(window, out _);
-        var currentThread = NativeMethods.GetCurrentThreadId();
-        var attached = currentThread == dialogThread || NativeMethods.AttachThreadInput(currentThread, dialogThread, true);
-        if (!attached)
+        // Resolve the shell address band before the shortcut can hide or replace its breadcrumb.
+        var addressHost = FindAddressBand(window);
+        if (addressHost == IntPtr.Zero) return NavigationResult.UnsupportedWindow;
+        var addressBar = FindFocusedAddressEditor(window, addressHost);
+        if (addressBar == IntPtr.Zero)
         {
-            AppLog.Write($"AttachThreadInput failed. Win32={System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
-            return NavigationResult.InputFailed;
+            addressBar = OpenAddressEditor(window, addressHost, NativeMethods.VkControl, NativeMethods.VkL);
+            if (addressBar == IntPtr.Zero) addressBar = OpenAddressEditor(window, addressHost, AltKey, DKey);
         }
-
-        try
-        {
-            for (var attempt = 1; attempt <= 3; attempt++)
-            {
-                if (TryNavigateOnce(window, path)) return NavigationResult.Success;
-                AppLog.Write($"File-dialog navigation attempt {attempt} failed.");
-                Thread.Sleep(30);
-            }
-            return NavigationResult.InputFailed;
-        }
-        finally
-        {
-            if (currentThread != dialogThread)
-            {
-                NativeMethods.AttachThreadInput(currentThread, dialogThread, false);
-            }
-        }
-    }
-
-    private static bool TryNavigateOnce(IntPtr dialog, string path)
-    {
-        NativeMethods.SetForegroundWindow(dialog);
-        if (!FocusAddressBar(dialog))
-        {
-            AppLog.Write("File-dialog navigation failed while sending Ctrl+L.");
-            return false;
-        }
-
-        var addressBar = WaitForAddressBar(dialog, TimeSpan.FromMilliseconds(500));
         if (addressBar == IntPtr.Zero)
         {
             AppLog.Write("File-dialog navigation could not find the address-bar editor.");
-            return false;
+            return NavigationResult.InputFailed;
         }
-        NativeMethods.SetFocus(addressBar);
+        return NavigateAddress(window, addressHost, addressBar, path) ? NavigationResult.Success : NavigationResult.InputFailed;
+    }
+
+    private static bool NavigateAddress(IntPtr dialog, IntPtr addressHost, IntPtr addressBar, string path)
+    {
+        if (FindFocusedAddressEditor(dialog, addressHost) != addressBar) return false;
         var setResult = NativeMethods.SendMessageTimeout(
             addressBar,
             NativeMethods.WmSetText,
@@ -69,113 +47,68 @@ internal static class FileDialogNavigator
             path,
             NativeMethods.SmtoAbortIfHung,
             750,
-            out _);
-        if (setResult == IntPtr.Zero)
+            out var textSet);
+        if (setResult == IntPtr.Zero || textSet == 0)
         {
             AppLog.Write($"File-dialog navigation could not set the address-bar text. Win32={System.Runtime.InteropServices.Marshal.GetLastWin32Error()}");
             return false;
         }
 
-        NativeMethods.PostMessage(addressBar, NativeMethods.WmKeyDown, NativeMethods.VkReturn, IntPtr.Zero);
-        NativeMethods.PostMessage(addressBar, NativeMethods.WmKeyUp, NativeMethods.VkReturn, IntPtr.Zero);
-        if (WaitForNavigation(dialog, addressBar, path, TimeSpan.FromMilliseconds(350))) return true;
-
-        NativeMethods.SetFocus(addressBar);
-        NativeMethods.PostMessage(addressBar, NativeMethods.WmChar, NativeMethods.VkReturn, IntPtr.Zero);
-        if (WaitForNavigation(dialog, addressBar, path, TimeSpan.FromMilliseconds(350))) return true;
-
-        NativeMethods.SetForegroundWindow(dialog);
-        NativeMethods.SetFocus(addressBar);
-        var enterInputs = new[]
-        {
-            Key(NativeMethods.VkReturn),
-            Key(NativeMethods.VkReturn, NativeMethods.KeyeventfKeyup)
-        };
-        NativeMethods.SendInput(
-            (uint)enterInputs.Length,
-            enterInputs,
-            System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
-        return WaitForNavigation(dialog, addressBar, path, TimeSpan.FromMilliseconds(500));
+        // Submit once, and only while the confirmed editor still has focus.
+        if (FindFocusedAddressEditor(dialog, addressHost) != addressBar ||
+            !SendKeys(Key(NativeMethods.VkReturn), Key(NativeMethods.VkReturn, NativeMethods.KeyeventfKeyup))) return false;
+        if (WaitForNavigation(dialog, addressHost, addressBar, path, TimeSpan.FromMilliseconds(1500))) return true;
+        AppLog.Write("File-dialog navigation could not confirm the destination after submitting the address.");
+        return false;
     }
 
-    private static bool FocusAddressBar(IntPtr dialog)
+    private static IntPtr OpenAddressEditor(IntPtr dialog, IntPtr addressHost, ushort modifier, ushort key)
     {
-        var focusInputs = new[]
-        {
-            Key(NativeMethods.VkControl),
-            Key(NativeMethods.VkL),
-            Key(NativeMethods.VkL, NativeMethods.KeyeventfKeyup),
-            Key(NativeMethods.VkControl, NativeMethods.KeyeventfKeyup)
-        };
-        var sent = NativeMethods.SendInput(
-            (uint)focusInputs.Length,
-            focusInputs,
-            System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>());
-        return sent == focusInputs.Length || PostAddressBarShortcut(dialog);
-    }
-
-    private static IntPtr WaitForAddressBar(IntPtr dialog, TimeSpan timeout)
-    {
-        var toolbar = FindAddressToolbar(dialog);
-        var addressHost = NativeMethods.GetParent(toolbar);
-        // Native open/save dialogs put the breadcrumb and editor in sibling
-        // containers below Address Band Root (the breadcrumb hides on Ctrl+L).
-        for (var depth = 0; depth < 4 && addressHost != IntPtr.Zero && addressHost != dialog &&
-             !HasClass(addressHost, "Address Band Root"); depth++)
-            addressHost = NativeMethods.GetParent(addressHost);
-        if (toolbar == IntPtr.Zero || !HasClass(addressHost, "Address Band Root")) return IntPtr.Zero;
-        var threadId = NativeMethods.GetWindowThreadProcessId(dialog, out _);
-        var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
+        if (!IsForeground(dialog)) return IntPtr.Zero;
+        var focused = FindFocusedAddressEditor(dialog, addressHost);
+        if (focused != IntPtr.Zero) return focused;
+        if (!SendKeys(Key(modifier), Key(key), Key(key, NativeMethods.KeyeventfKeyup),
+                Key(modifier, NativeMethods.KeyeventfKeyup))) return IntPtr.Zero;
+        var deadline = Environment.TickCount64 + 500;
         do
         {
-            var info = new NativeMethods.GuiThreadInfo
-            {
-                size = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.GuiThreadInfo>()
-            };
-            if (NativeMethods.GetGUIThreadInfo(threadId, ref info) &&
-                info.focusWindow != IntPtr.Zero &&
-                // SendInput queues Ctrl+L; the file-name Edit may still own
-                // focus until the dialog processes it. Only accept the editor
-                // within the address band, never any dialog Edit.
-                NativeMethods.IsChild(addressHost, info.focusWindow) &&
-                NativeMethods.IsWindowVisible(info.focusWindow) &&
-                HasClass(info.focusWindow, "Edit"))
-            {
-                return info.focusWindow;
-            }
+            if (!IsForeground(dialog)) break;
+            focused = FindFocusedAddressEditor(dialog, addressHost);
+            if (focused != IntPtr.Zero) return focused;
             Thread.Sleep(10);
         }
         while (Environment.TickCount64 < deadline);
         return IntPtr.Zero;
     }
 
-    private static bool PostAddressBarShortcut(IntPtr dialog)
+    private static IntPtr FindFocusedAddressEditor(IntPtr dialog, IntPtr addressHost)
     {
-        var keyboardState = new byte[256];
-        if (!NativeMethods.GetKeyboardState(keyboardState)) return false;
-        var originalControl = keyboardState[NativeMethods.VkControl];
-        try
+        if (!IsForeground(dialog) || !NativeMethods.IsChild(dialog, addressHost)) return IntPtr.Zero;
+        var info = new NativeMethods.GuiThreadInfo
         {
-            keyboardState[NativeMethods.VkControl] |= 0x80;
-            if (!NativeMethods.SetKeyboardState(keyboardState)) return false;
-            return NativeMethods.PostMessage(dialog, NativeMethods.WmKeyDown, NativeMethods.VkL, IntPtr.Zero) &&
-                   NativeMethods.PostMessage(dialog, NativeMethods.WmKeyUp, NativeMethods.VkL, IntPtr.Zero);
-        }
-        finally
-        {
-            keyboardState[NativeMethods.VkControl] = originalControl;
-            NativeMethods.SetKeyboardState(keyboardState);
-        }
+            size = System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.GuiThreadInfo>()
+        };
+        var thread = NativeMethods.GetWindowThreadProcessId(dialog, out _);
+        return thread != 0 && NativeMethods.GetGUIThreadInfo(thread, ref info) &&
+            NativeMethods.IsChild(addressHost, info.focusWindow) && NativeMethods.IsWindowVisible(info.focusWindow) &&
+            HasClass(info.focusWindow, "Edit") ? info.focusWindow : IntPtr.Zero;
     }
 
-    private static bool WaitForNavigation(IntPtr dialog, IntPtr editor, string targetPath, TimeSpan timeout)
+    private static bool IsForeground(IntPtr dialog) => NativeMethods.GetForegroundWindow() == dialog;
+
+    private static bool SendKeys(params NativeMethods.INPUT[] inputs) =>
+        NativeMethods.SendInput((uint)inputs.Length, inputs,
+            System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.INPUT>()) == inputs.Length;
+
+    private static bool WaitForNavigation(IntPtr dialog, IntPtr addressHost, IntPtr editor, string targetPath, TimeSpan timeout)
     {
         var shellDisplayName = GetShellDisplayName(targetPath);
         var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         do
         {
+            if (!IsForeground(dialog)) return false;
             if (!NativeMethods.IsWindowVisible(editor) &&
-                TryGetCurrentAddress(dialog, out var addressText) &&
+                TryGetCurrentAddress(addressHost, out var addressText) &&
                 AddressTextMatches(targetPath, addressText, shellDisplayName))
             {
                 return true;
@@ -186,10 +119,10 @@ internal static class FileDialogNavigator
         return false;
     }
 
-    internal static bool TryGetCurrentAddress(IntPtr dialog, out string addressText)
+    private static bool TryGetCurrentAddress(IntPtr addressHost, out string addressText)
     {
         addressText = string.Empty;
-        var addressToolbar = FindAddressToolbar(dialog);
+        var addressToolbar = FindAddressToolbar(addressHost);
         if (addressToolbar == IntPtr.Zero) return false;
 
         var text = new char[512];
@@ -260,6 +193,18 @@ internal static class FileDialogNavigator
             return false;
         };
         NativeMethods.EnumChildWindows(parent, callback, IntPtr.Zero);
+        return found;
+    }
+
+    private static IntPtr FindAddressBand(IntPtr dialog)
+    {
+        var found = IntPtr.Zero;
+        NativeMethods.EnumChildWindows(dialog, (window, _) =>
+        {
+            if (!HasClass(window, "Address Band Root") || !NativeMethods.IsWindowVisible(window)) return true;
+            found = window;
+            return false;
+        }, IntPtr.Zero);
         return found;
     }
 

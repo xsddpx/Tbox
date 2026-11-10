@@ -22,8 +22,12 @@ internal sealed class WindowsFolderNavigation : IFolderNavigation
             return await Task.Run(() =>
             {
                 var deadline = Environment.TickCount64 + 300;
-                while (Environment.TickCount64 < deadline && held.Any(key => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0))
-                { cancellationToken.ThrowIfCancellationRequested(); Thread.Sleep(5); }
+                while (held.Any(key => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (Environment.TickCount64 >= deadline) return new FolderNavigationResult(false, "请松开快捷键后重试文件夹跳转。");
+                    Thread.Sleep(5);
+                }
                 cancellationToken.ThrowIfCancellationRequested();
                 var result = FileDialogNavigator.Navigate(window, _tracker.RefreshCurrentFolder());
                 return result switch

@@ -41,7 +41,8 @@ internal sealed class FakePlatform : IPlatformServices
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
     public IRegionRecorder? Recorder { get; set; }
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => Recorder ?? throw new NotSupportedException();
-    public IFolderNavigation CreateFolderNavigation() => new EmptyFolders();
+    public FolderNavigationResult FolderJumpResult { get; set; } = new(true);
+    public IFolderNavigation CreateFolderNavigation() => new FakeFolders(this);
     public IStartupRegistration StartupRegistration { get; set; } = new EmptyStartup();
     public IStartupRegistration CreateStartupRegistration() => StartupRegistration;
     public void Dispose() { }
@@ -55,14 +56,14 @@ internal sealed class FakePlatform : IPlatformServices
         public bool EnableElementDetection() => false;
         public CaptureTargetBounds? FindTarget(CaptureDetectionMode mode, DesktopPoint point) => null;
     }
-    private sealed class EmptyFolders : IFolderNavigation
+    private sealed class FakeFolders(FakePlatform platform) : IFolderNavigation
     {
         public string CurrentDirectory => "";
         public bool HasPermission => true;
         public bool RequestPermission() => true;
         public void Start() { }
         public void Stop() { }
-        public Task<FolderNavigationResult> JumpAsync(Shortcut shortcut, CancellationToken cancellationToken) => Task.FromResult(new FolderNavigationResult(true));
+        public Task<FolderNavigationResult> JumpAsync(Shortcut shortcut, CancellationToken cancellationToken) => Task.FromResult(platform.FolderJumpResult);
         public void Dispose() { }
     }
 }

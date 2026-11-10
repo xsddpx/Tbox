@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tbox.Core;
 using Tbox.Desktop.Models;
@@ -129,7 +130,11 @@ public sealed class MainWindow : Window
         Activated += (_, _) =>
         {
             Refresh();
-            if (_initialSizeApplied) controller.Run(controller.RefreshStartupAsync);
+            // A native modal dialog may activate its owner during a synchronous input call.
+            if (_initialSizeApplied) Dispatcher.UIThread.Post(() =>
+            {
+                if (IsActive && !controller.IsQuitting) controller.Run(controller.RefreshStartupAsync);
+            }, DispatcherPriority.Background);
         };
         Opened += (_, _) =>
         {
