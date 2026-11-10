@@ -13,6 +13,7 @@ internal sealed class CaptureSession
     private readonly DesktopController _controller;
     private readonly Action<bool> _closed;
     private readonly List<CaptureWindow> _windows = [];
+    internal IReadOnlyList<CaptureWindow> Windows => _windows;
     private readonly ICaptureTargetSource _targets;
     private (CaptureWindow Window, Point Point, bool Replace)? _pendingDetection;
     private bool _detecting;
