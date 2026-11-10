@@ -32,7 +32,7 @@ internal static class ModelServicesSmokeTest
             window.Show(); window.UpdateLayout();
             await Task.Delay(150);
             await page.TestAsync();
-            if (!page.Status.Contains("测试通过") || calls != 1) throw new InvalidOperationException("公共调用验证失败。");
+            if (page.Status != "连接正常" || calls != 1) throw new InvalidOperationException("公共调用验证失败。");
             window.UpdateLayout();
             using (var preview = new RenderTargetBitmap(new PixelSize((int)window.ClientSize.Width, (int)window.ClientSize.Height), new Vector(96, 96)))
             { preview.Render(window); preview.Save(Path.Combine(directory, "model-services.png")); }

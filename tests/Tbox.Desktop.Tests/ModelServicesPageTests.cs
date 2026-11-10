@@ -14,25 +14,29 @@ namespace Tbox.Desktop.Tests;
 public sealed class ModelServicesPageTests
 {
     [AvaloniaFact]
-    public async Task DeepSeekSetupOnlyRequiresAKeyAndKeepsAdvancedSettingsCollapsed()
+    public async Task DeepSeekSetupOnlyRequiresAKeyAndHasNoCollapsedSettingsOrExplanatoryParagraphs()
     {
         using var scope = new Scope(); await scope.Page.OpenAsync();
-        Assert.False(scope.Page.MoreSettings.IsExpanded);
+        Assert.Empty(scope.Page.GetVisualDescendants().OfType<Expander>());
         Assert.Equal("https://api.deepseek.com", scope.Page.BaseUrl.Text);
         Assert.Equal("deepseek-chat", scope.Page.Models.Text);
         scope.Page.Secret.Text = "simple-test-key";
         await scope.Page.SaveAsync();
         Assert.Equal("deepseek-chat", scope.Service.Configuration.DefaultModel!.ModelId);
-        Assert.Equal(0, scope.Calls); Assert.False(scope.Page.MoreSettings.IsExpanded);
+        Assert.Equal(0, scope.Calls);
+        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text?.Contains("保存不会发起调用") == true || text.Text?.Contains("密钥由系统安全保存") == true);
+        var help = Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => Avalonia.Automation.AutomationProperties.GetName(button) == "模型服务说明");
+        Assert.Equal(ModelServicesPage.HelpText, ToolTip.GetTip(help));
+        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == ModelServicesPage.HelpText);
         Assert.Equal("simple-test-key", Assert.Single(scope.Credentials.Values).Value);
     }
 
     [AvaloniaFact]
-    public async Task ChoosingCustomServiceExpandsRequiredFieldsAndDoesNotReuseTypedKey()
+    public async Task ChoosingCustomServiceKeepsFieldsVisibleAndDoesNotReuseTypedKey()
     {
         using var scope = new Scope(); await scope.Page.OpenAsync(); scope.Page.Secret.Text = "unsaved-test-key";
         scope.Page.Provider.SelectedIndex = 1;
-        Assert.True(scope.Page.MoreSettings.IsExpanded);
+        Assert.True(scope.Page.BaseUrl.IsEffectivelyVisible);
         Assert.Equal("", scope.Page.BaseUrl.Text); Assert.Equal("", scope.Page.Secret.Text);
         Assert.Equal(0, scope.Calls);
     }
@@ -45,7 +49,7 @@ public sealed class ModelServicesPageTests
         await scope.Page.SaveAsync();
         Assert.Equal("", scope.Page.Secret.Text);
         Assert.False(scope.Page.IsEditingKey);
-        Assert.Contains("未测试", scope.Page.Status);
+        Assert.Equal("已保存", scope.Page.Status);
         Assert.Equal(0, scope.Credentials.ReadCount); Assert.Equal(0, scope.Calls);
         Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "••••••••••••  · 已保存");
         scope.Page.BeginReplaceKey(); Assert.True(scope.Page.IsEditingKey);
@@ -61,9 +65,9 @@ public sealed class ModelServicesPageTests
     {
         using var scope = new Scope(); await scope.Page.OpenAsync(); scope.Fill(); await scope.Page.SaveAsync();
         await scope.Page.TestAsync();
-        Assert.Contains("测试通过", scope.Page.Status); Assert.Equal(1, scope.Calls);
+        Assert.Equal("连接正常", scope.Page.Status); Assert.Equal(1, scope.Calls);
         scope.Page.Models.Text = "different-model";
-        Assert.Contains("未保存", scope.Page.Status);
+        Assert.Equal("未保存", scope.Page.Status);
         await Assert.ThrowsAsync<ModelServiceException>(() => scope.Page.TestAsync());
         Assert.Equal(1, scope.Calls);
     }
