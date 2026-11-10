@@ -2,7 +2,7 @@
 
 namespace Tbox.Desktop.Platform;
 
-internal sealed class WindowsFolderNavigation : IFolderNavigation
+internal sealed class WindowsFolderNavigation(WindowsFolderPicker picker) : IFolderNavigation
 {
     private readonly ExplorerFolderTracker _tracker = new();
     private readonly SemaphoreSlim _navigation = new(1);
@@ -19,21 +19,29 @@ internal sealed class WindowsFolderNavigation : IFolderNavigation
         int[] held = [0x11, 0x12, 0x10, 0x5B, 0x5C, Tbox.Core.ShortcutPolicy.WindowsKeyCode(shortcut.Key) ?? 0x47];
         try
         {
-            return await Task.Run(() =>
+            var owned = picker.Owns(window);
+            var path = await Task.Run(() =>
             {
                 var deadline = Environment.TickCount64 + 300;
-                while (Environment.TickCount64 < deadline && held.Any(key => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0))
-                { cancellationToken.ThrowIfCancellationRequested(); Thread.Sleep(5); }
-                cancellationToken.ThrowIfCancellationRequested();
-                var result = FileDialogNavigator.Navigate(window, _tracker.RefreshCurrentFolder());
-                return result switch
+                while (held.Any(key => (NativeMethods.GetAsyncKeyState(key) & 0x8000) != 0))
                 {
-                    NavigationResult.Success => new FolderNavigationResult(true),
-                    NavigationResult.UnsupportedWindow => new(false, "当前窗口不是受支持的标准文件对话框。"),
-                    NavigationResult.InvalidPath => new(false, "最近使用的文件夹已经不存在。"),
-                    _ => new(false, "无法控制当前文件对话框。")
-                };
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (Environment.TickCount64 >= deadline) return null;
+                    Thread.Sleep(5);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                return _tracker.RefreshCurrentFolder();
             }, cancellationToken);
+            if (path is null) return new(false, "请松开快捷键后重试文件夹跳转。");
+            if (owned) return await picker.NavigateAsync(window, path, cancellationToken);
+            var result = await Task.Run(() => FileDialogNavigator.Navigate(window, path), cancellationToken);
+            return result switch
+            {
+                NavigationResult.Success => new FolderNavigationResult(true),
+                NavigationResult.UnsupportedWindow => new(false, "当前窗口不是受支持的标准文件对话框。"),
+                NavigationResult.InvalidPath => new(false, "最近使用的文件夹已经不存在。"),
+                _ => new(false, "无法控制当前文件对话框。")
+            };
         }
         finally { _navigation.Release(); }
     }

@@ -1,3 +1,6 @@
+using Avalonia.Controls;
+using Avalonia.Platform.Storage;
+
 namespace Tbox.Desktop.Platform;
 
 public sealed record CapturedDisplay(uint Id, double Left, double Top, double Width, double Height, byte[] Png);
@@ -32,6 +35,12 @@ public interface IPlatformServices : IDisposable
     IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond);
     IFolderNavigation CreateFolderNavigation();
     IStartupRegistration CreateStartupRegistration();
+
+    async Task<string?> PickFolderAsync(Window owner, string title)
+    {
+        var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title });
+        return folders.FirstOrDefault()?.TryGetLocalPath();
+    }
 }
 
 public interface ICaptureTargetSource

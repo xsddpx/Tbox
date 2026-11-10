@@ -36,6 +36,7 @@ public sealed class DesktopController : IDisposable
     private AppSettings _settings = new();
     private CaptureCache _cache;
     private bool _capturing;
+    private bool _cachePickerOpen;
     private bool _pinsHidden;
     private bool _screenPermissionRequested;
     private bool _capturePermissionNeeded;
@@ -115,8 +116,9 @@ public sealed class DesktopController : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception exception)
         {
-            AppLog.Write(exception.ToString()); Main.SetStatus(exception.Message);
-            if (_settings.ShowFailureNotifications && !IsQuitting) FailureNotificationWindow.ShowFailure(this, exception.Message);
+            var message = string.IsNullOrWhiteSpace(exception.Message) ? "操作遇到异常，请重试。" : exception.Message;
+            AppLog.Write(exception.ToString()); Main.SetStatus(message);
+            if (_settings.ShowFailureNotifications && !IsQuitting) FailureNotificationWindow.ShowFailure(this, message);
         }
     }
 
@@ -189,8 +191,11 @@ public sealed class DesktopController : IDisposable
     {
         if (!_settings.FolderJumpEnabled) return;
         var result = await _folders.JumpAsync(ShortcutFor(HotkeyAction.Folder), _stop.Token);
-        Main.SetStatus(result.Success ? "文件对话框已跳转。" : result.Message ?? "文件夹跳转未完成。");
+        var message = result.Success ? "文件对话框已跳转。" : result.Message ?? "文件夹跳转未完成。";
+        Main.SetStatus(message);
         Main.Refresh();
+        if (!result.Success && (!Main.IsVisible || _cachePickerOpen) && _settings.ShowFailureNotifications && !IsQuitting)
+            FailureNotificationWindow.ShowFailure(this, message);
     }
 
     public async Task SetModulesAsync(bool? requestedCapture, bool? requestedFolders)
@@ -588,6 +593,11 @@ public sealed class DesktopController : IDisposable
     {
         await _moduleChanges.WaitAsync(_stop.Token);
         try { Startup = await _startup.ReadAsync(); }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // A passive refresh must not interrupt a file picker or abort app initialization.
+            AppLog.Write("Startup status refresh failed: " + error);
+        }
         finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
@@ -617,8 +627,12 @@ public sealed class DesktopController : IDisposable
 
     public async Task ChooseCacheAsync()
     {
-        var folders = await Main.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "选择截图缓存目录", AllowMultiple = false });
-        if (folders.Count == 0 || folders[0].TryGetLocalPath() is not { } path) return;
+        if (_cachePickerOpen) return;
+        string? path;
+        _cachePickerOpen = true;
+        try { path = await Platform.PickFolderAsync(Main, "选择截图缓存目录"); }
+        finally { _cachePickerOpen = false; }
+        if (path is null) return;
         var cache = CreateCache(path);
         await Task.Run(() => CacheLocation.VerifyWritable(cache.DirectoryPath));
         await UpdateSettingsAsync(settings => settings with { ScreenCaptureCacheDirectory = path });
