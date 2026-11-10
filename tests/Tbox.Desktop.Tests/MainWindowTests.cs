@@ -69,6 +69,33 @@ public sealed class MainWindowTests
         Assert.True(main.IsVisible);
     }
 
+    [AvaloniaFact]
+    public void FolderJumpBarShowsTheOfficialIconAndOnlyThreeRecommendations()
+    {
+        using var scope = new Scope(new FakePlatform());
+        using var navigation = scope.Controller.Platform.CreateFolderNavigation();
+        var bar = new FolderJumpBarWindow(scope.Controller, navigation, (_, _) => Task.CompletedTask,
+            () => Task.FromResult(true), () => { }) { Width = 500, Height = 220 };
+        var paths = Enumerable.Range(1, 4).Select(i => Path.Combine(Path.GetTempPath(), $"tbox-open-{i}")).ToArray();
+        try
+        {
+            bar.SetOpenFolders(paths);
+            bar.Show();
+            Layout(bar);
+            var icon = Assert.Single(bar.GetVisualDescendants().OfType<Image>(), image => AutomationProperties.GetName(image) == "Tbox");
+            using var official = Ui.Brand();
+            using var expected = new MemoryStream();
+            using var actual = new MemoryStream();
+            official.Save(expected);
+            Assert.IsType<Bitmap>(icon.Source).Save(actual);
+            Assert.Equal(expected.ToArray(), actual.ToArray());
+            foreach (var path in paths.Take(3))
+                Assert.Contains(bar.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == path);
+            Assert.DoesNotContain(bar.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == paths[3]);
+        }
+        finally { bar.Close(); }
+    }
+
     [AvaloniaTheory]
     [InlineData(false, true)]
     [InlineData(true, true)]

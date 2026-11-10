@@ -60,12 +60,11 @@ internal sealed class FolderJumpBarWindow : Window
         CanResize = false;
         SystemDecorations = SystemDecorations.None;
         Background = Brushes.White;
-        var brand = new Border
+        var brandBitmap = Ui.Brand();
+        var brand = new Image
         {
-            Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = Brush.Parse(DesignTokens.Accent),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock { Text = "T", Foreground = Brushes.White, FontWeight = FontWeight.Bold,
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            Width = 22, Height = 22, Source = brandBitmap, IsHitTestVisible = false,
+            VerticalAlignment = VerticalAlignment.Center
         };
         AutomationProperties.SetName(brand, "Tbox");
         AutomationProperties.SetName(_search, _search.Watermark);
@@ -90,7 +89,7 @@ internal sealed class FolderJumpBarWindow : Window
         };
         AddHandler(KeyDownEvent, HandleKeys, RoutingStrategies.Tunnel);
         _search.TextChanged += (_, _) => _ = UpdateSearchAsync();
-        Closed += (_, _) => CancelSearch();
+        Closed += (_, _) => { CancelSearch(); brandBitmap.Dispose(); };
         Render();
     }
 
