@@ -23,6 +23,49 @@ public sealed class TestApplication : Application
 public sealed class PictureTests
 {
     [AvaloniaFact]
+    public void RawPixelsDisplayAndCropWithoutEncodingAndEncodeOnlyOnDemand()
+    {
+        byte[] pixels = [10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 100, 110, 120, 255];
+        using var picture = Picture.FromPixels(pixels, 2, 2);
+        Assert.False(picture.HasEncodedPng);
+        Assert.Equal(new PixelSize(2, 2), picture.Bitmap.PixelSize);
+        Assert.Equal(pixels, picture.GetPixels());
+        using var crop = picture.Crop(new PixelRegion(1, 0, 1, 2));
+        Assert.False(picture.HasEncodedPng);
+        Assert.False(crop.HasEncodedPng);
+        Assert.Equal(new byte[] { 40, 50, 60, 255, 100, 110, 120, 255 }, crop.GetPixels());
+        var png = crop.Png;
+        Assert.True(crop.HasEncodedPng);
+        Assert.Same(png, crop.Png);
+        using var decoded = new Picture(png);
+        Assert.Equal(crop.GetPixels(), decoded.GetPixels());
+    }
+
+    [AvaloniaFact]
+    public void PixelCloneSurvivesSourceDisposalAndDoesNotEncodeEitherImage()
+    {
+        var source = Picture.FromPixels([10, 20, 30, 255], 1, 1);
+        using var clone = source.Clone();
+        Assert.False(source.HasEncodedPng);
+        Assert.False(clone.HasEncodedPng);
+        source.Dispose();
+        Assert.Equal(new byte[] { 10, 20, 30, 255 }, clone.GetPixels());
+    }
+
+    [AvaloniaFact]
+    public void CapturedPixelsSupportInteractiveUseAndLegacyPngConsumers()
+    {
+        var display = new Platform.CapturedDisplay(1, -100, 0, 1, 1, [])
+        { BgraPixels = [10, 20, 30, 255], PixelWidth = 1, PixelHeight = 1 };
+        using var picture = display.CreatePicture();
+        Assert.False(picture.HasEncodedPng);
+        Assert.Equal(new byte[] { 10, 20, 30, 255 }, picture.GetPixels());
+        using var legacy = new Picture(display.Png);
+        Assert.Equal(picture.GetPixels(), legacy.GetPixels());
+        Assert.Same(display.Png, display.Png);
+    }
+
+    [AvaloniaFact]
     public void CroppingRejectsOutOfBoundsBeforeAccessingPixels()
     {
         using var picture = DesktopController.RenderText("测试");

@@ -30,7 +30,7 @@ internal sealed class CaptureWindow : Window
 
     public CaptureWindow(CaptureSession session, CapturedDisplay display, double topSafeInset)
     {
-        _session = session; Display = display; Picture = new Picture(display.Png);
+        _session = session; Display = display; Picture = display.CreatePicture();
         Title = session.Preset switch { CaptureAction.Record => "Tbox 录屏选区", CaptureAction.Long => "Tbox 长截图选区", _ => "Tbox 截图" };
         SystemDecorations = SystemDecorations.None;
         CanResize = false; ShowInTaskbar = false; Topmost = true;
@@ -217,7 +217,7 @@ internal sealed class CaptureSurface : Control
     public CaptureSelectionBounds? DetectedSelection
     {
         get => _detectedSelection;
-        set { _detectedSelection = value; InvalidateVisual(); }
+        set { if (_detectedSelection == value) return; _detectedSelection = value; InvalidateVisual(); }
     }
     public bool IsDragging { get; private set; }
 

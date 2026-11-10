@@ -29,7 +29,7 @@ internal static class SmokeTest
                 displayCount = displays.Count;
                 foreach (var display in displays)
                 {
-                    using var frame = new Models.Picture(display.Png);
+                    using var frame = display.CreatePicture();
                     if (display.Width <= 0 || display.Height <= 0 || frame.Bitmap.PixelSize.Width < display.Width)
                         throw new InvalidOperationException("截图未保留屏幕原始像素。");
                 }

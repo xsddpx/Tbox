@@ -44,7 +44,10 @@ internal sealed class WindowsHotkeys : IDisposable
         if (message == 0x0312)
         {
             // Never let managed exceptions cross an unmanaged window-procedure boundary.
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => _callback((HotkeyAction)(int)wParam)); return 0;
+            // DesktopController queues the action once at input priority. Do not add another hop.
+            try { _callback((HotkeyAction)(int)wParam); }
+            catch (Exception error) { AppLog.Write("Hotkey dispatch: " + error); }
+            return 0;
         }
         return DefWindowProc(window, message, wParam, lParam);
     }
