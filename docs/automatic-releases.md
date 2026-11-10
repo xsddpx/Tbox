@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-2026-11-08 用户进一步要求源码、Actions 与安装包统一到一个公开仓库。`xsddpx/Tbox` 继续公开并运行 Actions，Windows MSIX、Mac ZIP、证书、校验清单和安装说明直接附加到同仓库 Release；1.1.15 的 7 个附件迁入并校验后，旧 `xsddpx/Tbox-releases` 已不存在。使用 GitHub 标准 Linux、Windows 和 macOS 构建机器，没有启用付费 Larger runners。
+源码、Actions 和公开下载统一使用 `xsddpx/Tbox`。今后每个应用 Release 只上传 Windows MSIX 和 Mac ZIP。发布正文提供安装说明、两包的 SHA-256，以及 Windows 首次安装证书和第三方对应源码的链接。旧版本按发布时的附件方式保留。构建使用 GitHub 标准 Linux、Windows 和 macOS 机器。
 
 公开前使用 Gitleaks 8.30.1 扫描全部分支可达的 19 次提交，未发现凭据泄漏；历史路径也未发现私钥或环境凭据文件。签名身份仍保存在 Actions Secrets；旧的跨仓库发布 Secret 不再需要并应删除。普通 PR 使用只读仓库权限且不获得签名或发布 Secrets；签名仅用于维护者发布或显式启用的指定开发分支。公开仓库的工作流、日志及产物可被他人访问，上传内容不得包含凭据或用户数据。
 
@@ -14,12 +14,12 @@
 
 `.github/workflows/release.yml` 在推送 `v<主>.<次>.<补丁>` 标签或维护者显式运行发布任务时启动。它只接受已合入 `main` 的提交和合法三段版本；普通分支推送、PR 或手工先公开一个源码 Release 都不会发布软件。
 
-1. 检查证书配置、`xsddpx/Tbox` 为公开仓库、所有版本文件一致、版本未打包、公开版本说明存在。
+1. 检查证书配置、仓库公开、当前提交与发布标签一致、各版本文件一致、版本未打包，以及公开版本说明存在。
 2. Windows 2025 x64 与 macOS 15 Apple Silicon 并行运行现有测试、媒体检查和打包脚本。Windows 签名、验签、安装 MSIX，并以包身份启动 OCR/裁剪/界面检查；Mac 复用持久签名，验签后运行 OCR/裁剪/界面与媒体检查。
-3. 汇总 Windows MSIX、Mac `.app` ZIP、Windows 公钥证书、第三方源码归档与中文安装说明，生成 `SHA256SUMS`、`release-manifest.json`。不发布未签名验证包、日志、非分发所需的业务源码副本或签名私钥。
-4. 在同一个公开仓库 `xsddpx/Tbox` 创建草稿 Release，上传全部文件；逐一核对 GitHub 返回的大小、上传状态和 SHA-256。任一平台失败或文件校验失败时，不公开此版本。
-5. 将实际打包时间及哈希提交到同仓库的 `codex/release-record-vX.Y.Z` 分支，尝试创建发布历史 PR。记录成功推送后才公开包含安装包的 Release。
-6. 保留预发布标记；预发布不会成为应用更新源的正式最新版。正式版本公开后，两平台更新器从同仓库匿名发现它。
+3. 用签名构建记录校验两个安装包，并核对 Windows 公钥证书和第三方对应源码。证书和源码与 v1.1.50 文件的大小及 SHA-256 一致时复用其链接。材料变化时，按两份文件的 SHA-256 建立独立的 `support-…` 归档并供后续版本复用。归档使用预发布标记。
+4. 创建应用 Release 草稿，只上传两个安装包，并核对 GitHub 返回的上传状态、大小和 SHA-256。正文链接当前标签的安装说明和匹配的证书、源码，并列出安装包校验值。
+5. 将两个安装包的时间和 SHA-256 提交到 `codex/release-record-vX.Y.Z`，随后尝试创建发布历史 PR。推送记录最多尝试三次。只有远程主线或记录分支存在匹配的发布记录，流程才会公开所需归档和应用 Release。
+6. 正式版本公开后，两平台更新器从同仓库匿名发现版本，通过 GitHub 附件元数据读取安装包大小和 SHA-256。预发布和支持归档会被跳过。
 
 当前覆盖 Windows 11 x64、macOS 14+ Apple Silicon。Intel Mac 尚未接入。当前证书属于持久开发签名，流程不等于 Apple 公证或商业可信签名；安装限制见 [公开安装说明](releases/INSTALL.md)。完整功能与用户设备升级验收仍遵循活需求文档。
 
@@ -55,23 +55,23 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 
 1. 同步提升 `Tbox.Desktop.csproj` 的 Version/AssemblyVersion/FileVersion、Mac `Info.plist`、Windows `Package.appxmanifest`。使用从未本地或 CI 打包过的新版本，例如本机 1.1.32 已打包，正式发布须使用新的 1.1.33。
 2. 完成功能、安装、升级及第三方依赖分发验收。添加 `docs/releases/vX.Y.Z.md` 的中文版本说明，写清已验证范围与限制。将变更合入 main。
-3. 推送对应版本标签触发发布，例如 `git tag vX.Y.Z && git push origin vX.Y.Z`；也可在 Actions 的 “Publish desktop installers” 中输入标签显式运行。不要先在 Releases 页面手工公开只有 Source code 的 Release。预发布通过手动任务勾选；标签仍使用三段版本。
-4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。成功后，`xsddpx/Tbox` 的同一 Release 包含两个安装包、Windows 公钥证书、第三方源码归档、说明和校验清单。使用未登录请求访问 [最新版](https://github.com/xsddpx/Tbox/releases/latest)，确认版本、两份安装包和校验文件均可访问，再分别下载并核对大小与 SHA-256。失败时继续保留上一正式版并说明原因。
+3. 推送对应版本标签触发发布，例如 `git tag vX.Y.Z && git push origin vX.Y.Z`。手动运行时在 Actions 选择同一标签作为运行引用，并在 “Publish desktop installers” 输入该标签。预发布通过手动任务勾选。
+4. 查看 [Publish desktop installers](https://github.com/xsddpx/Tbox/actions/workflows/release.yml)。使用未登录请求访问 [最新版](https://github.com/xsddpx/Tbox/releases/latest)，确认版本只有两个上传附件，下载后按 GitHub 元数据和正文核对大小与 SHA-256，并检查安装说明、证书和源码链接。失败时保留上一正式版并记录原因。
 5. 合并自动生成的发布记录 PR（或提示中的记录分支），再验收真实在线更新。不要通过移动旧标签、覆盖旧包或删除已有正式 Release 来处理问题。
 
 打包与上传耗用已有 Actions 配额；本次没有变更计费或开通付费 runner。
 
 ## 失败与重试
 
-构建失败时不会运行发布任务，修复后可重跑失败任务；已经成功的另一个平台产物保留 7 天。上传/记录失败可能在 `xsddpx/Tbox` 留下草稿；自动流程拒绝覆盖或接管它，需要检查失败日志与资产后处理，或发布新的版本。已经公开的同版本不会被重写。
+构建失败后可重跑失败任务，成功的平台构建产物保留 7 天。上传、记录或公开请求失败后，在原运行选择 **Re-run failed jobs**。发布任务沿用该运行的签名产物，核对草稿的运行编号、提交、正文、预发布状态和附件摘要。已经校验的文件会复用，缺失的文件补传。主线或远程记录分支已有完全匹配的打包记录时会沿用。
 
-若 GitHub 返回的资产还没有 SHA-256、大小不符或缺失平台，任务会失败并保持草稿。不能通过跳过检查强行公开。发布记录推送成功但最终公开请求失败时，记录保留，供核对恢复。
+来自其他运行的草稿、摘要缺失或不符的附件、额外附件及不匹配的记录都会阻止公开。若原构建产物已过期或草稿含未完成的上传占位文件，先核对失败日志和草稿，再决定人工处理或使用新版本。已公开版本可核对原文件和记录。
 
 ## 本地验证与发布结果
 
 1.1.33 于 2026-11-10 08:58:58 +0800 公开，源提交为 `1fe093e`。[正式发布流程](https://github.com/xsddpx/Tbox/actions/runs/42731603060)通过双平台签名和运行检查。验证 [GitHub 最新版](https://github.com/xsddpx/Tbox/releases/latest) 指向 1.1.33，两份安装包均通过匿名下载、大小和 SHA-256 校验，Mac ZIP 签名与本机现有身份一致。
 
-40 项离线回归测试覆盖标签注入/版本范围、版本与包身份不一致、缺说明、复用版本、漏包、额外私钥文件、篡改文件、实际打包时间、上传损坏、草稿/正式切换、预发布保留、审计失败、固定依赖、跨系统换行及源码材料完整性。运行：
+离线回归测试覆盖版本、包身份、原始打包时间、草稿恢复、记账顺序、两附件规则、支持材料完整性和预发布标记。
 
 ```sh
 python3 -m unittest discover -s tests/release -v
