@@ -23,7 +23,9 @@ internal static class ResidentMenu
 
     internal static void Retitle(NativeMenu menu, IReadOnlyList<string> titles)
     {
-        var items = menu.Items.OfType<NativeMenuItem>().ToArray();
+        // NativeMenuItemSeparator derives from NativeMenuItem. Counting it writes the next title
+        // onto the separator and shifts every later title, so a refresh drops 区域截图 and repeats 退出.
+        var items = menu.Items.OfType<NativeMenuItem>().Where(item => item is not NativeMenuItemSeparator).ToArray();
         for (var index = 0; index < items.Length && index < titles.Count; index++) items[index].Header = titles[index];
     }
 
