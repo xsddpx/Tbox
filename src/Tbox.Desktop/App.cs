@@ -80,14 +80,7 @@ public sealed class App : Application
 
     private void CreateTrayIcon(DesktopController controller, (Func<string>? Title, Action Action)[] entries)
     {
-        var menu = new NativeMenu();
-        foreach (var (title, action) in entries)
-        {
-            if (title is null) { menu.Add(new NativeMenuItemSeparator()); continue; }
-            var item = new NativeMenuItem(title());
-            item.Click += (_, _) => action();
-            menu.Add(item);
-        }
+        var menu = ResidentMenu.Create(entries);
         using var trayAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/WindowsTrayIcon.ico"));
         _tray = new TrayIcon { Icon = new WindowIcon(trayAsset), ToolTipText = "Tbox", Menu = menu, IsVisible = true };
         _tray.Clicked += (_, _) => controller.ShowMain();
@@ -96,24 +89,18 @@ public sealed class App : Application
 
     private void RetitleMenu((Func<string>? Title, Action Action)[] entries)
     {
-        var titles = entries.Where(entry => entry.Title is not null).Select(entry => entry.Title!()).ToArray();
-        if (_tray?.Menu is { } menu)
-        {
-            var items = menu.Items.OfType<NativeMenuItem>().ToArray();
-            for (var index = 0; index < items.Length && index < titles.Length; index++) items[index].Header = titles[index];
-        }
-        for (var index = 0; _statusItem is not null && index < titles.Length; index++) _statusItem.Retitle(index + 1, titles[index]);
+        if (_tray?.Menu is { } menu) ResidentMenu.Retitle(menu, ResidentMenu.Titles(entries));
+        if (_statusItem is not null) ResidentMenu.RetitleMac(entries, _statusItem.Retitle);
     }
 
     private void CreateStatusItem(DesktopController controller, (Func<string>? Title, Action Action)[] entries)
     {
         using var asset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/MenuBarIcon.png"));
         using var png = new MemoryStream(); asset.CopyTo(png);
-        var actions = entries.Where(entry => entry.Title is not null).Select(entry => entry.Action).ToArray();
         // The approved monochrome silhouette is drawn as a template image with the system menu bar tint.
         _statusItem = new MacStatusItem(png.ToArray(), "Tbox", entries.Select(entry => entry.Title?.Invoke()).ToArray(),
             () => Dispatcher.UIThread.Post(controller.ShowMain),
-            command => Dispatcher.UIThread.Post(() => { if (command <= actions.Length) actions[command - 1](); }));
+            command => Dispatcher.UIThread.Post(() => ResidentMenu.Choose(entries, command)));
     }
 
     internal static void RestoreOnReopen(DesktopController controller, ActivatedEventArgs args)
