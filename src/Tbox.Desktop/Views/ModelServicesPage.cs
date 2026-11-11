@@ -10,22 +10,24 @@ namespace Tbox.Desktop.Views;
 // Settings for the shared capability, not a chat/translation tool. The only generation here is a fixed smoke request.
 internal sealed class ModelServicesPage : UserControl, IDisposable
 {
+    internal const string HelpText = "密钥保存在系统凭据库。保存不发送请求；测试会发送少量文字，可能产生费用。API 地址填写基础路径，模型 ID 每行一个。";
     private readonly ModelService _service;
     private readonly Func<Window> _owner;
     private readonly ComboBox _connections = new() { HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0 };
+    internal ComboBox Provider { get; } = new() { ItemsSource = new[] { "DeepSeek", "自定义服务（OpenAI 兼容）" }, HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0 };
     internal TextBox ConnectionName { get; } = Field("连接名称");
     internal TextBox BaseUrl { get; } = Field("API 基础地址", "例如 https://api.example.com/v1");
     internal TextBox Secret { get; } = new() { PasswordChar = '●', Watermark = "输入新的 API 密钥", MinWidth = 0, MaxLength = 1280 };
-    internal TextBox Models { get; } = new() { AcceptsReturn = true, MinHeight = 72, MaxHeight = 140, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Watermark = "每行一个模型 ID，可手动填写", MinWidth = 0 };
-    internal CheckBox NoKey { get; } = new() { Content = "此连接无需 API 密钥" };
-    internal CheckBox UseAsDefault { get; } = new() { Content = "设为全局默认模型" };
+    internal TextBox Models { get; } = new() { AcceptsReturn = true, MinHeight = 32, MaxHeight = 72, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Watermark = "每行一个模型 ID", MinWidth = 0 };
+    internal CheckBox NoKey { get; } = new() { Content = "无需密钥" };
+    internal CheckBox UseAsDefault { get; } = new() { Content = "设为默认" };
     private readonly ComboBox _defaultModel = new() { HorizontalAlignment = HorizontalAlignment.Stretch, MinWidth = 0 };
     private readonly TextBlock _savedKey = Ui.Description("尚未保存密钥");
-    private readonly TextBlock _status = Ui.Description("未测试。保存配置不会发送模型请求。");
+    private readonly TextBlock _status = Ui.Description("");
     private readonly TextBlock _endpoint = Ui.Description("");
     private readonly TextBlock _testResult = Ui.Description("");
     private readonly TextBlock _global = Ui.Description("");
-    private readonly StackPanel _form = new() { Spacing = 10 };
+    private readonly StackPanel _form = new() { Spacing = 8 };
     private readonly Control _secretEditor;
     private readonly Button _replace, _deleteKey, _save, _fetch, _test, _stop, _add, _delete, _reset;
     private CancellationTokenSource? _operation;
@@ -43,6 +45,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         AutomationProperties.SetName(Models, "模型 ID 列表");
         AutomationProperties.SetName(_connections, "选择模型连接");
         AutomationProperties.SetName(_defaultModel, "全局默认模型 ID");
+        AutomationProperties.SetName(Provider, "模型服务商");
         _replace = Ui.Link("替换", BeginReplaceKey);
         _deleteKey = Ui.Link("删除密钥", () => Run(DeleteKeyAsync), accent: false);
         _secretEditor = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children =
@@ -51,8 +54,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             Children = { _savedKey, Ui.Column(_replace, 1), Ui.Column(_deleteKey, 2) } };
         _savedKey.VerticalAlignment = VerticalAlignment.Center;
         _save = Ui.Primary("保存配置", () => Run(SaveAsync));
-        _fetch = Ui.Button("获取模型列表", () => Run(FetchModelsAsync));
-        _test = Ui.Button("测试调用", () => Run(TestAsync));
+        _fetch = Ui.Button("获取", () => Run(FetchModelsAsync), "获取模型列表");
+        _test = Ui.Button("测试", () => Run(TestAsync), "发送少量测试文字，可能产生费用");
         _stop = Ui.Button("停止", () => _operation?.Cancel()); _stop.IsVisible = false;
         _add = Ui.Button("添加连接", () => Run(() => LoadDraftAsync(null)));
         _delete = Ui.Link("删除连接", () => Run(DeleteConnectionAsync), accent: false);
@@ -73,29 +76,31 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         NoKey.IsCheckedChanged += (_, _) => Changed();
         UseAsDefault.IsCheckedChanged += (_, _) => Changed();
         _defaultModel.SelectionChanged += (_, _) => Changed();
-        _form.Children.Add(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8,
-            Children = { _connections, Ui.Column(_add, 1) } });
-        _form.Children.Add(Labelled("连接名称", ConnectionName));
-        _form.Children.Add(Labelled("接口协议", Ui.Description("OpenAI 兼容 · Chat Completions")));
+        Provider.SelectionChanged += (_, _) => ApplyPreset();
+        var helpFlyout = new Flyout { Content = new TextBlock { Text = HelpText, MaxWidth = 280, TextWrapping = Avalonia.Media.TextWrapping.Wrap, FontSize = 12.5 } };
+        Button? help = null;
+        help = Ui.IconButton(IconKind.Info, "模型服务说明", () => helpFlyout.ShowAt(help!));
+        ToolTip.SetTip(help, HelpText);
+        _form.Children.Add(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 8,
+            Children = { _connections, Ui.Column(_add, 1), Ui.Column(help, 2) } });
+        _form.Children.Add(Labelled("服务商", Provider));
+        _form.Children.Add(Labelled("名称", ConnectionName));
         _form.Children.Add(Labelled("API 地址", BaseUrl));
-        _form.Children.Add(_endpoint);
         _form.Children.Add(Labelled("API 密钥", keyState));
         _form.Children.Add(_secretEditor);
-        _form.Children.Add(NoKey);
-        _form.Children.Add(Labelled("模型 ID", Models));
-        _form.Children.Add(Ui.Row(_fetch, Ui.Description("获取失败时可手动填写")));
-        _form.Children.Add(UseAsDefault);
-        _form.Children.Add(Labelled("默认模型", _defaultModel));
-        _form.Children.Add(_global);
+        _form.Children.Add(Labelled("模型 ID", new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children = { Models, Ui.Column(_fetch, 1) } }));
+        _form.Children.Add(Labelled("使用模型", _defaultModel));
+        _form.Children.Add(Ui.Row(NoKey, UseAsDefault));
         _form.Children.Add(new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 6,
             Children = { _reset, Ui.Column(_delete, 1), Ui.Column(_save, 2) } });
         _delete.HorizontalAlignment = HorizontalAlignment.Left;
-        var testbar = new StackPanel { Spacing = 10, Children =
+        var testbar = new StackPanel { Spacing = 6, Children =
         {
-            Ui.GroupHeader("调用验证"), Ui.Description("仅发送固定的少量测试文字，可能产生 API 费用。不会读取剪贴板或发送截图。"),
-            Ui.Row(_test, _stop), _status, _testResult,
-            Ui.Note("密钥保存在本机系统凭据库。保存与测试相互独立；列表获取成功不代表模型推理可用。当前只提供文本能力，不执行工具或命令。")
+            new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*"), ColumnSpacing = 8, Children = { _test, Ui.Column(_stop, 1), Ui.Column(_status, 2) } }
         } };
+        // Keep test details and field hints out of the permanent layout.
+        ToolTip.SetTip(_test, "发送少量测试文字，可能产生费用");
+        ToolTip.SetTip(Models, "每行一个模型 ID");
         Content = new StackPanel { Spacing = 8, Margin = new Thickness(0, 16, 0, 0), Children = { _form, testbar } };
         RefreshControls();
     }
@@ -116,11 +121,12 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         try
         {
             _id = connection?.Id ?? Guid.NewGuid();
-            ConnectionName.Text = connection?.Name ?? "";
-            BaseUrl.Text = connection?.BaseUrl ?? "";
-            Models.Text = string.Join('\n', connection?.Models ?? []);
+            ConnectionName.Text = connection?.Name ?? "DeepSeek";
+            BaseUrl.Text = connection?.BaseUrl ?? "https://api.deepseek.com";
+            Models.Text = string.Join('\n', connection?.Models ?? ["deepseek-chat"]);
+            Provider.SelectedIndex = IsDeepSeek(BaseUrl.Text) ? 0 : 1;
             NoKey.IsChecked = connection is not null && !connection.RequiresKey;
-            UseAsDefault.IsChecked = _service.Configuration.DefaultModel?.ConnectionId == _id;
+            UseAsDefault.IsChecked = connection is null ? _service.Configuration.DefaultModel is null : _service.Configuration.DefaultModel?.ConnectionId == _id;
             Secret.Text = ""; _editingKey = connection?.CredentialId is null;
             _dirty = false;
             RefreshModelChoices(_service.Configuration.DefaultModel?.ConnectionId == _id ? _service.Configuration.DefaultModel.ModelId : null);
@@ -129,7 +135,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             _connections.PlaceholderText = "新连接";
             _savedKey.Text = connection?.CredentialId is not null ? "••••••••••••  · 检查保存状态…" : "尚未保存密钥";
             _testResult.Text = "";
-            SetStatus("未测试。保存配置不会发送模型请求。");
+            SetStatus("");
             RefreshControls();
             if (connection?.CredentialId is not null)
                 _savedKey.Text = await _service.HasCredentialAsync(connection) ? "••••••••••••  · 已保存" : "密钥缺失，请替换";
@@ -148,7 +154,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         });
         Secret.Text = ""; _dirty = false;
         await LoadDraftAsync(_service.Configuration.Connections.Single(c => c.Id == _id));
-        SetStatus("配置已保存 · 未测试。密钥未写入普通配置。");
+        SetStatus("已保存");
     }
 
     internal void BeginReplaceKey()
@@ -161,14 +167,14 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         if (!await Confirm("删除此连接的 API 密钥？", "删除密钥", "删除后需要重新填写才能调用需要认证的服务。连接和模型列表保留。")) return;
         await Busy(ct => _service.DeleteCredentialAsync(_id, ct));
         _savedKey.Text = "尚未保存密钥"; Secret.Text = ""; _editingKey = true;
-        SetStatus("密钥已删除。连接测试状态已清除。"); RefreshControls();
+        SetStatus("密钥已删除"); RefreshControls();
     }
     private async Task DeleteConnectionAsync()
     {
         if (!await Confirm("删除此模型连接？", "删除连接", "将同时删除此连接保存的密钥；若它是默认模型，会清除默认选择。")) return;
         await Busy(ct => _service.DeleteConnectionAsync(_id, ct));
         _dirty = false; await LoadDraftAsync(_service.Configuration.Connections.FirstOrDefault());
-        SetStatus("连接已删除。");
+        SetStatus("连接已删除");
     }
     private Task<bool> Confirm(string title, string action, string detail) => new ConfirmWindow(title, action, detail, destructive: true).ShowDialog<bool>(_owner());
 
@@ -177,7 +183,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         string[] models = [];
         await Busy(async ct => models = await _service.GetModelsAsync(_id, ct));
         Models.Text = string.Join('\n', models);
-        SetStatus("模型列表已获取，保存后生效；这不代表模型调用已通过测试。");
+        SetStatus("已获取，待保存");
     }
 
     internal async Task TestAsync()
@@ -197,19 +203,40 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
                 {
                     if (item.FinishReason != "stop") throw new ModelServiceException(ModelFailure.Incomplete, "模型已结束，但未正常完成（可能达到输出上限或内容受限）。");
                     completed = true;
-                    SetStatus("测试通过 · 仅证明此模型本次文本调用可用。" + (item.Usage is { } usage ? $" 用量：输入 {usage.InputTokens?.ToString() ?? "未知"} / 输出 {usage.OutputTokens?.ToString() ?? "未知"} token。" : " 用量：服务未返回。"));
+                    SetStatus("连接正常");
+                    ToolTip.SetTip(_status, item.Usage is { } usage ? $"输入 {usage.InputTokens?.ToString() ?? "未知"} / 输出 {usage.OutputTokens?.ToString() ?? "未知"} token" : "用量未返回");
                 }
             }
-            if (!completed) throw new ModelServiceException(ModelFailure.Incomplete, "测试未完整结束，不能标记为通过。");
+            if (!completed || string.IsNullOrWhiteSpace(_testResult.Text)) throw new ModelServiceException(ModelFailure.Incomplete, "未收到完整测试结果。");
         }, testing: true);
     }
 
-    private ModelConnection Draft() => new(_id, ConnectionName.Text ?? "", BaseUrl.Text?.Trim() ?? "", ModelIds()) { RequiresKey = NoKey.IsChecked != true };
+    private ModelConnection Draft()
+    {
+        var ids = ModelIds();
+        // The simple selector also remembers a connection's preferred model without stealing the global default.
+        if (_defaultModel.SelectedItem is string selected && ids.Contains(selected, StringComparer.Ordinal))
+            ids = new[] { selected }.Concat(ids.Where(id => id != selected)).ToArray();
+        return new(_id, ConnectionName.Text ?? "", BaseUrl.Text?.Trim() ?? "", ids) { RequiresKey = NoKey.IsChecked != true };
+    }
+    private static bool IsDeepSeek(string? url) => url?.Trim().TrimEnd('/') is "https://api.deepseek.com" or "https://api.deepseek.com/v1";
+    private void ApplyPreset()
+    {
+        if (_loading || Provider.SelectedIndex < 0) return;
+        _loading = true;
+        var deepseek = Provider.SelectedIndex == 0;
+        ConnectionName.Text = deepseek ? "DeepSeek" : "自定义服务";
+        BaseUrl.Text = deepseek ? "https://api.deepseek.com" : "";
+        Models.Text = deepseek ? "deepseek-chat" : "";
+        Secret.Text = ""; _editingKey = true; NoKey.IsChecked = false;
+        _loading = false;
+        Changed();
+    }
     private string[] ModelIds() => (Models.Text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
     private void Changed()
     {
         if (_loading) return;
-        _dirty = true; _testResult.Text = ""; SetStatus("配置已更改 · 未保存，需保存后重新测试。");
+        _dirty = true; _testResult.Text = ""; SetStatus("未保存");
         RefreshModelChoices(_defaultModel.SelectedItem as string); RefreshControls();
     }
     private void RefreshModelChoices(string? selected)
@@ -236,23 +263,25 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _global.Text = selected is null ? "当前尚未选择全局默认模型" : "当前全局默认：" + _service.Configuration.Connections.FirstOrDefault(c => c.Id == selected.ConnectionId)?.Name + " / " + selected.ModelId;
         try { _endpoint.Text = "请求至 " + ModelPolicy.Endpoint(Draft(), "chat/completions").GetLeftPart(UriPartial.Path); }
         catch (ModelServiceException) { _endpoint.Text = "填写基础地址后显示实际请求地址"; }
+        ToolTip.SetTip(BaseUrl, _endpoint.Text);
+        ToolTip.SetTip(UseAsDefault, _global.Text);
     }
     private async Task Busy(Func<CancellationToken, Task> work, bool testing = false)
     {
         if (_busy) return;
         _operation = new(); _busy = true; RefreshControls();
-        if (testing) SetStatus("正在测试 · 只发送固定测试文字，可点击停止。");
+        if (testing) SetStatus("测试中…");
         try { await work(_operation.Token); }
         finally { _busy = false; _operation.Dispose(); _operation = null; RefreshControls(); }
     }
     private async void Run(Func<Task> operation)
     {
         try { await operation(); }
-        catch (OperationCanceledException) { SetStatus("操作已停止；已收到的内容可能不完整。不会自动重试。"); }
-        catch (ModelServiceException e) { SetStatus(e.Message + " 不会自动重试。"); }
+        catch (OperationCanceledException) { SetStatus("已停止"); }
+        catch (ModelServiceException e) { SetStatus(e.Message); }
         catch { SetStatus("操作未完成，请检查配置或系统凭据访问权限后重试。"); }
     }
-    private void SetStatus(string message) => _status.Text = message;
+    private void SetStatus(string message) { _status.Text = message; ToolTip.SetTip(_status, null); }
     internal void Leave() { _operation?.Cancel(); Secret.Text = ""; _testResult.Text = ""; }
     public void Dispose() { _disposed = true; Leave(); }
     private static TextBox Field(string name, string? placeholder = null)

@@ -7,7 +7,7 @@ namespace Tbox.Desktop.Views;
 
 internal enum IconKind
 {
-    Back, Settings, Folder, Capture, Pin, Ocr, Chevron, Record, Long, Eye, EyeOff, Jump, Gear, Copy, Model,
+    Back, Settings, Folder, Capture, Pin, Ocr, Chevron, Record, Long, Eye, EyeOff, Jump, Gear, Copy, Model, Translate,
     Rectangle, Ellipse, Line, Polyline, Arrow, Number, Pen, Highlighter, Mosaic, Text, Eraser,
     Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute
 }
@@ -28,6 +28,7 @@ internal sealed class LineIcon : Control
             IconKind.Back => "M19 12 H5 M11 6 L5 12 L11 18",
             IconKind.Settings => "M4 7 L20 7 M4 17 L20 17 M8 4 L8 10 M16 14 L16 20",
             IconKind.Model => "M5 5 H19 V19 H5 Z M9 9 H15 V15 H9 Z M9 2 V5 M15 2 V5 M9 19 V22 M15 19 V22 M2 9 H5 M2 15 H5 M19 9 H22 M19 15 H22",
+            IconKind.Translate => "M3 5 H15 M9 3 V5 M5 5 Q6 12 14 16 M13 5 Q12 12 3 17 M14 21 L18 10 L22 21 M15.5 17 H20.5",
             IconKind.Folder => "M3 6 L9 6 L11 8 L21 8 L21 20 L3 20 Z M3 11 L21 11",
             IconKind.Capture => "M3 8 L3 3 L8 3 M16 3 L21 3 L21 8 M21 16 L21 21 L16 21 M8 21 L3 21 L3 16 M8 8 L16 8 L16 16 L8 16 Z",
             IconKind.Pin => "M8 3 L16 3 L15 10 L19 14 L13 14 L12 21 L11 14 L5 14 L9 10 Z",
