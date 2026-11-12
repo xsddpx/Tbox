@@ -60,6 +60,10 @@ public interface IPlatformServices : IDisposable
         var folders = await owner.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = title });
         return folders.FirstOrDefault()?.TryGetLocalPath();
     }
+
+    // Publishes clipboard image formats that the platform's own applications read. Returning false keeps the
+    // shared Avalonia clipboard path. bgra holds top-down, non-premultiplied pixels matching png.
+    bool TryWriteClipboardImage(byte[] png, byte[] bgra, int width, int height) => false;
 }
 
 public interface ICaptureTargetSource
