@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -285,7 +285,7 @@ public sealed class MainWindow : Window
             Ui.GroupHeader("提示"), new SettingsLine("失败时提示", "截图或识别失败时，在屏幕角落说明原因", _failureToggle),
             Spaced(Ui.Note("关闭窗口后 Tbox 继续在托盘运行，快捷键照常可用。右键托盘图标可退出。"), 18));
 
-        AddPage(MainPage.Models, PageHeader(IconKind.Model, "模型服务", "统一管理连接与模型，供未来工具复用", null), _models);
+        AddPage(MainPage.Models, _models);
         AddPage(MainPage.Translation, PageHeader(IconKind.Translate, "翻译", "复用公共模型能力 · 原文与译文对照", null), _translation);
 
         var feedback = new SurfaceButton("反馈问题", () => _controller.Run(async () =>

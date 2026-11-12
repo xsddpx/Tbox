@@ -240,6 +240,19 @@ public sealed class ModelServiceTests
         Assert.Equal("manually-added", scope.Service.Configuration.DefaultModel!.ModelId);
     }
 
+    [Fact]
+    public async Task DefaultModelCanChangeWithoutRewritingTheConnectionOrReadingTheSecret()
+    {
+        using var scope = new Scope(); await scope.Save();
+        var connection = scope.Service.Configuration.Connections.Single();
+        await scope.Service.SetDefaultModelAsync(new(connection.Id, "text-two"));
+        Assert.Equal("text-two", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal(connection.CredentialId, scope.Service.Configuration.Connections.Single().CredentialId);
+        Assert.Equal(0, scope.Credentials.ReadCount);
+        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SetDefaultModelAsync(new(connection.Id, "missing")));
+        Assert.Equal("text-two", scope.Service.Configuration.DefaultModel!.ModelId);
+    }
+
     private static TextGenerationRequest Input() => new([new("user", "private prompt")]);
     internal static HttpResponseMessage Response(string body, string type = "text/event-stream", HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = new StringContent(body, Encoding.UTF8, type) };
     internal static async Task<List<TextGenerationEvent>> Collect(IAsyncEnumerable<TextGenerationEvent> stream)
