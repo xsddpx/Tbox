@@ -86,43 +86,22 @@ public sealed class App : Application
     {
         using var trayAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/WindowsTrayIcon.ico"));
         _tray = new TrayIcon { Icon = new WindowIcon(trayAsset), ToolTipText = "Tbox", IsVisible = true };
-        // Avalonia reports a left click through Clicked and only forwards a right click to the tray
-        // window, so the tray window procedure records which button was released (see HookTrayWindow).
-        _tray.Clicked += (_, _) =>
-        {
-            if (IsPrimaryTrayClick()) controller.ShowMain();
-            else ToggleMenu(controller);
-        };
+        // A left click raises Clicked; a right click is intercepted on the tray window and opens the
+        // app's own menu (see HookTrayWindow and NativeMethods.SetTrayRightClickHandler).
+        _tray.Clicked += (_, _) => controller.ShowMain();
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
+#if WINDOWS
+        NativeMethods.SetTrayRightClickHandler(() => Dispatcher.UIThread.Post(() => ToggleMenu(controller)));
         // Avalonia creates the tray window once the icon is attached; hooking it must happen after that.
         Dispatcher.UIThread.Post(HookTrayWindow, DispatcherPriority.Loaded);
+#endif
     }
 
-    // Records the released button on the tray icon's message window before Avalonia handles it.
+    // Replaces the tray window procedure so a right click opens the menu before Avalonia handles it.
     private static void HookTrayWindow()
     {
 #if WINDOWS
         NativeMethods.HookTrayWindow(NativeMethods.FindOwnWindow());
-#endif
-    }
-
-    // Windows: the right button opens the menu; any other click opens the main window.
-    // Other platforms never create this tray icon.
-    private static bool IsPrimaryTrayClick()
-    {
-#if WINDOWS
-        return !NativeMethods.LastTrayClickWasRight;
-#else
-        return true;
-#endif
-    }
-
-    private static PixelPoint PointerPosition()
-    {
-#if WINDOWS
-        return NativeMethods.PointerPosition();
-#else
-        return default;
 #endif
     }
 
@@ -134,19 +113,33 @@ public sealed class App : Application
         _menu = menu;
         menu.Closed += (_, _) => { if (ReferenceEquals(_menu, menu)) _menu = null; };
         menu.Show();
-        // Place the menu inside the working area of the screen under the pointer, in device-independent units.
-        var screens = menu.Screens;
-        var pointer = PointerPosition();
-        var screen = screens.All.FirstOrDefault(candidate => candidate.Bounds.Contains(pointer)) ?? screens.Primary;
-        if (screen is not null)
-        {
-            var area = screen.WorkingArea;
-            var point = menu.PlaceInside(new Rect(0, 0, area.Width / screen.Scaling, area.Height / screen.Scaling));
-            menu.Position = new PixelPoint(area.X, area.Y) + new PixelPoint((int)(point.X * screen.Scaling), (int)(point.Y * screen.Scaling));
-        }
+        PlaceMenu(menu);
         // A window that does not take focus when shown never gets deactivated either; taking focus makes
         // the menu dismiss when the user clicks back into another window.
         menu.Activate();
+    }
+
+    // The menu sits just above the taskbar on the screen that owns the tray icon. The pointer is not a
+    // reliable hint: Windows reports the cursor over a tray icon at the taskbar's far corner, which is
+    // the next screen when that corner is a monitor boundary. The tray window's own monitor is used.
+    private void PlaceMenu(TrayMenuWindow menu)
+    {
+        var screens = menu.Screens;
+        var screen = TrayScreen(screens) ?? screens.Primary;
+        if (screen is null) return;
+        var area = screen.WorkingArea;
+        var point = menu.PlaceInside(new Rect(0, 0, area.Width / screen.Scaling, area.Height / screen.Scaling));
+        menu.Position = new PixelPoint(area.X, area.Y) + new PixelPoint((int)(point.X * screen.Scaling), (int)(point.Y * screen.Scaling));
+    }
+
+    private static Screen? TrayScreen(Screens screens)
+    {
+#if WINDOWS
+        // The tray icon is drawn on the taskbar, which belongs to one monitor; the menu follows it.
+        var taskbar = NativeMethods.TrayWindowBounds();
+        if (taskbar is { } bounds) return screens.All.FirstOrDefault(screen => screen.Bounds.Contains(bounds));
+#endif
+        return null;
     }
 
     private void RetitleMenu((Func<string>? Title, Action Action)[] entries)

@@ -152,11 +152,14 @@ internal static partial class NativeMethods
         _ = SetWindowLongPtr(hwnd, GwlpHwndParent, owner);
     }
 
-    // Avalonia reports left clicks through TrayIcon.Clicked but sends right clicks only to the tray
-    // window procedure, so that procedure is replaced: the released button is remembered and the
-    // message is forwarded to Avalonia unchanged.
-    private static bool _lastClickWasRight;
-    internal static bool LastTrayClickWasRight => _lastClickWasRight;
+    // Avalonia registers the tray icon so every click arrives on the platform message window as
+    // WM_TRAYMOUSE (WM_USER + 1024) with lParam carrying the real button message: WM_LBUTTONUP for a
+    // left click (which Avalonia turns into TrayIcon.Clicked) and WM_RBUTTONUP for a right click
+    // (which Avalonia only uses to show its native menu and never surfaces). The window procedure is
+    // therefore replaced so a right click opens the app's own menu, then the message is forwarded.
+    private const uint WmTrayMouse = 0x0800;
+    private static Action? _trayRightClickHandler;
+    internal static void SetTrayRightClickHandler(Action? handler) => _trayRightClickHandler = handler;
 
     private static readonly WindowProc _trayProcedure = OnTrayMessage;
     internal static bool HookTrayWindow(IntPtr hwnd)
@@ -169,8 +172,10 @@ internal static partial class NativeMethods
 
     private static IntPtr OnTrayMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam)
     {
-        if (message == WmRButtonUp) _lastClickWasRight = true;
-        else if (message == WmLButtonUp) _lastClickWasRight = false;
+        if (message == WmTrayMouse && lParam.ToInt32() == unchecked((int)WmRButtonUp))
+        {
+            _trayRightClickHandler?.Invoke();
+        }
         return CallWindowProc(_originalTrayProcedure, hwnd, message, wParam, lParam);
     }
 
@@ -199,6 +204,19 @@ internal static partial class NativeMethods
         return found;
     }
 
+    // The screen that owns the tray icon: the taskbar window, which belongs to the monitor whose tray
+    // shows the icon. The pointer is no help here — Windows reports the cursor over a tray icon at the
+    // taskbar's far corner, which is the neighbouring screen when that corner is a monitor boundary.
+    internal static PixelRect? TrayWindowBounds()
+    {
+        var taskbar = FindWindow("Shell_TrayWnd", null);
+        if (taskbar == IntPtr.Zero) taskbar = FindWindow("Shell_SecondaryTrayWnd", null);
+        if (taskbar == IntPtr.Zero || !GetWindowRect(taskbar, out var bounds)) return null;
+        return new PixelRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top);
+    }
+
+    [LibraryImport("user32.dll", EntryPoint = "FindWindowW", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial IntPtr FindWindow(string? className, string? windowName);
 
     internal static PixelPoint PointerPosition() =>
         GetCursorPos(out var point) ? new PixelPoint(point.X, point.Y) : new PixelPoint(0, 0);
