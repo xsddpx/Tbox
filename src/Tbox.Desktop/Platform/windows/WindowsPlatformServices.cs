@@ -80,6 +80,12 @@ public sealed class WindowsPlatformServices : IPlatformServices
         }
     }
 
+    public bool TryWriteClipboardImage(byte[] png, byte[] bgra, int width, int height)
+    {
+        WindowsClipboardImage.Copy(png, bgra, width, height);
+        return true;
+    }
+
     public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => Task.Run(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
