@@ -36,7 +36,11 @@ internal static class Program
                 var window = new Window { Width = 160, Height = 100 };
                 window.Show();
                 var png = EncodePng(pixels);
-                WindowsClipboardImage.Copy(png, pixels, Width, Height);
+                using (var platform = new WindowsPlatformServices())
+                {
+                    if (!platform.TryWriteClipboardImage(png, pixels, Width, Height))
+                        throw new InvalidOperationException("Windows 平台未发布剪贴板图片。");
+                }
                 VerifyFormats();
                 await VerifyWindowsClipboardApiAsync(pixels);
                 window.Close();
@@ -74,12 +78,19 @@ internal static class Program
             if (GetClipboardData(CfDib) == IntPtr.Zero) throw new InvalidOperationException("剪贴板缺少 CF_DIB。");
             if (pngFormat == 0 || GetClipboardData(pngFormat) == IntPtr.Zero) throw new InvalidOperationException("剪贴板缺少 PNG。");
             if (pngMimeFormat == 0 || GetClipboardData(pngMimeFormat) == IntPtr.Zero) throw new InvalidOperationException("剪贴板缺少 image/png。");
-            // A CF_BITMAP entry is what the clipboard history preferred over the correct image data.
-            if (GetClipboardData(CfBitmap) != IntPtr.Zero)
-                throw new InvalidOperationException("剪贴板仍然发布了 CF_BITMAP，系统历史可能再次读到错误图像。");
+            // Windows derives CF_BITMAP from CF_DIB itself; it must be a colour bitmap that shows the source.
+            var bitmapHandle = GetClipboardData(CfBitmap);
+            if (bitmapHandle == IntPtr.Zero) throw new InvalidOperationException("剪贴板缺少 CF_BITMAP：" + DescribeFormats());
+            var bitmap = new Bitmap();
+            if (GetObject(bitmapHandle, Marshal.SizeOf<Bitmap>(), ref bitmap) == 0)
+                throw new InvalidOperationException("无法读取剪贴板位图。");
+            if (bitmap.bmWidth != Width || bitmap.bmHeight != Height)
+                throw new InvalidOperationException($"剪贴板位图为 {bitmap.bmWidth}x{bitmap.bmHeight}，期望 {Width}x{Height}。");
+            // A bitmap compatible with a memory DC is 1 bpp: other applications then read a black image.
+            if (bitmap.bmBitsPixel < 24)
+                throw new InvalidOperationException($"剪贴板位图只有 {bitmap.bmBitsPixel} bpp，其他应用会读到黑白或全黑图像。");
 
-            var handle = GetClipboardData(CfDib);
-            var dib = ReadAll(handle);
+            var dib = ReadAll(GetClipboardData(CfDib));
             if (dib.Length < 40) throw new InvalidOperationException("CF_DIB 数据过短。");
             var width = BitConverter.ToInt32(dib, 4);
             var height = BitConverter.ToInt32(dib, 8);
@@ -88,6 +99,19 @@ internal static class Program
                 throw new InvalidOperationException($"CF_DIB 为 {width}x{height} {bitCount}bpp（height={height}），期望 {Width}x{Height} 32bpp 自下而上。");
         }
         finally { CloseClipboard(); }
+    }
+
+    private static string DescribeFormats()
+    {
+        var parts = new List<string>();
+        uint format = 0;
+        while ((format = EnumClipboardFormats(format)) != 0)
+        {
+            var name = new System.Text.StringBuilder(128);
+            var length = GetClipboardFormatName(format, name, name.Capacity);
+            parts.Add($"{format}:{(length > 0 ? name.ToString() : "<predefined>")}");
+        }
+        return string.Join(", ", parts);
     }
 
     private static byte[] ReadAll(IntPtr handle)
@@ -152,7 +176,14 @@ internal static class Program
     [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr GetClipboardData(uint format);
     [DllImport("user32.dll", EntryPoint = "RegisterClipboardFormatW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern uint RegisterClipboardFormat(string name);
+    [DllImport("user32.dll")] private static extern uint EnumClipboardFormats(uint format);
+    [DllImport("user32.dll", EntryPoint = "GetClipboardFormatNameW", CharSet = CharSet.Unicode)]
+    private static extern int GetClipboardFormatName(uint format, System.Text.StringBuilder name, int max);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GlobalLock(IntPtr memory);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GlobalUnlock(IntPtr memory);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern UIntPtr GlobalSize(IntPtr memory);
+    [DllImport("gdi32.dll")] private static extern int GetObject(IntPtr handle, int size, ref Bitmap bitmap);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Bitmap { public int bmType, bmWidth, bmHeight, bmWidthBytes; public ushort bmPlanes, bmBitsPixel; public IntPtr bmBits; }
 }
