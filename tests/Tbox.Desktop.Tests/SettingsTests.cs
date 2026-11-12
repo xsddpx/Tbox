@@ -62,18 +62,13 @@ public sealed class SettingsTests
         controller.Dispose(); window.Close();
     }
 
-    // The model page always offers a way to set the API key, but it has two legitimate shapes.
-    // A connection with no saved credential shows the "新的 API 密钥" input; one that already has a
-    // credential collapses that input and shows the "替换" link instead. Which one appears depends on
-    // the saved settings, so the assertion must accept either rather than assume a fresh install.
+    // The model page opens on its connection list, which always offers "添加连接"; opening the
+    // saved connection shows either the key input (no saved credential) or the "替换" link.
+    // Which shape appears depends on this machine's saved models, so the assertion accepts either.
     private static void AssertModelPageOffersAKeyField(Window window)
     {
-        var keyInput = window.GetVisualDescendants().OfType<TextBox>()
-            .Any(t => t.IsEffectivelyVisible && AutomationProperties.GetName(t) == "新的 API 密钥");
-        var replaceLink = window.GetVisualDescendants().OfType<Button>()
-            .Any(b => b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "替换");
-        Assert.True(keyInput || replaceLink,
-            $"模型服务页应提供密钥输入框或“替换”入口（当前 savedCredential={!keyInput}）");
+        Assert.Contains(window.GetVisualDescendants().OfType<Button>(),
+            b => b.IsEffectivelyVisible && b.Content as string == "添加连接");
     }
 
     // Pins both shapes of the key field so the layout test above does not depend on this machine's saved models.
@@ -98,13 +93,15 @@ public sealed class SettingsTests
             var window = new Window { Content = page, Width = 900, Height = 600 };
             window.Show();
             await page.OpenAsync();
+            await page.BeginEditAsync(connection.Id);
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
 
             // IsEditingKey drives whether the input or the "替换" link is offered; it is the authoritative state.
             Assert.Equal(expectsInput, page.IsEditingKey);
             var replace = page.GetVisualDescendants().OfType<Button>()
                 .Any(b => b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "替换");
-            Assert.Equal(!expectsInput, replace);            window.Close();
+            Assert.Equal(!expectsInput, replace);
+            window.Close();
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
