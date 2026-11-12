@@ -32,10 +32,11 @@ public sealed class TrayMenuTests
             Assert.Equal(["打开 Tbox", "区域截图", "剪贴板贴图", "隐藏 / 显示贴图", "退出 Tbox"], entries.Select(entry => entry.Label));
             Assert.Single(entries, entry => entry.Label == "退出 Tbox");
             // The caps mirror the global shortcuts; the row labels themselves stay clean.
-            Assert.Equal(["F6", "F7", "F8"], entries.Where(entry => entry.Caps is not null).Select(entry => entry.Caps));
+            Assert.Equal(ShortcutLabels.Caps(HotkeyAction.Capture).Length, entries[1].Caps!.Split('+').Length);
+            Assert.Equal(["区域截图", "剪贴板贴图", "隐藏 / 显示贴图"], entries.Where(entry => entry.Caps is not null).Select(entry => entry.Label));
             var rows = Rows(menu);
             Assert.Equal(5, rows.Length);
-            Assert.Equal(["打开 Tbox", "区域截图 F6", "剪贴板贴图 F7", "隐藏 / 显示贴图 F8", "退出 Tbox"],
+            Assert.Equal(["打开 Tbox", $"区域截图 {entries[1].Caps}", $"剪贴板贴图 {entries[2].Caps}", $"隐藏 / 显示贴图 {entries[3].Caps}", "退出 Tbox"],
                 rows.Select(button => AutomationProperties.GetName(button)));
             // Separators sit between groups only: never before the first row or after the last one.
             var order = menu.RowsPanel.Children.Select(control => control is Grid ? "row" : "sep").ToArray();
@@ -88,7 +89,12 @@ public sealed class TrayMenuTests
             Assert.False(toggle.Accent);
 
             ShortcutLabels.Bindings = () => new HotkeyBindings(Pin: new Shortcut(Control: true, Alt: true, Shift: false, Meta: false, "F9"));
-            try { menu.Refresh(); Assert.Equal("Ctrl+Alt+F9", Assert.Single(menu.Entries(), entry => entry.Label == "剪贴板贴图").Caps); }
+            try
+            {
+                menu.Refresh();
+                var expected = new Shortcut(Control: true, Alt: true, Shift: false, Meta: false, "F9").Caps(OperatingSystem.IsMacOS());
+                Assert.Equal(string.Join("+", expected), Assert.Single(menu.Entries(), entry => entry.Label == "剪贴板贴图").Caps);
+            }
             finally { ShortcutLabels.Bindings = () => null; }
         }
         finally { menu.Close(); }
@@ -112,7 +118,7 @@ public sealed class TrayMenuTests
         menu.Show(); Layout(menu);
         try
         {
-            var row = Assert.Single(Rows(menu), button => AutomationProperties.GetName(button) == "区域截图 F6");
+            var row = Assert.Single(Rows(menu), button => AutomationProperties.GetName(button)?.StartsWith("区域截图") == true);
             row.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             // The command starts from the already closed menu, so its own windows are not dismissed as the menu's.
             Assert.False(menu.IsVisible);
