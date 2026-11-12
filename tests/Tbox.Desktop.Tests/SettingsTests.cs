@@ -39,7 +39,7 @@ public sealed class SettingsTests
                 if (page is not (MainPage.Models or MainPage.Translation))
                     Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
                 else if (page == MainPage.Models)
-                    Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible && AutomationProperties.GetName(t) == "新的 API 密钥");
+                    Assert.Contains(window.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && button.Content as string == "添加连接");
                 else
                     Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible && AutomationProperties.GetName(t) == "翻译原文");
                 Assert.True(window.CurrentPageView.Bounds.Width > width - 208 - 10 - 10);

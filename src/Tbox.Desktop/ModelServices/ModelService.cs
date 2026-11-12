@@ -107,6 +107,19 @@ public sealed class ModelService : ITextModelService, IDisposable
         catch (Exception e) { throw Sanitize(e, ct); }
     }
 
+    public async Task SetDefaultModelAsync(ModelReference? model, CancellationToken ct = default)
+    {
+        await InitializeAsync(ct); await _changes.WaitAsync(ct);
+        try
+        {
+            var next = _configuration with { DefaultModel = model };
+            if (model is not null) ModelPolicy.Resolve(next, model);
+            await _store.SaveAsync(next, ct);
+            _configuration = Clone(next);
+        }
+        finally { _changes.Release(); }
+    }
+
     public async IAsyncEnumerable<TextGenerationEvent> GenerateAsync(TextGenerationRequest request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await InitializeAsync(cancellationToken);
