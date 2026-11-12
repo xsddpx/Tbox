@@ -11,6 +11,7 @@ using Avalonia.Styling;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Tbox.Core;
+using Tbox.Core.ModelServices;
 using Tbox.Desktop.Models;
 using Tbox.Desktop.Platform;
 using Tbox.Desktop.Views;
@@ -39,7 +40,7 @@ public sealed class SettingsTests
                 if (page is not (MainPage.Models or MainPage.Translation))
                     Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
                 else if (page == MainPage.Models)
-                    Assert.Contains(window.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && button.Content as string == "添加连接");
+                    AssertModelPageOffersAKeyField(window);
                 else
                     Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible && AutomationProperties.GetName(t) == "翻译原文");
                 Assert.True(window.CurrentPageView.Bounds.Width > width - 208 - 10 - 10);
@@ -59,6 +60,62 @@ public sealed class SettingsTests
             }
         }
         controller.Dispose(); window.Close();
+    }
+
+    // The model page always offers a way to set the API key, but it has two legitimate shapes.
+    // A connection with no saved credential shows the "新的 API 密钥" input; one that already has a
+    // credential collapses that input and shows the "替换" link instead. Which one appears depends on
+    // the saved settings, so the assertion must accept either rather than assume a fresh install.
+    private static void AssertModelPageOffersAKeyField(Window window)
+    {
+        var keyInput = window.GetVisualDescendants().OfType<TextBox>()
+            .Any(t => t.IsEffectivelyVisible && AutomationProperties.GetName(t) == "新的 API 密钥");
+        var replaceLink = window.GetVisualDescendants().OfType<Button>()
+            .Any(b => b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "替换");
+        Assert.True(keyInput || replaceLink,
+            $"模型服务页应提供密钥输入框或“替换”入口（当前 savedCredential={!keyInput}）");
+    }
+
+    // Pins both shapes of the key field so the layout test above does not depend on this machine's saved models.
+    [AvaloniaTheory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task ModelPageShowsTheKeyInputOnlyUntilACredentialIsSaved(bool hasCredential, bool expectsInput)
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        var directory = Path.Combine(Path.GetTempPath(), "tbox-model-key-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var configurationPath = Path.Combine(directory, "models.json");
+            var connection = new ModelConnection(Guid.NewGuid(), "DeepSeek", "https://api.deepseek.com", ["deepseek-chat"])
+            {
+                CredentialId = hasCredential ? Guid.NewGuid() : null
+            };
+            await new Tbox.Desktop.ModelServices.ModelConfigurationStore(configurationPath)
+                .SaveAsync(new ModelConfiguration { Connections = [connection] }, default);
+            var service = new Tbox.Desktop.ModelServices.ModelService(configurationPath, new FakeCredentials());
+            var page = new ModelServicesPage(service, () => throw new InvalidOperationException());
+            var window = new Window { Content = page, Width = 900, Height = 600 };
+            window.Show();
+            await page.OpenAsync();
+            window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+
+            // IsEditingKey drives whether the input or the "替换" link is offered; it is the authoritative state.
+            Assert.Equal(expectsInput, page.IsEditingKey);
+            var replace = page.GetVisualDescendants().OfType<Button>()
+                .Any(b => b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "替换");
+            Assert.Equal(!expectsInput, replace);            window.Close();
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    // Settings-only credential store: the page never needs real secrets to decide what to show.
+    private sealed class FakeCredentials : Tbox.Desktop.Platform.IModelCredentialStore
+    {
+        public Task<bool> ContainsAsync(Guid connectionId, CancellationToken cancellationToken = default) => Task.FromResult(false);
+        public Task<string?> ReadAsync(Guid connectionId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
+        public Task WriteAsync(Guid connectionId, string secret, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(Guid connectionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     [Theory]

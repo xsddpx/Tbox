@@ -384,12 +384,17 @@ public sealed class DesktopController : IDisposable
     // A recent capture opens in the image preview; the preview owns and releases the loaded picture.
     public async Task OpenCachedAsync(string path) => ShowImageResult(await LoadCachedAsync(path), false);
 
+    // The preview reuses this to step between cached captures; the caller owns the returned picture.
+    internal Task<Picture> LoadCachedPictureAsync(string path) => LoadCachedAsync(path);
+
     private async Task<Picture> LoadCachedAsync(string path)
     {
         var full = Path.GetFullPath(path);
         if (!string.Equals(Path.GetDirectoryName(full), CacheDirectory, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("只能打开截图缓存目录中的图片。");
-        try { return new Picture(await File.ReadAllBytesAsync(full, _stop.Token)); }
+        // A capture loaded from the cache keeps its path: the preview browses by it and the
+        // preview's 复制 / 贴图 / 保存 reuse the existing file instead of caching a second copy.
+        try { return new Picture(await File.ReadAllBytesAsync(full, _stop.Token)) { CachePath = full }; }
         catch (FileNotFoundException) { Main.Refresh(); throw new InvalidOperationException("这张截图已被清理或移动。"); }
     }
 
