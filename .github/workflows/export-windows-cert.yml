@@ -4,6 +4,9 @@ name: 临时导出 Windows 签名证书
 # 下载后应立即删除本 workflow、对应 run 和 artifact。
 
 on:
+  push:
+    branches: [dsh/export-windows-cert]
+    paths: [.github/workflows/export-windows-cert.yml]
   workflow_dispatch:
 
 jobs:
