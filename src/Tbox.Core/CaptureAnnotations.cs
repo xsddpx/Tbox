@@ -603,6 +603,8 @@ public static class AnnotationGeometry
     }
 }
 
+public sealed record AnnotationDocumentSnapshot(AnnotationCommand[] Commands, AnnotationCommand[][] Undo, AnnotationCommand[][] Redo);
+
 public sealed class AnnotationDocument
 {
     private readonly List<AnnotationCommand> _commands = [];
@@ -616,6 +618,17 @@ public sealed class AnnotationDocument
     }
 
     public IReadOnlyList<AnnotationCommand> Commands => _readOnlyCommands;
+    public AnnotationDocumentSnapshot Snapshot() => new(_commands.ToArray(), _undo.ToArray(), _redo.ToArray());
+
+    public void RestoreSnapshot(AnnotationDocumentSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Restore(snapshot.Commands);
+        _undo.Clear(); _redo.Clear();
+        foreach (var state in snapshot.Undo.Reverse()) _undo.Push(state.ToArray());
+        foreach (var state in snapshot.Redo.Reverse()) _redo.Push(state.ToArray());
+    }
+
     public bool CanUndo => _undo.Count != 0;
     public bool CanRedo => _redo.Count != 0;
     public int NextNumber

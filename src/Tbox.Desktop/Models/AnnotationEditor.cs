@@ -100,6 +100,10 @@ public sealed class AnnotationEditor
 
     public void CancelGesture() { _drawing = false; _points.Clear(); Draft = null; Changed?.Invoke(); }
     public void Reset() { CancelGesture(); Document.Reset(); Tool = null; Changed?.Invoke(); }
+    public void Restore(AnnotationDocumentSnapshot snapshot)
+    {
+        CancelGesture(); Document.RestoreSnapshot(snapshot); Tool = null; Changed?.Invoke();
+    }
     public void Undo() { CancelGesture(); Document.Undo(); Changed?.Invoke(); }
     public void Redo() { CancelGesture(); Document.Redo(); Changed?.Invoke(); }
 

@@ -29,7 +29,8 @@ internal sealed class CaptureWindow : Window
     private readonly TextBlock _modePrompt = new() { Foreground = Brushes.White };
     private CaptureAction _pendingMode;
     public CapturedDisplay Display { get; }
-    public Picture Picture { get; }
+    public Picture Picture { get; private set; }
+    internal CapturedDisplay Frame { get; private set; }
     public CaptureSurface Surface { get; }
     public AnnotationEditor Editor { get; } = new();
 
@@ -47,7 +48,7 @@ internal sealed class CaptureWindow : Window
 
     public CaptureWindow(CaptureSession session, CapturedDisplay display, double topSafeInset)
     {
-        _session = session; Display = display; Picture = display.CreatePicture();
+        _session = session; Display = display; Frame = display; Picture = display.CreatePicture();
         Title = session.Preset switch { CaptureAction.Record => "Tbox 录屏选区", CaptureAction.Long => "Tbox 长截图选区", _ => "Tbox 截图" };
         SystemDecorations = SystemDecorations.None;
         CanResize = false; ShowInTaskbar = false; Topmost = true;
@@ -180,7 +181,7 @@ internal sealed class CaptureWindow : Window
         var lead = new TextBlock { Text = name is null ? "拖动框选，单击选窗口" : $"拖动框选{name}", Foreground = Brushes.White, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
         _hintKeys.Children.Add(lead);
         foreach (var (key, label) in _session.Preset is null
-            ? new[] { ("R", "上次区域"), ("Tab", "元素检测"), ("Esc", "取消") }
+            ? new[] { (", / .", "截图历史"), ("R", "上次区域"), ("Tab", "元素检测"), ("Esc", "取消") }
             : new[] { ("Enter", "确认"), ("Esc", "取消") })
         {
             _hintKeys.Children.Add(HintKey(key));
@@ -252,11 +253,23 @@ internal sealed class CaptureWindow : Window
             else return;
             args.Handled = true;
         }
+        else if (args.KeyModifiers == KeyModifiers.None &&
+            (args.Key is Key.OemComma or Key.OemPeriod || args.PhysicalKey is PhysicalKey.Comma or PhysicalKey.Period))
+        {
+            _session.StepHistory(this, args.Key == Key.OemComma || args.PhysicalKey == PhysicalKey.Comma); args.Handled = true;
+        }
         else if (args.Key == Key.Space) { _toolbarHidden = !_toolbarHidden; Refresh(); args.Handled = true; }
         else if (args.Key == Key.R) { _session.RestoreLastRegion(this); args.Handled = true; }
         else if (args.Key == Key.B) { Editor.Select(AnnotationTool.Pen); args.Handled = true; }
         else if (args.Key == Key.T) { Editor.Select(AnnotationTool.Text); args.Handled = true; }
         else if (args.Key is Key.D1 or Key.D2) { Editor.ChangeSize(args.Key == Key.D1 ? -1 : 1); args.Handled = true; }
+    }
+
+    internal void SetFrame(CapturedDisplay frame)
+    {
+        var next = frame.CreatePicture();
+        var previous = Picture; Picture = next; Frame = frame;
+        Surface.InvalidateVisual(); previous.Dispose();
     }
 
     public Vector Scale => new(Surface.Bounds.Width / Picture.Bitmap.PixelSize.Width, Surface.Bounds.Height / Picture.Bitmap.PixelSize.Height);
