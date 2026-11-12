@@ -17,6 +17,11 @@ internal sealed class CaptureSession
     private readonly ICaptureTargetSource _targets;
     private (CaptureWindow Window, Point Point, bool Replace)? _pendingDetection;
     private bool _detecting;
+    private sealed record FrameState(uint? ActiveDisplay, CaptureSelectionBounds? Selection, bool Detected,
+        IReadOnlyDictionary<uint, (CapturedDisplay Frame, AnnotationDocumentSnapshot Annotations)> Displays);
+    private readonly List<FrameState> _history = [];
+    private int _historyIndex;
+
     public CaptureDetectionMode DetectionMode { get; private set; }
     public CaptureSessionState State { get; } = new();
     // Record or Long when the session only selects a region for that mode; null for a normal capture.
@@ -30,6 +35,49 @@ internal sealed class CaptureSession
         _targets = targets ?? controller.Platform.CreateCaptureTargets();
         foreach (var display in displays)
             _windows.Add(new CaptureWindow(this, display, controller.Platform.GetDisplayTopSafeInset(display.Id)));
+        if (Preset is null)
+        {
+            _history.Add(Snapshot());
+            foreach (var saved in controller.CaptureFrames.CompatibleWith(displays))
+            {
+                var displayStates = saved.Displays.ToDictionary(display => display.Id,
+                    display => (display, _windows.Single(w => w.Display.Id == display.Id).Editor.Document.Snapshot()));
+                displayStates[saved.ActiveDisplay] = (displayStates[saved.ActiveDisplay].Item1, saved.Annotations);
+                _history.Add(new FrameState(saved.ActiveDisplay, saved.Selection, false, displayStates));
+            }
+        }
+    }
+
+    private FrameState Snapshot() => new(State.ActiveDisplay, State.Selection, State.SelectionWasDetected,
+        _windows.ToDictionary(w => w.Display.Id, w => (w.Frame, w.Editor.Document.Snapshot())));
+
+    internal void StepHistory(CaptureWindow origin, bool older)
+    {
+        if (Preset is not null || State.IsComplete || _windows.Any(w => w.Surface.IsDragging)) return;
+        var next = _historyIndex + (older ? 1 : -1);
+        if (next < 0 || next >= _history.Count)
+        {
+            origin.SetHint(older ? "没有更早的截图记录" : "已经是当前截图");
+            return;
+        }
+        foreach (var window in _windows) window.CommitEditing();
+        _history[_historyIndex] = Snapshot();
+        _historyIndex = next;
+        var state = _history[next];
+        _pendingDetection = null;
+        foreach (var window in _windows)
+        {
+            var saved = state.Displays[window.Display.Id];
+            if (!ReferenceEquals(window.Frame, saved.Frame)) window.SetFrame(saved.Frame);
+            window.Editor.Restore(saved.Annotations);
+            window.Surface.DetectedSelection = null;
+        }
+        // Selecting advances the revision so an older asynchronous detection result is discarded.
+        State.Select(state.ActiveDisplay ?? origin.Display.Id, state.Selection, state.Detected);
+        foreach (var window in _windows) window.Refresh();
+        var active = _windows.FirstOrDefault(w => w.Display.Id == state.ActiveDisplay) ?? origin;
+        active.Activate(); active.Surface.Focus();
+        active.SetHint(next == 0 ? "当前截图" : $"截图历史 {next} / {_history.Count - 1} · , 更早  . 更新");
     }
 
     public void Show()
@@ -155,6 +203,9 @@ internal sealed class CaptureSession
             _controller.Run(() => _controller.StartLongCaptureAsync(placement));
             return;
         }
+        if (Preset is null)
+            _controller.CaptureFrames.Add(new CaptureFrame(_windows.Select(peer => peer.Frame).ToArray(),
+                window.Display.Id, selection, window.Editor.Document.Snapshot()));
         var picture = action is CaptureAction.Ocr or CaptureAction.Pin ? window.Picture.Crop(region)
             : AnnotationRenderer.Render(window.Picture, region, window.Editor.Document.Commands);
         var annotations = action == CaptureAction.Pin ? window.Editor.Document.Commands

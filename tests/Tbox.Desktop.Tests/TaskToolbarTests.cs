@@ -23,6 +23,56 @@ namespace Tbox.Desktop.Tests;
 // Task toolbars (spec ⑤): one dark style, icon-only groups split by dividers, the mode colour on the selection.
 public sealed class TaskToolbarTests
 {
+    [AvaloniaFact]
+    public async Task CaptureHistoryKeysRestoreFrameSelectionAndEditableUndoRedo()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        scope.Window.Close();
+        var controller = scope.Controller;
+        var oldDisplay = new CapturedDisplay(1, 0, 0, 1200, 720, scope.Frame.Png);
+        var currentDisplay = new CapturedDisplay(1, 0, 0, 1200, 720, scope.Frame.Png);
+        var oldEditor = new AnnotationEditor();
+        oldEditor.Document.Commit(new RectangleAnnotationCommand(new(10, 10), new(50, 50), AnnotationStyle.Default));
+        oldEditor.Document.Commit(new RectangleAnnotationCommand(new(60, 60), new(90, 90), AnnotationStyle.Default));
+        oldEditor.Undo();
+        var oldSelection = new CaptureSelectionBounds(100, 80, 300, 200);
+        controller.CaptureFrames.Add(new CaptureFrame([oldDisplay], 1, oldSelection, oldEditor.Document.Snapshot()));
+        var session = new CaptureSession(controller, [currentDisplay], _ => { });
+        session.Show();
+        var window = Assert.Single(session.Windows);
+        Layout(window);
+        var currentSelection = new CaptureSelectionBounds(200, 140, 400, 260);
+        session.Select(1, currentSelection);
+        window.Editor.Document.Commit(new RectangleAnnotationCommand(new(20, 20), new(30, 30), AnnotationStyle.Default));
+
+        window.KeyPress(Key.None, RawInputModifiers.None, PhysicalKey.Comma, null);
+        Assert.Same(oldDisplay, window.Frame);
+        Assert.Equal(oldSelection, session.State.Selection);
+        Assert.Single(window.Editor.Document.Commands);
+        window.Editor.Redo();
+        Assert.Equal(2, window.Editor.Document.Commands.Count);
+        window.Editor.Undo();
+        var editedSelection = new CaptureSelectionBounds(110, 90, 250, 180);
+        session.Select(1, editedSelection);
+        window.KeyPress(Key.OemPeriod, RawInputModifiers.None, PhysicalKey.Period, null);
+        Assert.Same(currentDisplay, window.Frame);
+        Assert.Equal(currentSelection, session.State.Selection);
+        Assert.Single(window.Editor.Document.Commands);
+        window.KeyPress(Key.OemComma, RawInputModifiers.None, PhysicalKey.Comma, null);
+        Assert.Equal(editedSelection, session.State.Selection);
+        Assert.Single(window.Editor.Document.Commands);
+        Assert.True(window.Editor.Document.CanRedo);
+        window.Editor.Select(AnnotationTool.Text);
+        window.Editor.Begin(new AnnotationPoint(150, 120), false);
+        Layout(window);
+        var text = Assert.Single(window.GetVisualDescendants().OfType<TextBox>());
+        window.KeyPress(Key.OemPeriod, RawInputModifiers.None, PhysicalKey.Period, null);
+        window.KeyTextInput(",.");
+        Assert.Equal(",.", text.Text);
+        Assert.Same(oldDisplay, window.Frame);
+        session.Cancel();
+    }
+
     [AvaloniaTheory]
     [InlineData(null, 0, "拖动框选，单击选窗口")]
     [InlineData(null, 37, "拖动框选，单击选窗口")]
@@ -415,6 +465,8 @@ public sealed class TaskToolbarTests
         private readonly DesktopController _controller;
         private readonly Picture _frame;
         public CaptureWindow Window { get; }
+        public DesktopController Controller => _controller;
+        public Picture Frame => _frame;
         private CaptureScope(ClassicDesktopStyleApplicationLifetime lifetime, DesktopController controller, Picture frame, CaptureWindow window)
         { _lifetime = lifetime; _controller = controller; _frame = frame; Window = window; }
 

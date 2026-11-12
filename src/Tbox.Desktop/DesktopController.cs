@@ -45,6 +45,7 @@ public sealed class DesktopController : IDisposable
     public IPlatformServices Platform { get; }
     public ModelServices.ModelService Models { get; }
     public CaptureHistory CaptureHistory { get; } = new();
+    internal CaptureFrameHistory CaptureFrames { get; } = new();
     // The one main window. It stays hidden until opened from the tray, a second launch or app reopen.
     public MainWindow Main { get; set; } = null!;
     public bool IsQuitting { get; private set; }

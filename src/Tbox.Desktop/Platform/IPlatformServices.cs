@@ -20,6 +20,19 @@ public sealed record CapturedDisplay(uint Id, double Left, double Top, double Wi
         }
         init => _png = value;
     }
+    internal long HistoryBytes => BgraPixels?.LongLength ?? _png.LongLength;
+    // PNG captures (macOS) do not set PixelWidth/Height; read their IHDR without decoding.
+    internal (int Width, int Height) HistoryPixelSize
+    {
+        get
+        {
+            if (PixelWidth > 0 && PixelHeight > 0) return (PixelWidth, PixelHeight);
+            ReadOnlySpan<byte> signature = [137, 80, 78, 71, 13, 10, 26, 10];
+            if (_png.Length < 24 || !_png.AsSpan(0, 8).SequenceEqual(signature)) return (0, 0);
+            return (System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(_png.AsSpan(16, 4)),
+                System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(_png.AsSpan(20, 4)));
+        }
+    }
     internal Models.Picture CreatePicture() => BgraPixels is { } pixels
         ? Models.Picture.FromPixels(pixels, PixelWidth, PixelHeight) : new Models.Picture(Png);
 }
