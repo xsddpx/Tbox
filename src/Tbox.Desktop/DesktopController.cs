@@ -508,6 +508,13 @@ public sealed class DesktopController : IDisposable
 
     public async Task CopyAsync(Picture picture)
     {
+        if (OperatingSystem.IsWindows() &&
+            Platform.TryWriteClipboardImage(picture.Png, picture.GetPixels(), picture.Bitmap.PixelSize.Width,
+                picture.Bitmap.PixelSize.Height))
+        {
+            Main.SetStatus("图片已复制。");
+            return;
+        }
         var clipboard = Main.Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。");
         var transfer = new ClipboardImageTransfer(picture);
         try { await clipboard.SetDataAsync(transfer); }

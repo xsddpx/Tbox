@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch]$VerifyOnly,
     [switch]$VerifyCapture,
     [switch]$VerifyRecording,
@@ -51,6 +51,7 @@ try {
         Invoke-Checked python @('scripts/verify-windows-media.py')
         Invoke-Checked dotnet @('test', 'tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj', '-c', 'Release')
         Invoke-Checked dotnet @('test', 'tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj', '-c', 'Release')
+        Invoke-Checked dotnet @('run', '--project', 'tests/Tbox.ClipboardSmoke/Tbox.ClipboardSmoke.csproj', '-c', 'Release')
         Invoke-Checked dotnet @('publish', $project, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
             '-p:TboxWindows=true', '-p:PublishSingleFile=false', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $layout)
         Assert-DesktopPayload $layout $version
