@@ -7,6 +7,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Tbox.Core;
 using Tbox.Desktop.Models;
 using Tbox.Desktop.Platform;
@@ -179,11 +180,13 @@ internal sealed class TrayMenuWindow : Window
         }
     };
 
+    // The command runs after the menu is gone, so a file dialog it opens is owned by the main window
+    // rather than by a window that has already closed.
     private void Choose(Row row)
     {
         if (!row.Enabled()) return;
         Dismiss();
-        row.Action();
+        Dispatcher.UIThread.Post(row.Action, DispatcherPriority.Background);
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs args)
