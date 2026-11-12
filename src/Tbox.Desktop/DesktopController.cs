@@ -459,6 +459,9 @@ public sealed class DesktopController : IDisposable
         }
     }
 
+    // The tray menu shows whether the pinned windows are currently hidden.
+    public bool PinsVisible => !_pinsHidden;
+
     // Status for actions started from a hotkey or the tray menu: shown in the main window when open, otherwise briefly.
     private void Notify(string message)
     {
