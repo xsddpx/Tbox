@@ -44,13 +44,15 @@ public sealed class App : Application
             if (activation is not null) activation.Activated += OnActivated;
             // A primary click opens the main window; secondary click opens the quick actions and quit.
             // Windows draws that menu as a UI 3.0 card (TrayMenuWindow); macOS keeps the system status menu.
+            // Windows titles stay plain because the menu draws the shortcuts in its own caps column.
             // Titles are functions because the shortcuts in them can be changed in the main window.
+            var statusMenu = OperatingSystem.IsMacOS();
             (Func<string>? Title, Action Action)[] menu =
             [
                 (() => "打开 Tbox", _controller.ShowMain), (null, () => { }),
-                (() => $"区域截图   {ShortcutLabels.Capture}", () => _controller.Run(_controller.CaptureAsync)),
-                (() => $"剪贴板贴图   {ShortcutLabels.Pin}", () => _controller.Run(_controller.PinClipboardAsync)),
-                (() => $"隐藏 / 显示贴图   {ShortcutLabels.Toggle}", _controller.TogglePins), (null, () => { }),
+                (() => statusMenu ? $"区域截图   {ShortcutLabels.Capture}" : "区域截图", () => _controller.Run(_controller.CaptureAsync)),
+                (() => statusMenu ? $"剪贴板贴图   {ShortcutLabels.Pin}" : "剪贴板贴图", () => _controller.Run(_controller.PinClipboardAsync)),
+                (() => statusMenu ? $"隐藏 / 显示贴图   {ShortcutLabels.Toggle}" : "隐藏 / 显示贴图", _controller.TogglePins), (null, () => { }),
                 (() => "退出 Tbox", _controller.Quit)
             ];
             if (OperatingSystem.IsMacOS()) CreateStatusItem(_controller, menu);
@@ -84,20 +86,32 @@ public sealed class App : Application
     {
         using var trayAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/WindowsTrayIcon.ico"));
         _tray = new TrayIcon { Icon = new WindowIcon(trayAsset), ToolTipText = "Tbox", IsVisible = true };
+        // Avalonia reports a left click through Clicked and only forwards a right click to the tray
+        // window, so the tray window procedure records which button was released (see HookTrayWindow).
         _tray.Clicked += (_, _) =>
         {
-            // The tray click carries no button information; the pointer decides which click it was.
             if (IsPrimaryTrayClick()) controller.ShowMain();
             else ToggleMenu(controller);
         };
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
+        // Avalonia creates the tray window once the icon is attached; hooking it must happen after that.
+        Dispatcher.UIThread.Post(HookTrayWindow, DispatcherPriority.Loaded);
     }
 
-    // Windows: the left button down is primary. Other platforms never create this tray icon.
+    // Records the released button on the tray icon's message window before Avalonia handles it.
+    private static void HookTrayWindow()
+    {
+#if WINDOWS
+        NativeMethods.HookTrayWindow(NativeMethods.FindOwnWindow());
+#endif
+    }
+
+    // Windows: the right button opens the menu; any other click opens the main window.
+    // Other platforms never create this tray icon.
     private static bool IsPrimaryTrayClick()
     {
 #if WINDOWS
-        return NativeMethods.IsPrimaryClick();
+        return !NativeMethods.LastTrayClickWasRight;
 #else
         return true;
 #endif
@@ -130,6 +144,8 @@ public sealed class App : Application
             var point = menu.PlaceInside(new Rect(0, 0, area.Width / screen.Scaling, area.Height / screen.Scaling));
             menu.Position = new PixelPoint(area.X, area.Y) + new PixelPoint((int)(point.X * screen.Scaling), (int)(point.Y * screen.Scaling));
         }
+        // A window that does not take focus when shown never gets deactivated either; taking focus makes
+        // the menu dismiss when the user clicks back into another window.
         menu.Activate();
     }
 

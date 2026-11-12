@@ -47,6 +47,7 @@ internal static partial class NativeMethods
     private const uint SwpFramechanged = 0x0020;
     private const uint SwpNoOwnerZOrder = 0x0200;
     private const int GwlpHwndParent = -8;
+    private const int GwlWndproc = -4;
     private const int GwlStyle = -16;
     private const int GwlExstyle = -20;
     private const long WsCaption = 0x00C00000L;
@@ -60,6 +61,8 @@ internal static partial class NativeMethods
     private const uint WdaExcludefromcapture = 0x00000011;
 
     internal delegate void WinEventDelegate(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time);
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    internal delegate IntPtr WindowProc(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
     internal delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
     internal delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
@@ -149,13 +152,53 @@ internal static partial class NativeMethods
         _ = SetWindowLongPtr(hwnd, GwlpHwndParent, owner);
     }
 
-    // The tray click event does not say which button was pressed; the cursor position does.
-    internal static bool IsPrimaryClick()
+    // Avalonia reports left clicks through TrayIcon.Clicked but sends right clicks only to the tray
+    // window procedure, so that procedure is replaced: the released button is remembered and the
+    // message is forwarded to Avalonia unchanged.
+    private static bool _lastClickWasRight;
+    internal static bool LastTrayClickWasRight => _lastClickWasRight;
+
+    private static readonly WindowProc _trayProcedure = OnTrayMessage;
+    internal static bool HookTrayWindow(IntPtr hwnd)
     {
-        var left = (GetAsyncKeyState(VkLButton) & 0x8000) != 0;
-        var right = (GetAsyncKeyState(VkRButton) & 0x8000) != 0;
-        return left || !right;
+        if (hwnd == IntPtr.Zero) return false;
+        var previous = SetWindowLongPtr(hwnd, GwlWndproc, Marshal.GetFunctionPointerForDelegate(_trayProcedure));
+        _originalTrayProcedure = previous;
+        return previous != IntPtr.Zero;
     }
+
+    private static IntPtr OnTrayMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam)
+    {
+        if (message == WmRButtonUp) _lastClickWasRight = true;
+        else if (message == WmLButtonUp) _lastClickWasRight = false;
+        return CallWindowProc(_originalTrayProcedure, hwnd, message, wParam, lParam);
+    }
+
+    // The tray icon's message window belongs to this process. Avalonia names the windows it creates
+    // "AvaloniaMessageWindow <guid>"; the longest such class belongs to the tray icon (the app's own
+    // message window is registered first and has a shorter name), so the process's windows are
+    // enumerated and the matching one with the longest class name is chosen.
+    internal static IntPtr FindOwnWindow()
+    {
+        var found = IntPtr.Zero;
+        var longest = 0;
+        var process = (uint)Environment.ProcessId;
+        EnumWindows((hwnd, _) =>
+        {
+            GetWindowThreadProcessId(hwnd, out var owner);
+            if (owner != process) return true;
+            var name = new char[256];
+            var length = GetClassName(hwnd, name, name.Length);
+            var text = new string(name, 0, Math.Max(0, length));
+            if (text.StartsWith("AvaloniaMessageWindow", StringComparison.Ordinal) && text.Length > longest)
+            {
+                longest = text.Length; found = hwnd;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
 
     internal static PixelPoint PointerPosition() =>
         GetCursorPos(out var point) ? new PixelPoint(point.X, point.Y) : new PixelPoint(0, 0);
@@ -250,6 +293,14 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     private static partial IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    // Subclassing the tray icon's window needs the window-procedure slot and the original procedure.
+    internal const uint WmRButtonUp = 0x0205;
+    internal const uint WmLButtonUp = 0x0202;
+    private static IntPtr _originalTrayProcedure;
+
+    [LibraryImport("user32.dll", EntryPoint = "CallWindowProcW")]
+    private static partial IntPtr CallWindowProc(IntPtr procedure, IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

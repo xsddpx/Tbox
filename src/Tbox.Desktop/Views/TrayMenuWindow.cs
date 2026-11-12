@@ -48,7 +48,10 @@ internal sealed class TrayMenuWindow : Window
     {
         _pinsVisible = pinsVisible;
         Ui.Configure(this, "Tbox 菜单", 232, 220);
-        ShowActivated = false; ShowInTaskbar = false; Topmost = true; CanResize = false;
+        // The tray window does not own the foreground when the menu opens, so the first click that lands
+        // outside the menu would only activate it and never reach it as a dismissal. The menu takes focus
+        // itself, which also closes it when the user clicks back into another window.
+        ShowActivated = true; ShowInTaskbar = false; Topmost = true; CanResize = false;
         SystemDecorations = SystemDecorations.None; SizeToContent = SizeToContent.WidthAndHeight;
         TransparencyLevelHint = [WindowTransparencyLevel.Transparent];
         Background = Brushes.Transparent;
@@ -92,7 +95,8 @@ internal sealed class TrayMenuWindow : Window
             icon, tone, row.Enabled(), accent);
     }).ToArray();
 
-    // The menu opens beside the tray icon inside the screen's working area, preferring above it.
+    // Places the window so the card's bottom-right corner sits just above the working area's bottom
+    // edge; the shadow inset keeps the card itself on screen.
     internal Point PlaceInside(Rect working)
     {
         UpdateLayout();
