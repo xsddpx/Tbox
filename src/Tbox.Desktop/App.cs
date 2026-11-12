@@ -87,10 +87,29 @@ public sealed class App : Application
         _tray.Clicked += (_, _) =>
         {
             // The tray click carries no button information; the pointer decides which click it was.
-            if (NativeMethods.IsPrimaryClick()) controller.ShowMain();
+            if (IsPrimaryTrayClick()) controller.ShowMain();
             else ToggleMenu(controller);
         };
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
+    }
+
+    // Windows: the left button down is primary. Other platforms never create this tray icon.
+    private static bool IsPrimaryTrayClick()
+    {
+#if WINDOWS
+        return NativeMethods.IsPrimaryClick();
+#else
+        return true;
+#endif
+    }
+
+    private static PixelPoint PointerPosition()
+    {
+#if WINDOWS
+        return NativeMethods.PointerPosition();
+#else
+        return default;
+#endif
     }
 
     // The menu closes on any click outside it, so the same click that closes it does not reopen it.
@@ -103,7 +122,7 @@ public sealed class App : Application
         menu.Show();
         // Place the menu inside the working area of the screen under the pointer, in device-independent units.
         var screens = menu.Screens;
-        var pointer = NativeMethods.PointerPosition();
+        var pointer = PointerPosition();
         var screen = screens.All.FirstOrDefault(candidate => candidate.Bounds.Contains(pointer)) ?? screens.Primary;
         if (screen is not null)
         {
