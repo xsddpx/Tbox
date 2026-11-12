@@ -1,5 +1,6 @@
 #if WINDOWS
 using System.Runtime.InteropServices;
+using Avalonia;
 using Windows.Graphics;
 
 namespace Tbox.Desktop.Platform;
@@ -21,6 +22,8 @@ internal static partial class NativeMethods
     internal const ushort VkG = 0x47;
     internal const ushort VkL = 0x4C;
     internal const ushort VkReturn = 0x0D;
+    internal const ushort VkLButton = 0x01;
+    internal const ushort VkRButton = 0x02;
     internal const uint InputKeyboard = 1;
     private const uint MouseeventfWheel = 0x0800;
     internal const uint WmSetText = 0x000C;
@@ -145,6 +148,17 @@ internal static partial class NativeMethods
     {
         _ = SetWindowLongPtr(hwnd, GwlpHwndParent, owner);
     }
+
+    // The tray click event does not say which button was pressed; the cursor position does.
+    internal static bool IsPrimaryClick()
+    {
+        var left = (GetAsyncKeyState(VkLButton) & 0x8000) != 0;
+        var right = (GetAsyncKeyState(VkRButton) & 0x8000) != 0;
+        return left || !right;
+    }
+
+    internal static PixelPoint PointerPosition() =>
+        GetCursorPos(out var point) ? new PixelPoint(point.X, point.Y) : new PixelPoint(0, 0);
 
     internal static bool SendMouseWheel(int delta)
     {
@@ -282,6 +296,12 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial short GetAsyncKeyState(int virtualKey);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetCursorPos(out CursorPoint point);
+
+    private struct CursorPoint { public int X, Y; }
 
     [LibraryImport("user32.dll")]
     internal static partial uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);

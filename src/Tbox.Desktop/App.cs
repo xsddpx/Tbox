@@ -15,6 +15,7 @@ public sealed class App : Application
     internal static SingleInstance? Instance { get; set; }
     private DesktopController? _controller;
     private TrayIcon? _tray;
+    private TrayMenuWindow? _menu;
     private MacStatusItem? _statusItem;
     public override void Initialize()
     {
@@ -41,7 +42,8 @@ public sealed class App : Application
             var activation = this.TryGetFeature<IActivatableLifetime>();
             void OnActivated(object? sender, ActivatedEventArgs args) => RestoreOnReopen(_controller, args);
             if (activation is not null) activation.Activated += OnActivated;
-            // A primary click opens the main window; secondary click keeps a native menu with the quick actions and quit.
+            // A primary click opens the main window; secondary click opens the quick actions and quit.
+            // Windows draws that menu as a UI 3.0 card (TrayMenuWindow); macOS keeps the system status menu.
             // Titles are functions because the shortcuts in them can be changed in the main window.
             (Func<string>? Title, Action Action)[] menu =
             [
@@ -52,7 +54,7 @@ public sealed class App : Application
                 (() => "退出 Tbox", _controller.Quit)
             ];
             if (OperatingSystem.IsMacOS()) CreateStatusItem(_controller, menu);
-            else CreateTrayIcon(_controller, menu);
+            else CreateTrayIcon(_controller);
             _controller.ShortcutsChanged += () => RetitleMenu(menu);
             lifetime.Exit += (_, _) =>
             {
@@ -78,30 +80,63 @@ public sealed class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    private void CreateTrayIcon(DesktopController controller, (Func<string>? Title, Action Action)[] entries)
+    private void CreateTrayIcon(DesktopController controller)
     {
-        var menu = new NativeMenu();
-        foreach (var (title, action) in entries)
-        {
-            if (title is null) { menu.Add(new NativeMenuItemSeparator()); continue; }
-            var item = new NativeMenuItem(title());
-            item.Click += (_, _) => action();
-            menu.Add(item);
-        }
         using var trayAsset = AssetLoader.Open(new Uri("avares://Tbox.Desktop/Assets/WindowsTrayIcon.ico"));
-        _tray = new TrayIcon { Icon = new WindowIcon(trayAsset), ToolTipText = "Tbox", Menu = menu, IsVisible = true };
-        _tray.Clicked += (_, _) => controller.ShowMain();
+        _tray = new TrayIcon { Icon = new WindowIcon(trayAsset), ToolTipText = "Tbox", IsVisible = true };
+        _tray.Clicked += (_, _) =>
+        {
+            // The tray click carries no button information; the pointer decides which click it was.
+            if (IsPrimaryTrayClick()) controller.ShowMain();
+            else ToggleMenu(controller);
+        };
         TrayIcon.SetIcons(this, new TrayIcons { _tray });
+    }
+
+    // Windows: the left button down is primary. Other platforms never create this tray icon.
+    private static bool IsPrimaryTrayClick()
+    {
+#if WINDOWS
+        return NativeMethods.IsPrimaryClick();
+#else
+        return true;
+#endif
+    }
+
+    private static PixelPoint PointerPosition()
+    {
+#if WINDOWS
+        return NativeMethods.PointerPosition();
+#else
+        return default;
+#endif
+    }
+
+    // The menu closes on any click outside it, so the same click that closes it does not reopen it.
+    private void ToggleMenu(DesktopController controller)
+    {
+        if (_menu is not null) { _menu.Dismiss(); return; }
+        var menu = new TrayMenuWindow(controller, () => controller.PinsVisible);
+        _menu = menu;
+        menu.Closed += (_, _) => { if (ReferenceEquals(_menu, menu)) _menu = null; };
+        menu.Show();
+        // Place the menu inside the working area of the screen under the pointer, in device-independent units.
+        var screens = menu.Screens;
+        var pointer = PointerPosition();
+        var screen = screens.All.FirstOrDefault(candidate => candidate.Bounds.Contains(pointer)) ?? screens.Primary;
+        if (screen is not null)
+        {
+            var area = screen.WorkingArea;
+            var point = menu.PlaceInside(new Rect(0, 0, area.Width / screen.Scaling, area.Height / screen.Scaling));
+            menu.Position = new PixelPoint(area.X, area.Y) + new PixelPoint((int)(point.X * screen.Scaling), (int)(point.Y * screen.Scaling));
+        }
+        menu.Activate();
     }
 
     private void RetitleMenu((Func<string>? Title, Action Action)[] entries)
     {
+        _menu?.Refresh();
         var titles = entries.Where(entry => entry.Title is not null).Select(entry => entry.Title!()).ToArray();
-        if (_tray?.Menu is { } menu)
-        {
-            var items = menu.Items.OfType<NativeMenuItem>().ToArray();
-            for (var index = 0; index < items.Length && index < titles.Length; index++) items[index].Header = titles[index];
-        }
         for (var index = 0; _statusItem is not null && index < titles.Length; index++) _statusItem.Retitle(index + 1, titles[index]);
     }
 
