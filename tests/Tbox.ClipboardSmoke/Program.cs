@@ -6,7 +6,10 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Tbox.Core;
+using Tbox.Desktop;
 using Tbox.Desktop.Platform;
+using Tbox.Desktop.Views;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics.Imaging;
 
@@ -43,6 +46,7 @@ internal static class Program
                 }
                 VerifyFormats();
                 await VerifyWindowsClipboardApiAsync(pixels);
+                await VerifyClipboardPinsAsync(lifetime, pixels);
                 window.Close();
                 Console.WriteLine($"OK 剪贴板图片为彩色 {Width}x{Height}，系统剪贴板 API 读到的像素一致。");
                 result.SetResult(null);
@@ -56,6 +60,77 @@ internal static class Program
         Console.Error.WriteLine(failure);
         return 1;
     }
+
+    private static async Task VerifyClipboardPinsAsync(ClassicDesktopStyleApplicationLifetime lifetime, byte[] expected)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "tbox-pin-smoke-" + Guid.NewGuid().ToString("N"));
+        var settingsFile = Path.Combine(root, "settings.json");
+        try
+        {
+            await new JsonSettingsStore(settingsFile).SaveAsync(new AppSettings
+            {
+                FolderJumpEnabled = false,
+                ScreenCaptureCacheDirectory = Path.Combine(root, "captures")
+            });
+            using var controller = new DesktopController(new WindowsPlatformServices(), lifetime, settingsFile);
+            Application.Current!.Styles.Add(DesignTokens.CreateTheme());
+            controller.Main = new MainWindow(controller);
+            await controller.InitializeAsync([]);
+            var shortcut = controller.ShortcutFor(HotkeyAction.Pin);
+            if (ShortcutPolicy.WindowsKeyCode(shortcut.Key) != 0x76 || controller.HasHotkeyConflictFor(HotkeyAction.Pin))
+                throw new InvalidOperationException("本轮未注册默认 F7 贴图快捷键。");
+
+            var hotkeyWindow = FindWindowEx(new IntPtr(-3), IntPtr.Zero, null, "Tbox hotkeys");
+            GetWindowThreadProcessId(hotkeyWindow, out var processId);
+            if (hotkeyWindow == IntPtr.Zero || processId != (uint)Environment.ProcessId)
+                throw new InvalidOperationException("未找到本轮的 Windows 快捷键消息窗口。");
+
+            async Task<PinnedWindow> PinWithF7Async()
+            {
+                // Deliver the registered Windows message without relying on physical keyboard focus on the runner.
+                if (!PostMessage(hotkeyWindow, 0x0312, (nint)HotkeyAction.Pin, 0x76 << 16))
+                    throw new InvalidOperationException("无法递交 F7 快捷键消息。");
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                while (true)
+                {
+                    var pin = lifetime.Windows.OfType<PinnedWindow>().SingleOrDefault();
+                    if (pin?.Picture.CachePath is not null) return pin;
+                    await Task.Delay(25, timeout.Token);
+                }
+            }
+
+            var image = await PinWithF7Async();
+            if (!image.Picture.GetPixels().SequenceEqual(expected))
+                throw new InvalidOperationException("F7 贴图未保留 Windows 剪贴板中的彩色像素。");
+            image.Close();
+
+            const string text = "Tbox clipboard fixture";
+            var data = new DataPackage();
+            data.SetText(text);
+            Clipboard.SetContent(data);
+            Clipboard.Flush();
+            var textPin = await PinWithF7Async();
+            using var expectedCard = DesktopController.RenderText(text);
+            if (!textPin.Picture.GetPixels().SequenceEqual(expectedCard.GetPixels()))
+                throw new InvalidOperationException("F7 未把纯文本创建为贴图。");
+            textPin.Close();
+            controller.Main.Close();
+            Console.WriteLine("OK Windows F7 快捷键消息经应用入口把系统剪贴板的彩色图片和纯文本创建为贴图。");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DllImport("user32.dll", EntryPoint = "FindWindowExW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string? className, string title);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);
+
+    [DllImport("user32.dll", EntryPoint = "PostMessageW")]
+    private static extern bool PostMessage(IntPtr window, uint message, nint wParam, nint lParam);
 
     private static byte[] EncodePng(byte[] pixels)
     {
