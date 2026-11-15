@@ -24,6 +24,7 @@ if select_destination "$fixture/Other.app" "$system_app" "$user_app" 2>"$fixture
   echo "应拒绝未支持的安装路径。" >&2
   exit 1
 fi
+grep -F -- "$user_app" "$fixture/unsupported" >/dev/null
 rmdir "$system_app"
 [[ "$(select_destination '' "$system_app" "$user_app")" == "$user_app" ]]
 echo "Mac 安装路径检查通过。"

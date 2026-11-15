@@ -5,7 +5,7 @@ select_destination() {
   local requested="$1" system_app="$2" user_app="$3"
   if [[ -n "$requested" ]]; then
     if [[ "$requested" != "$system_app" && "$requested" != "$user_app" ]]; then
-      echo "安装位置须为 $system_app 或 $user_app。" >&2
+      echo "安装位置须为 $system_app 或 ${user_app}。" >&2
       return 1
     fi
     printf '%s\n' "$requested"
