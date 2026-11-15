@@ -120,6 +120,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         ToolTip.SetTip(_helpButton, HelpText);
         _emptyConnections = BuildEmpty();
         _tabs = Ui.Segmented(["预设服务商", "自定义接口"], 0, OnTabChanged, out _, out _);
+        _tabs.HorizontalAlignment = HorizontalAlignment.Left;
+        _tabs.Margin = new Thickness(0, 16, 0, 0);
         _modelsEmpty = BuildModelsEmpty();
         _modelAddRow = BuildModelAddRow();
         _addModel = Ui.Button("添加模型", BeginAddModel);

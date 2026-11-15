@@ -195,6 +195,17 @@ public sealed class ModelServicesPageTests
         Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && button.Classes.Contains("accent"));
         await scope.Page.BeginAddAsync();
         scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); scope.Window.UpdateLayout();
+        var title = Assert.Single(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "添加连接");
+        var header = title.FindAncestorOfType<Grid>()!;
+        var presetTab = Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.Content as string == "预设服务商");
+        var tabs = presetTab.GetVisualAncestors().OfType<Border>().First(border => border.Child is StackPanel);
+        var headerOrigin = header.TranslatePoint(default, scope.Page)!.Value;
+        var tabsOrigin = tabs.TranslatePoint(default, scope.Page)!.Value;
+        Assert.Equal(16, tabsOrigin.Y - (headerOrigin.Y + header.Bounds.Height), precision: 2);
+        Assert.Equal(headerOrigin.X, tabsOrigin.X, precision: 2);
+        Assert.Equal(tabs.Child!.Bounds.Width + tabs.Padding.Left + tabs.Padding.Right, tabs.Bounds.Width, precision: 2);
+        Assert.True(tabs.Bounds.Width < header.Bounds.Width);
+
         foreach (var field in scope.Page.GetVisualDescendants().OfType<TextBox>().Where(control => control.IsEffectivelyVisible))
             Assert.True(field.Bounds.Width <= scope.Page.Bounds.Width, $"{field.Bounds} / {scope.Page.Bounds}");
         Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && button.Classes.Contains("accent"));
