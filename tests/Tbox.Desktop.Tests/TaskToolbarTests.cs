@@ -24,6 +24,36 @@ namespace Tbox.Desktop.Tests;
 public sealed class TaskToolbarTests
 {
     [AvaloniaFact]
+    public async Task CancelledSaveLeavesPreviousScreenshotAndCacheIntact()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var controller = scope.Controller;
+        var cache = Path.Combine(Path.GetTempPath(), "tbox-capture-history-" + Guid.NewGuid().ToString("N"));
+        controller.UseCacheDirectoryForTests(cache);
+        var display = scope.Window.Frame;
+        var previousRegion = new DesktopPlacement(10, 20, 30, 40);
+        var previousFrame = new CaptureFrame([display], display.Id, new(10, 20, 30, 40), new AnnotationDocument().Snapshot());
+        try
+        {
+            await controller.CompleteCaptureAsync(scope.Frame.Clone(), previousRegion, CaptureAction.Pin, frame: previousFrame);
+            var cached = Assert.Single(Directory.GetFiles(cache, "*.png"));
+
+            var cancelledRegion = new DesktopPlacement(40, 50, 60, 70);
+            var cancelledFrame = previousFrame with { Selection = new(40, 50, 60, 70) };
+            // The headless save picker returns no file, just as a dismissed native picker does.
+            await controller.CompleteCaptureAsync(scope.Frame.Clone(), cancelledRegion, CaptureAction.Save, frame: cancelledFrame);
+
+            Assert.Equal(cached, Assert.Single(Directory.GetFiles(cache, "*.png")));
+            Assert.Same(previousFrame, Assert.Single(controller.CaptureFrames.CompatibleWith([display])));
+            Assert.Equal(previousRegion, controller.CaptureHistory.LastRegion);
+        }
+        finally
+        {
+            if (Directory.Exists(cache)) Directory.Delete(cache, true);
+        }
+    }
+
+    [AvaloniaFact]
     public async Task CaptureHistoryKeysRestoreFrameSelectionAndEditableUndoRedo()
     {
         using var scope = await CaptureScope.StartAsync(null);

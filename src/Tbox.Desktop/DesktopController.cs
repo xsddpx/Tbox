@@ -336,18 +336,19 @@ public sealed class DesktopController : IDisposable
         finally { _capturing = false; }
     }
 
-    public async Task CompleteCaptureAsync(Picture picture, DesktopPlacement placement, CaptureAction action,
-        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null)
+    internal async Task CompleteCaptureAsync(Picture picture, DesktopPlacement placement, CaptureAction action,
+        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null, CaptureFrame? frame = null)
     {
         using (picture)
         {
+            if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             Picture? pinned = null;
             if (action == CaptureAction.Pin) { pinned = picture.Clone(); Pin(pinned, pinPlacement ?? placement, annotations); }
             if (action == CaptureAction.Copy) await CopyAsync(picture);
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
             await CacheAsync(picture, pinned);
-            if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             CaptureHistory.Remember(placement);
+            if (frame is not null) CaptureFrames.Add(frame);
         }
     }
 
@@ -539,9 +540,11 @@ public sealed class DesktopController : IDisposable
             DefaultExtension = "png", FileTypeChoices = [FilePickerFileTypes.ImagePng], ShowOverwritePrompt = true
         });
         if (file is null) return false;
-        await using var output = await file.OpenWriteAsync();
-        output.SetLength(0);
-        await output.WriteAsync(picture.Png, _stop.Token);
+        await using (var output = await file.OpenWriteAsync())
+        {
+            output.SetLength(0);
+            await output.WriteAsync(picture.Png, _stop.Token);
+        }
         Main.SetStatus("图片已保存。");
         return true;
     }
