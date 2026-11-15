@@ -203,15 +203,14 @@ internal sealed class CaptureSession
             _controller.Run(() => _controller.StartLongCaptureAsync(placement));
             return;
         }
-        if (Preset is null)
-            _controller.CaptureFrames.Add(new CaptureFrame(_windows.Select(peer => peer.Frame).ToArray(),
-                window.Display.Id, selection, window.Editor.Document.Snapshot()));
         var picture = action is CaptureAction.Ocr or CaptureAction.Pin ? window.Picture.Crop(region)
             : AnnotationRenderer.Render(window.Picture, region, window.Editor.Document.Commands);
+        var frame = new CaptureFrame(_windows.Select(peer => peer.Frame).ToArray(),
+            window.Display.Id, selection, window.Editor.Document.Snapshot());
         var annotations = action == CaptureAction.Pin ? window.Editor.Document.Commands
             .Select(command => AnnotationTransform.Translate(command, -region.Left, -region.Top)).ToArray() : [];
         Close(false);
-        _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations));
+        _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations, frame: frame));
     }
 
     public void Cancel() { State.Cancel(); Close(true); }
