@@ -33,7 +33,7 @@
 
 ## 权限与发布
 
-屏幕捕获缺少授权时只显示说明；仅显式授权按钮可以申请屏幕录制权限，每次运行最多一次。已有图片的 OCR 和贴图不依赖此权限。macOS 使用登录钥匙串中持久的 `Tbox Local Development` 自签代码签名身份，固定 Bundle ID `com.xsddpx.tbox` 和安装位置 `~/Applications/Tbox.app`；不使用随二进制变化的 ad hoc 身份，不改变系统根证书信任。私钥不进仓库、不分发。签名探针已验证指定要求为标识符和稳定证书根哈希；本机连续升级后的屏幕权限已验证，见 `macos-permission-upgrade-verification.md`。此签名不等于 Apple Developer ID 或公证。Windows 版本使用持久证书签名 MSIX，并按相同身份覆盖升级。
+屏幕捕获缺少授权时只显示说明；仅显式授权按钮可以申请屏幕录制权限，每次运行最多一次。已有图片的 OCR 和贴图不依赖此权限。macOS 使用登录钥匙串中持久的 `Tbox Local Development` 自签代码签名身份，固定 Bundle ID `com.xsddpx.tbox` 和首次选定的安装位置；不使用随二进制变化的 ad hoc 身份，不改变系统根证书信任。私钥不进仓库、不分发。签名探针已验证指定要求为标识符和稳定证书根哈希；本机连续升级后的屏幕权限已验证，见 `macos-permission-upgrade-verification.md`。此签名不等于 Apple Developer ID 或公证。Windows 版本使用持久证书签名 MSIX，并按相同身份覆盖升级。
 
 跨平台代码、编译通过、模拟测试通过、本机实际验收是不同状态，必须分别记录。Intel Mac、混合缩放多屏和 Windows 实机没有证据时标记未验证。
 
@@ -92,7 +92,7 @@ bash scripts/package-macos.sh osx-arm64
 bash scripts/install-macos.sh
 ```
 
-构建产物为 `TEMP/build/osx-arm64/Tbox.app`。打包脚本运行测试、构建、签名和验签，启动应用验证离线 OCR 与像素裁剪，再在 `artifacts/` 生成 ZIP 并登记哈希。安装脚本在 `~/Applications/Tbox.app` 覆盖已有应用前校验签名要求。升级后的权限检查见 [权限升级验证](macos-permission-upgrade-verification.md)。
+构建产物为 `TEMP/build/osx-arm64/Tbox.app`。打包脚本运行测试、构建、签名和验签，启动应用验证离线 OCR 与像素裁剪，再在 `artifacts/` 生成 ZIP 并登记哈希。安装脚本发现单份已有 Tbox 时沿用原路径，全新安装默认使用 `~/Applications/Tbox.app`。若系统和用户 Applications 目录各有一份，使用 `bash scripts/install-macos.sh --destination /Applications/Tbox.app`（或明确指定用户目录中的副本）选择要升级的实例。脚本先显示目标路径，覆盖前检查同一签名身份。升级后的权限检查见 [权限升级验证](macos-permission-upgrade-verification.md)。
 
 媒体检查使用合成视频。准备好媒体运行库后运行以下命令。
 
