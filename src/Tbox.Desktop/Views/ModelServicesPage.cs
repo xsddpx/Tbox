@@ -196,8 +196,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     internal Task BeginEditAsync(Guid id) => LoadAsync(id);
 
-    internal Task FetchAsync() => FetchModelsAsync();
-
     internal void BeginReplaceKey() => ReplaceKeyAsync();
 
     internal void CancelReplace() => CancelReplaceKey();
@@ -720,11 +718,29 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     internal async Task FetchModelsAsync()
     {
+        if (_busy) return;
         if (_saved is null || _dirty) throw new ModelServiceException(ModelFailure.Configuration, "请先保存连接再获取模型。");
-        string[] models = [];
-        await Busy(async ct => models = await _service.GetModelsAsync(_id, ct));
-        _models.Clear(); _models.AddRange(models); _dirty = true;
-        RefreshModels(); RefreshControls(); SetStatus("已获取，待保存");
+        var connectionId = _id;
+        await Busy(async ct =>
+        {
+            var catalog = await _service.GetModelsAsync(connectionId, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsEditing || _id != connectionId || _dirty) return;
+
+            var picker = new ModelPickerWindow(catalog, _models);
+            using var cancelPicker = ct.Register(() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (picker.IsVisible) picker.Close();
+            }));
+            var selected = await picker.ShowDialog<string[]?>(_owner());
+            if (selected is null || ct.IsCancellationRequested || _models.SequenceEqual(selected, StringComparer.Ordinal)) return;
+
+            _models.Clear();
+            _models.AddRange(selected);
+            _dirty = true;
+            RefreshModels();
+            SetStatus("模型列表待保存");
+        });
     }
 
     private async Task CancelAsync()
