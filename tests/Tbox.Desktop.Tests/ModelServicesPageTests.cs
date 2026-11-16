@@ -15,7 +15,7 @@ namespace Tbox.Desktop.Tests;
 public sealed class ModelServicesPageTests
 {
     [AvaloniaFact]
-    public async Task EmptyStateShowsOnePrimaryAddActionAndHelp()
+    public async Task EmptyStateShowsOnePrimaryAddAction()
     {
         using var scope = new Scope();
         await scope.Page.OpenAsync();
@@ -26,9 +26,7 @@ public sealed class ModelServicesPageTests
         Assert.Single(accents);
         Assert.Equal("添加连接", accents[0].Content as string);
         Assert.Empty(scope.Page.GetVisualDescendants().OfType<Expander>());
-        var help = Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == "模型服务说明");
-        Assert.Equal(ModelServicesPage.HelpText, ToolTip.GetTip(help));
-        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == ModelServicesPage.HelpText);
+        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == "模型服务说明");
     }
 
     [AvaloniaFact]
@@ -40,14 +38,13 @@ public sealed class ModelServicesPageTests
         Assert.True(scope.Page.IsEditing);
         Assert.Equal("DeepSeek", scope.Page.ConnectionName.Text);
         Assert.Equal("https://api.deepseek.com", scope.Page.BaseUrl.Text);
-        Assert.Contains("deepseek-chat", scope.Page.Models);
+        Assert.Equal(["deepseek-flash"], scope.Page.Models);
         scope.Page.Secret.Text = "simple-test-key";
         await scope.Page.SaveAsync();
-        Assert.Equal("deepseek-chat", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("deepseek-flash", scope.Service.Configuration.DefaultModel!.ModelId);
         Assert.Equal(0, scope.Calls);
-        Assert.Equal("simple-test-key", Assert.Single(scope.Credentials.Values).Value);
+        Assert.Equal("simple-test-key", scope.Service.KeyOf(scope.Page.ConnectionId));
         Assert.Equal("已保存", scope.Page.Status);
-        Assert.False(scope.Page.IsEditingKey);
         await scope.Page.OpenAsync();
         scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); scope.Window.UpdateLayout();
         Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "DeepSeek");
@@ -70,7 +67,7 @@ public sealed class ModelServicesPageTests
     }
 
     [AvaloniaFact]
-    public async Task SavingNeverReadsBackTheSecretAndReplacementCanBeCancelled()
+    public async Task SavedKeyIsMaskedUntilRevealedAndEditedInPlace()
     {
         using var scope = new Scope();
         await scope.Page.OpenAsync();
@@ -78,19 +75,42 @@ public sealed class ModelServicesPageTests
         scope.Page.Secret.Text = "page-test-secret";
         scope.Page.AddModel("page-model");
         await scope.Page.SaveAsync();
-        Assert.Equal("", scope.Page.Secret.Text);
-        Assert.False(scope.Page.IsEditingKey);
-        Assert.Equal(0, scope.Credentials.ReadCount);
         Assert.Equal(0, scope.Calls);
-        Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "••••••••  · 已保存");
-        scope.Page.BeginReplaceKey();
-        Assert.True(scope.Page.IsEditingKey);
-        scope.Page.Secret.Text = "replacement-test-secret";
-        scope.Page.CancelReplace();
-        Assert.Equal("", scope.Page.Secret.Text);
-        Assert.False(scope.Page.IsEditingKey);
+        await scope.Page.OpenAsync();
+        await scope.Page.BeginEditAsync(scope.Page.ConnectionId);
+        scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+        Assert.Equal("page-test-secret", scope.Page.Secret.Text);
+        Assert.False(scope.Page.IsKeyRevealed);
+        Assert.NotEqual('\0', scope.Page.Secret.PasswordChar);
+        var reveal = Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "显示密钥");
+        reveal.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.True(scope.Page.IsKeyRevealed);
+        Assert.Equal("隐藏", reveal.Content as string);
+        foreach (var removed in new[] { "替换", "删除密钥", "取消替换" })
+            Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == removed);
+        Assert.Empty(scope.Page.GetVisualDescendants().OfType<CheckBox>());
+        scope.Page.Secret.Text = "edited-test-secret";
         await scope.Page.SaveAsync();
-        Assert.Equal("page-test-secret", Assert.Single(scope.Credentials.Values).Value);
+        Assert.Equal("edited-test-secret", scope.Service.KeyOf(scope.Page.ConnectionId));
+        scope.Page.Leave();
+        Assert.False(scope.Page.IsKeyRevealed);
+    }
+
+    [AvaloniaFact]
+    public async Task FailedTestShowsTheReasonOnTheEditPageAndInTheList()
+    {
+        using var scope = new Scope(unauthorized: true);
+        await scope.Page.OpenAsync();
+        await scope.Page.BeginAddAsync();
+        scope.Page.Secret.Text = "rejected-test-key";
+        await scope.Page.SaveAsync();
+        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Page.TestAsync());
+        scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+        Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text?.StartsWith("测试失败：服务拒绝访问") == true);
+        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == scope.Page.Status);
+        await scope.Page.OpenAsync();
+        scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
+        Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "密钥无效或无权限");
     }
 
     [AvaloniaFact]
@@ -124,10 +144,10 @@ public sealed class ModelServicesPageTests
         var search = Assert.Single(picker.GetVisualDescendants().OfType<TextBox>());
         var choices = picker.GetVisualDescendants().OfType<CheckBox>()
             .ToDictionary(box => AutomationProperties.GetName(box)!);
-        Assert.True(choices["deepseek-chat"].IsChecked);
+        Assert.True(choices["deepseek-flash"].IsChecked);
         Assert.True(choices["custom-model"].IsChecked);
         Assert.False(choices["zenmux/catalog-100"].IsChecked);
-        choices["deepseek-chat"].IsChecked = false;
+        choices["deepseek-flash"].IsChecked = false;
 
         search.Text = "CATALOG-100";
         Dispatcher.UIThread.RunJobs();
@@ -142,7 +162,7 @@ public sealed class ModelServicesPageTests
         await fetching;
         Assert.Equal("模型列表待保存", scope.Page.Status);
         Assert.Equal(new[] { "custom-model", "zenmux/catalog-100" }, scope.Page.Models);
-        Assert.Equal(new[] { "deepseek-chat", "custom-model" }, scope.Service.Configuration.Connections.Single().Models);
+        Assert.Equal(new[] { "deepseek-flash", "custom-model" }, scope.Service.Configuration.Connections.Single().Models);
         await scope.Page.SaveAsync();
         Assert.Equal(new[] { "custom-model", "zenmux/catalog-100" }, scope.Service.Configuration.Connections.Single().Models);
         Assert.Equal("custom-model", scope.Service.Configuration.DefaultModel!.ModelId);
@@ -170,8 +190,8 @@ public sealed class ModelServicesPageTests
         ClickPickerButton(picker, "取消");
         await fetching;
 
-        Assert.Equal("deepseek-chat", Assert.Single(scope.Page.Models));
-        Assert.Equal("deepseek-chat", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("deepseek-flash", Assert.Single(scope.Page.Models));
+        Assert.Equal("deepseek-flash", scope.Service.Configuration.DefaultModel!.ModelId);
         Assert.Equal("已保存", scope.Page.Status);
     }
 
@@ -221,11 +241,9 @@ public sealed class ModelServicesPageTests
         scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); scope.Window.UpdateLayout();
         Assert.Equal("自定义中转", scope.Service.Configuration.Connections.Single().Name);
         Assert.Equal(new[] { "custom-model" }, scope.Service.Configuration.Connections.Single().Models);
-        Assert.NotNull(scope.Service.Configuration.Connections.Single().CredentialId);
-        Assert.False(scope.Page.IsEditingKey);
-        var savedKey = Assert.Single(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "••••••••  · 已保存");
-        Assert.True(savedKey.IsEffectivelyVisible);
-        Assert.True(savedKey.Bounds.Height > 0, "saved key bounds: " + savedKey.Bounds);
+        Assert.Equal("custom-test-key", scope.Service.KeyOf(scope.Page.ConnectionId));
+        Assert.True(scope.Page.Secret.IsEffectivelyVisible);
+        Assert.True(scope.Page.Secret.Bounds.Height > 0, "key bounds: " + scope.Page.Secret.Bounds);
         var modelRow = Assert.Single(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "custom-model");
         Assert.True(modelRow.IsEffectivelyVisible);
         Assert.True(modelRow.Bounds.Height > 0, "model row bounds: " + modelRow.Bounds);
@@ -272,15 +290,16 @@ public sealed class ModelServicesPageTests
         public ModelServicesPage Page { get; }
         public Window Window { get; } = new();
         public int Calls { get; private set; }
-        public Scope()
+        public Scope(bool unauthorized = false)
         {
             Directory.CreateDirectory(_directory);
             Service = new(Path.Combine(_directory, "models.json"), Credentials, new ModelServiceTests.Handler((request, _) =>
             {
                 Calls++;
+                if (unauthorized) return Task.FromResult(ModelServiceTests.Response("{}", "application/json", System.Net.HttpStatusCode.Unauthorized));
                 if (request.Method == HttpMethod.Get)
                 {
-                    var sample = new[] { "deepseek-chat", "openai/gpt-5", "anthropic/claude-sonnet-4.6",
+                    var sample = new[] { "deepseek-flash", "openai/gpt-5", "anthropic/claude-sonnet-4.6",
                         "google/gemini-2.5-flash", "deepseek/deepseek-v3.2", "qwen/qwen3.7-flash" };
                     var catalog = sample.Concat(Enumerable.Range(0, 101).Select(index => $"zenmux/catalog-{index:D3}"));
                     var json = System.Text.Json.JsonSerializer.Serialize(new { data = catalog.Select(id => new { id }) });

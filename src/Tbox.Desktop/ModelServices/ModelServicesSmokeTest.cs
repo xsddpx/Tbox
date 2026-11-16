@@ -2,20 +2,19 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Tbox.Core.ModelServices;
-using Tbox.Desktop.Platform;
 using Tbox.Desktop.Views;
 
 namespace Tbox.Desktop.ModelServices;
 
-// Explicit --verify-model-services only: uses a unique disposable credential and fake HTTP, never user connections.
+// Explicit --verify-model-services only: uses a disposable configuration file and fake HTTP, never user connections.
 internal static class ModelServicesSmokeTest
 {
     public static async Task<object> RunAsync(string directory)
     {
-        var credentials = ModelCredentialStore.Create();
         var id = Guid.NewGuid();
         var calls = 0;
-        using var service = new ModelService(Path.Combine(directory, "model-smoke.json"), credentials, new FakeHandler(() => calls++));
+        var path = Path.Combine(directory, "model-smoke.json");
+        using var service = new ModelService(path, null, new FakeHandler(() => calls++));
         var window = new Window();
         Ui.Configure(window, "模型服务验证", 800, 600);
         var page = new ModelServicesPage(service, () => window);
@@ -23,12 +22,11 @@ internal static class ModelServicesSmokeTest
         var connection = new ModelConnection(id, "离线验证连接", "https://api.example.invalid/v1", ["fixture-model"]);
         try
         {
-            await service.SaveConnectionAsync(connection, "Tbox-disposable-smoke-value", false, true, "fixture-model");
-            var saved = service.Configuration.Connections.Single();
-            if (!await service.HasCredentialAsync(saved)) throw new InvalidOperationException("凭据保存后不存在。");
-            if ((await File.ReadAllTextAsync(Path.Combine(directory, "model-smoke.json"))).Contains("Tbox-disposable-smoke-value")) throw new InvalidOperationException("普通配置包含测试密钥。");
+            await service.SaveConnectionAsync(connection, "Tbox-disposable-smoke-value", true, "fixture-model");
+            if (!(await File.ReadAllTextAsync(path)).Contains("Tbox-disposable-smoke-value")) throw new InvalidOperationException("密钥未写入配置文件。");
             await page.OpenAsync();
-            if (page.IsEditingKey || !string.IsNullOrEmpty(page.Secret.Text)) throw new InvalidOperationException("密钥被回填到输入框。");
+            await page.BeginEditAsync(id);
+            if (page.Secret.Text != "Tbox-disposable-smoke-value" || page.IsKeyRevealed) throw new InvalidOperationException("已保存密钥未以遮挡形式回填。");
             window.Show(); window.UpdateLayout();
             await Task.Delay(150);
             await page.TestAsync();
@@ -36,12 +34,9 @@ internal static class ModelServicesSmokeTest
             window.UpdateLayout();
             using (var preview = new RenderTargetBitmap(new PixelSize((int)window.ClientSize.Width, (int)window.ClientSize.Height), new Vector(96, 96)))
             { preview.Render(window); preview.Save(Path.Combine(directory, "model-services.png")); }
-            await service.SaveConnectionAsync(saved, "Tbox-replacement-smoke-value", false, true, "fixture-model");
-            var replacement = service.Configuration.Connections.Single();
-            if (await credentials.ReadAsync(replacement.CredentialId!.Value) != "Tbox-replacement-smoke-value") throw new InvalidOperationException("系统凭据替换失败。");
-            await service.DeleteCredentialAsync(id);
-            if (await credentials.ContainsAsync(replacement.CredentialId.Value)) throw new InvalidOperationException("系统凭据未删除。");
-            return new { credentialStore = true, opaqueSavedState = true, textGeneration = true, replacement = true, deletion = true, externalApiCalls = 0 };
+            await service.SaveConnectionAsync(connection, "Tbox-replacement-smoke-value", true, "fixture-model");
+            if (service.KeyOf(id) != "Tbox-replacement-smoke-value") throw new InvalidOperationException("密钥修改失败。");
+            return new { plaintextKey = true, maskedEcho = true, textGeneration = true, replacement = true, externalApiCalls = 0 };
         }
         finally
         {
