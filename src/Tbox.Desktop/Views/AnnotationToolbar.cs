@@ -224,14 +224,6 @@ public sealed class AnnotationToolbar : Border
 
     private static TextBlock Label(string text) => new() { Text = text, FontSize = 11, Foreground = Ui.ToolbarText, VerticalAlignment = VerticalAlignment.Center };
 
-    internal static Button IconButton(IconKind icon, string tooltip, Action action, IBrush? brush = null)
-    {
-        var button = Ui.ToolbarButton(icon, tooltip, action, brush);
-        if (icon == IconKind.Copy)
-        {
-            button.Background = Brush.Parse("#41434E");
-            button.Resources["ButtonBackgroundPointerOver"] = Brush.Parse("#565762");
-        }
-        return button;
-    }
+    internal static Button IconButton(IconKind icon, string tooltip, Action action, IBrush? brush = null) =>
+        Ui.ToolbarButton(icon, tooltip, action, brush);
 }

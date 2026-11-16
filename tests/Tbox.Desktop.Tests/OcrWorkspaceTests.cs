@@ -7,6 +7,9 @@ using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.Text.Json;
+using Tbox.Core.ModelServices;
+using Tbox.Desktop.ModelServices;
 using Tbox.Desktop.Platform;
 using Tbox.Desktop.Views;
 using Xunit;
@@ -15,6 +18,143 @@ namespace Tbox.Desktop.Tests;
 
 public sealed class OcrWorkspaceTests
 {
+    [AvaloniaFact]
+    public async Task ImageIsSentOnlyAfterChoosingAModelAndConfirming()
+    {
+        var calls = 0;
+        string? body = null;
+        Uri? endpoint = null;
+        using var scope = new AiScope(async (request, ct) =>
+        {
+            calls++;
+            endpoint = request.RequestUri;
+            body = await request.Content!.ReadAsStringAsync(ct);
+            return AiResponse("图片原文\n第二行");
+        });
+        await scope.SaveModelAsync();
+        var picture = DesktopController.RenderText("图片原文");
+        var png = picture.Png.ToArray();
+        scope.Show(picture);
+        Assert.Equal("离线结果", scope.Editor.Text);
+        Assert.Equal(0, calls);
+
+        var choose = scope.Window.RecognizeWithAiAsync();
+        PickModel(scope.Window, out var dialog);
+        Assert.Equal(0, calls);
+        Assert.Contains(dialog.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("https://vision.example.com/v1/chat/completions") == true);
+        TaskToolbarTests.Preview(dialog, "ocr-ai-confirm");
+        Click(dialog, "取消");
+        await choose;
+        Assert.Equal("离线结果", scope.Editor.Text);
+        Assert.Equal(0, calls);
+
+        choose = scope.Window.RecognizeWithAiAsync();
+        PickModel(scope.Window, out dialog);
+        Click(dialog, "发送并识别");
+        await choose;
+        Assert.Equal(1, calls);
+        Assert.Equal("图片原文\n第二行", scope.Editor.Text);
+        Assert.Equal("https://vision.example.com/v1/chat/completions", endpoint?.AbsoluteUri);
+        using var request = JsonDocument.Parse(Assert.IsType<string>(body));
+        Assert.Equal("vision-fixture", request.RootElement.GetProperty("model").GetString());
+        var parts = request.RootElement.GetProperty("messages")[0].GetProperty("content");
+        Assert.Equal(2, parts.GetArrayLength());
+        Assert.Equal("data:image/png;base64," + Convert.ToBase64String(png), parts[1].GetProperty("image_url").GetProperty("url").GetString());
+        Assert.DoesNotContain("离线结果", body);
+        TaskToolbarTests.Preview(scope.Window, "ocr-ai-result");
+    }
+
+    [AvaloniaFact]
+    public async Task NoConfiguredModelLeavesTheOfflineResultAvailable()
+    {
+        var calls = 0;
+        using var scope = new AiScope((_, _) => { calls++; return Task.FromResult(AiResponse("不应发送")); });
+        scope.Show(DesktopController.RenderText("当前原图"));
+        await scope.Window.RecognizeWithAiAsync();
+        Assert.Equal(0, calls);
+        Assert.Empty(scope.Window.OwnedWindows);
+        Assert.Equal("离线结果", scope.Editor.Text);
+        Assert.True(FindButton(scope.Window, "复制全部").IsEnabled);
+        Assert.Contains(scope.Window.GetVisualDescendants().OfType<TextBlock>(), t => t.Text?.Contains("模型服务") == true);
+    }
+
+    [AvaloniaFact]
+    public async Task StoppingAiKeepsEditedTextEvenIfTheServiceReturnsLate()
+    {
+        var started = new TaskCompletionSource<CancellationToken>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var response = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var scope = new AiScope((_, ct) => { started.TrySetResult(ct); return response.Task; });
+        await scope.SaveModelAsync();
+        scope.Show(DesktopController.RenderText("当前原图"));
+        scope.Editor.Text = "用户编辑";
+        var request = scope.Window.RecognizeWithAiAsync();
+        PickModel(scope.Window, out var dialog);
+        Click(dialog, "发送并识别");
+        var token = await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await scope.Window.RecognizeWithAiAsync();
+        Assert.True(token.IsCancellationRequested);
+        response.SetResult(AiResponse("迟到文字"));
+        await request;
+        Assert.Equal("用户编辑", scope.Editor.Text);
+        Assert.True(FindButton(scope.Window, "AI 识别").IsEnabled);
+    }
+
+    private static void PickModel(OcrWindow owner, out OcrModelWindow dialog)
+    {
+        dialog = Assert.IsType<OcrModelWindow>(Assert.Single(owner.OwnedWindows));
+        Assert.False(FindButton(dialog, "发送并识别").IsEnabled);
+        Assert.Single(dialog.GetVisualDescendants().OfType<ComboBox>()).SelectedIndex = 0;
+        dialog.UpdateLayout();
+    }
+
+    private static Button FindButton(Window window, string label) =>
+        Assert.Single(window.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, label));
+
+    private static void Click(Window window, string label) => FindButton(window, label).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+    private static HttpResponseMessage AiResponse(string text) => ModelServiceTests.Response(JsonSerializer.Serialize(new
+    {
+        choices = new[] { new { message = new { content = text }, finish_reason = "stop" } }
+    }), "application/json");
+
+    private sealed class AiScope : IDisposable
+    {
+        private readonly DirectoryInfo _directory = Directory.CreateTempSubdirectory("tbox-ai-ocr-");
+        private readonly ModelService _service;
+        private readonly DesktopController _controller;
+        public OcrWindow Window { get; }
+        public TextBox Editor => Assert.Single(Window.GetVisualDescendants().OfType<TextBox>());
+
+        public AiScope(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> handler)
+        {
+            if (!Application.Current!.Styles.OfType<Avalonia.Themes.Fluent.FluentTheme>().Any())
+                Application.Current.Styles.Add(DesignTokens.CreateTheme());
+            _service = new ModelService(Path.Combine(_directory.FullName, "models.json"), handler: new ModelServiceTests.Handler(handler));
+            var platform = new FakePlatform { OcrResult = new RecognitionResult("离线结果", []) };
+            _controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
+            Window = new OcrWindow(_controller, _service);
+        }
+
+        public Task SaveModelAsync() => _service.SaveConnectionAsync(
+            new ModelConnection(Guid.NewGuid(), "模拟连接", "https://vision.example.com/v1", ["vision-fixture"]), "fixture-key", false, null);
+
+        public void Show(Models.Picture picture)
+        {
+            Window.Show();
+            Window.Recognize(picture);
+            Dispatcher.UIThread.RunJobs();
+            Window.UpdateLayout();
+        }
+
+        public void Dispose()
+        {
+            Window.Close();
+            _controller.Dispose();
+            _service.Dispose();
+            _directory.Delete(recursive: true);
+        }
+    }
+
     [AvaloniaFact]
     public void OriginalReflowsWithoutReplacingEditedTextOrSource()
     {

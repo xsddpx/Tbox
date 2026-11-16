@@ -24,6 +24,18 @@ namespace Tbox.Desktop.Tests;
 public sealed class TaskToolbarTests
 {
     [AvaloniaFact]
+    public async Task ScreenshotCopyButtonHasTheSameIdleBackgroundAsSave()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var buttons = scope.Window.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible).ToArray();
+        var copy = Assert.Single(buttons, b => AutomationProperties.GetName(b)?.StartsWith("复制 · ", StringComparison.Ordinal) == true);
+        var save = Assert.Single(buttons, b => AutomationProperties.GetName(b)?.StartsWith("保存 · ", StringComparison.Ordinal) == true);
+        Assert.Equal(Colors.Transparent, Assert.IsAssignableFrom<ISolidColorBrush>(copy.Background).Color);
+        Assert.Equal(save.Background, copy.Background);
+        Preview(scope.Window, "capture-copy-idle");
+    }
+
+    [AvaloniaFact]
     public async Task CancelledSaveLeavesPreviousScreenshotAndCacheIntact()
     {
         using var scope = await CaptureScope.StartAsync(null);

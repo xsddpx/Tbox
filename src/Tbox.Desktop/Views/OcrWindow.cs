@@ -8,6 +8,8 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tbox.Core;
+using Tbox.Core.ModelServices;
+using Tbox.Desktop.ModelServices;
 using Tbox.Desktop.Models;
 
 namespace Tbox.Desktop.Views;
@@ -15,6 +17,7 @@ namespace Tbox.Desktop.Views;
 public sealed class OcrWindow : Window
 {
     private readonly DesktopController _controller;
+    private readonly ModelService _models;
     private readonly TextBox _editor = new()
     {
         AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, FontSize = 14,
@@ -36,13 +39,19 @@ public sealed class OcrWindow : Window
     private readonly Button _sourceToggle;
     private readonly Button _copy;
     private readonly Button _recognizeAgain;
+    private readonly Button _ai;
     private readonly LatestOperation _requests = new();
     private bool? _showOriginal;
     private Picture? _picture;
+    private enum Mode { Idle, Offline, ChoosingModel, Ai }
+    private Mode _mode;
 
-    public OcrWindow(DesktopController controller)
+    public OcrWindow(DesktopController controller) : this(controller, controller.Models) { }
+
+    internal OcrWindow(DesktopController controller, ModelService models)
     {
         _controller = controller;
+        _models = models;
         // The editor sits inside the sheet, so it draws no border or fill of its own.
         foreach (var state in new[] { "", "PointerOver", "Focused" }) _editor.Resources["TextControlBackground" + state] = Brushes.Transparent;
         _editor.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(0);
@@ -68,7 +77,7 @@ public sealed class OcrWindow : Window
         var topmost = new CheckBox { Content = "置顶", FontSize = 13, MinHeight = 0 };
         topmost.IsCheckedChanged += (_, _) => Topmost = topmost.IsChecked == true;
         Activated += (_, _) => topmost.IsChecked = Topmost;
-        var header = Ui.ResultHeader(IconKind.Ocr, ToolTone.Green, "文字识别", Ui.Description("本机离线识别 · 可直接编辑"), Ui.Row(topmost, _sourceToggle));
+        var header = Ui.ResultHeader(IconKind.Ocr, ToolTone.Green, "文字识别", Ui.Description("识别结果可直接编辑"), Ui.Row(topmost, _sourceToggle));
 
         var editorLayout = new Grid { ColumnDefinitions = new ColumnDefinitions("36,*"), Margin = new Thickness(8, 8, 12, 8) };
         editorLayout.Children.Add(new LogicalLineGutter(_editor));
@@ -86,11 +95,13 @@ public sealed class OcrWindow : Window
             await (Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。")).SetTextAsync(_editor.Text ?? "");
             SetStatus($"{LineCount(_editor.Text)} 行 · 已复制当前全文", DesignTokens.Ready);
         }));
-        _recognizeAgain = Ui.Button("识别原图", () => { if (_picture is { } picture) Recognize(new Picture(picture.Png) { CachePath = picture.CachePath }); });
+        _recognizeAgain = Ui.Button("离线识别", () => { if (_picture is { } picture) Recognize(new Picture(picture.Png) { CachePath = picture.CachePath }); });
         _recognizeAgain.IsEnabled = false;
+        _ai = Ui.Button("AI 识别", () => _ = RecognizeWithAiAsync());
+        _ai.IsEnabled = false;
         _status.FontSize = DesignTokens.Caption;
         var status = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { _statusDot, _status } };
-        var bar = Ui.ResultBar(status, _recognizeAgain, _copy);
+        var bar = Ui.ResultBar(status, _recognizeAgain, _ai, _copy);
         bar.Margin = new Thickness(20, 12, 20, 14);
 
         var strip = Ui.TitleStrip("文字识别 · Tbox", brand);
@@ -114,12 +125,22 @@ public sealed class OcrWindow : Window
         }
     };
 
-    private bool _recognizing;
     private void RefreshEmpty()
     {
-        var empty = _picture is not null && !_recognizing && string.IsNullOrEmpty(_editor.Text) && !_sourceCard.IsVisible;
+        var empty = _picture is not null && _mode == Mode.Idle && string.IsNullOrEmpty(_editor.Text) && !_sourceCard.IsVisible;
         _empty.IsVisible = empty; _editorCard.IsVisible = !empty;
         _copy.IsEnabled = !string.IsNullOrEmpty(_editor.Text);
+    }
+
+    private void SetMode(Mode mode)
+    {
+        _mode = mode;
+        _recognizeAgain.IsEnabled = mode == Mode.Idle && _picture is not null;
+        _ai.IsEnabled = mode == Mode.Ai || _recognizeAgain.IsEnabled;
+        _ai.Content = mode == Mode.Ai ? "停止 AI" : "AI 识别";
+        AutomationProperties.SetName(_ai, (string)_ai.Content);
+        _editor.IsReadOnly = mode == Mode.Ai;
+        RefreshEmpty();
     }
 
     private void SetStatus(string text, string? dot)
@@ -162,29 +183,90 @@ public sealed class OcrWindow : Window
         _original.Source = null; _picture?.Dispose(); _picture = picture;
         _original.Source = picture.Bitmap;
         _sourceLabel.Text = $"原图 · {picture.Bitmap.PixelSize.Width} × {picture.Bitmap.PixelSize.Height}";
-        _recognizing = true; _recognizeAgain.IsEnabled = false;
+        SetMode(Mode.Offline);
         ApplyWorkspaceLayout(ClientSize.Width);
         _editor.Text = ""; SetStatus("识别中…", null);
         try
         {
             var result = await _controller.Platform.RecognizeAsync(picture.Png, operation.Token);
             if (!_requests.IsCurrent(operation)) return;
-            _recognizing = false;
-            _editor.Text = result.Text;
-            if (string.IsNullOrWhiteSpace(result.Text)) SetStatus("0 行", DesignTokens.AttentionDot);
-            else SetStatus($"{LineCount(result.Text)} 行 · 本机离线识别", DesignTokens.Ready);
-            await Dispatcher.UIThread.InvokeAsync(() =>
-            {
-                if (_requests.IsCurrent(operation)) { _editor.Focus(); _editor.SelectAll(); }
-            }, DispatcherPriority.Loaded);
+            await ShowResultAsync(result.Text, "本机离线识别", operation);
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { if (_requests.IsCurrent(operation)) SetStatus(error.Message, DesignTokens.Error); }
         finally
         {
-            if (_requests.IsCurrent(operation)) { _recognizing = false; _recognizeAgain.IsEnabled = true; RefreshEmpty(); }
+            if (_requests.IsCurrent(operation)) SetMode(Mode.Idle);
             _requests.Complete(operation);
         }
+    }
+
+    internal async Task RecognizeWithAiAsync()
+    {
+        if (_mode == Mode.Ai)
+        {
+            _requests.CancelCurrent();
+            SetMode(Mode.Idle);
+            SetStatus("已停止 AI 识别。", DesignTokens.AttentionDot);
+            return;
+        }
+        if (_mode != Mode.Idle || _picture is not { } picture) return;
+        var operation = _requests.Begin();
+        SetMode(Mode.ChoosingModel);
+        try
+        {
+            await _models.InitializeAsync(operation.Token);
+            if (!_requests.IsCurrent(operation)) return;
+            var configuration = _models.Configuration;
+            if (!configuration.Connections.Any(c => c.Models.Length > 0))
+            {
+                SetStatus("请先在「设置 → 模型服务」添加支持图片输入的模型。", DesignTokens.AttentionDot);
+                return;
+            }
+            var dialog = new OcrModelWindow(configuration) { Topmost = Topmost };
+            OcrModelWindow.Destination? destination;
+            using (operation.Token.Register(() => Dispatcher.UIThread.Post(() => { if (dialog.IsVisible) dialog.Close(); })))
+                destination = await dialog.ShowDialog<OcrModelWindow.Destination?>(this);
+            if (destination is null || !_requests.IsCurrent(operation)) return;
+
+            SetMode(Mode.Ai);
+            SetStatus("AI 识别中…", null);
+            var result = await _models.RecognizeImageAsync(destination.Model, destination.Endpoint, EncodePng(picture), operation.Token);
+            if (!_requests.IsCurrent(operation)) return;
+            if (string.IsNullOrWhiteSpace(result)) SetStatus("AI 未识别到文字，已保留当前结果。", DesignTokens.AttentionDot);
+            else
+            {
+                _editor.IsReadOnly = false;
+                await ShowResultAsync(result, "AI 识别", operation);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (ModelServiceException error) { if (_requests.IsCurrent(operation)) SetStatus(error.Message, DesignTokens.Error); }
+        catch (Exception) { if (_requests.IsCurrent(operation)) SetStatus("AI 识别未完成，已保留当前结果。", DesignTokens.Error); }
+        finally
+        {
+            if (_requests.IsCurrent(operation)) SetMode(Mode.Idle);
+            _requests.Complete(operation);
+        }
+    }
+
+    private static byte[] EncodePng(Picture picture)
+    {
+        // Encode the decoded pixels so imported file formats and metadata stay out of the request.
+        using var buffer = new MemoryStream();
+        picture.Bitmap.Save(buffer);
+        return buffer.ToArray();
+    }
+
+    private async Task ShowResultAsync(string text, string engine, CancellationTokenSource operation)
+    {
+        _editor.Text = text;
+        if (string.IsNullOrWhiteSpace(text)) SetStatus("0 行", DesignTokens.AttentionDot);
+        else SetStatus($"{LineCount(text)} 行 · {engine}", DesignTokens.Ready);
+        await Dispatcher.UIThread.InvokeAsync(() =>
+        {
+            if (_requests.IsCurrent(operation)) { _editor.Focus(); _editor.SelectAll(); }
+        }, DispatcherPriority.Loaded);
     }
 }
 
