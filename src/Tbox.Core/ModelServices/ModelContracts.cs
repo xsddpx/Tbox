@@ -5,8 +5,6 @@ public sealed record ModelReference(Guid ConnectionId, string ModelId);
 public sealed record ModelConnection(Guid Id, string Name, string BaseUrl, string[] Models)
 {
     public string Protocol { get; init; } = "openai-chat";
-    public bool RequiresKey { get; init; } = true;
-    public Guid? CredentialId { get; init; }
 }
 public sealed record ModelConfiguration
 {

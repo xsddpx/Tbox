@@ -6,13 +6,11 @@ namespace Tbox.Desktop.Platform;
 
 internal sealed class MacModelCredentialStore : IModelCredentialStore
 {
-    public Task<bool> ContainsAsync(Guid id, CancellationToken ct = default) => Execute(() => Read(Contains(id.ToString("D"))).GetProperty("found").GetBoolean(), ct);
     public Task<string?> ReadAsync(Guid id, CancellationToken ct = default) => Execute(() =>
     {
         var value = Read(Get(id.ToString("D"))).GetProperty("value");
         return value.ValueKind == JsonValueKind.Null ? null : value.GetString();
     }, ct);
-    public Task WriteAsync(Guid id, string secret, CancellationToken ct = default) => Execute(() => { Read(Set(id.ToString("D"), secret)); return true; }, ct);
     public Task DeleteAsync(Guid id, CancellationToken ct = default) => Execute(() => { Read(Delete(id.ToString("D"))); return true; }, ct);
 
     // Once a native write/delete begins, report its actual outcome rather than claiming it was cancelled.
@@ -35,10 +33,8 @@ internal sealed class MacModelCredentialStore : IModelCredentialStore
         }
         finally { Free(pointer); }
     }
-    private static ModelServiceException Error() => new(ModelFailure.Credentials, "钥匙串操作未完成，请解锁或允许 Tbox 访问；不会退回明文保存。");
-    [DllImport("TboxNative", EntryPoint = "tbox_model_secret_contains")] private static extern nint Contains([MarshalAs(UnmanagedType.LPUTF8Str)] string id);
+    private static ModelServiceException Error() => new(ModelFailure.Credentials, "钥匙串操作未完成，请解锁或允许 Tbox 访问。");
     [DllImport("TboxNative", EntryPoint = "tbox_model_secret_get")] private static extern nint Get([MarshalAs(UnmanagedType.LPUTF8Str)] string id);
-    [DllImport("TboxNative", EntryPoint = "tbox_model_secret_set")] private static extern nint Set([MarshalAs(UnmanagedType.LPUTF8Str)] string id, [MarshalAs(UnmanagedType.LPUTF8Str)] string secret);
     [DllImport("TboxNative", EntryPoint = "tbox_model_secret_delete")] private static extern nint Delete([MarshalAs(UnmanagedType.LPUTF8Str)] string id);
     [DllImport("TboxNative", EntryPoint = "tbox_free")] private static extern void Free(nint pointer);
 }
