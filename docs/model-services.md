@@ -16,7 +16,9 @@
 
 2026-11-16 起 DeepSeek 预设默认模型改为 `deepseek-flash`；另一个可用 ID 为 `deepseek-v4-pro`。两者默认开启思考模式，Tbox 对 `api.deepseek.com` 的请求附带 `thinking: {"type": "disabled"}`，其他地址的请求不变。依据为 [DeepSeek 价格页](https://api-docs.deepseek.com/quick_start/pricing) 与 [思考模式说明](https://api-docs.deepseek.com/guides/thinking_mode)，2026-11-16 查阅。
 
-每个连接支持多个模型 ID，通过“添加模型”或“获取可用模型”维护；获取只采用响应里的 `id`，不能把显示名当 ID。ZenMux 的 ID 为供应商/模型 slug，必须完整保留。获取到模型并不等于它有调用权限或支持推理。一个“连接 + 模型”组合可设为全局默认，调用方也可显式指定；无默认时不能猜测或自动切换其他服务。
+每个连接支持多个模型 ID，通过“添加模型”或“获取可用模型”维护。获取后可按模型 ID 搜索并勾选，已有模型预先勾选，手动添加的模型也可在此保留。点击“更新列表”后回到连接页保存。获取只采用响应里的 `id`。ZenMux 的 ID 为供应商/模型 slug，必须完整保留。获取到模型并不等于它有调用权限或支持推理。一个“连接 + 模型”组合可设为全局默认，调用方也可显式指定；无默认时不能猜测或自动切换其他服务。
+
+[模型选择窗口预览](images/model-picker-1.1.83.png)使用模拟目录。
 
 ## 密钥
 

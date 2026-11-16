@@ -35,6 +35,8 @@ public sealed class ModelServiceException(ModelFailure failure, string message) 
 
 public static class ModelPolicy
 {
+    public const int MaxModelsPerConnection = 100;
+
     public static Uri Endpoint(ModelConnection connection, string resource)
     {
         if (connection.Protocol != "openai-chat") throw Invalid("当前仅支持 OpenAI 兼容 Chat Completions 协议。");
@@ -55,7 +57,7 @@ public static class ModelPolicy
         if (connection.Id == Guid.Empty || string.IsNullOrWhiteSpace(connection.Name) || connection.Name.Length > 80)
             throw Invalid("请填写不超过 80 字的连接名称。");
         Endpoint(connection, "models");
-        if (connection.Models.Length > 100 || connection.Models.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200 || id.Any(char.IsControl)))
+        if (connection.Models.Length > MaxModelsPerConnection || connection.Models.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 200 || id.Any(char.IsControl)))
             throw Invalid("模型 ID 不能为空、包含控制字符或超过 200 字；每个连接最多 100 个模型。");
         return connection with { Name = connection.Name.Trim(), BaseUrl = connection.BaseUrl.Trim().TrimEnd('/'), Models = connection.Models.Distinct(StringComparer.Ordinal).ToArray() };
     }
