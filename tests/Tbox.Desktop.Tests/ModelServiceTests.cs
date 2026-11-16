@@ -19,8 +19,8 @@ public sealed class ModelServiceTests
         using var scope = new Scope((_, _) => { calls++; return Task.FromResult(Response("{}")); });
         var original = scope.Connection();
         var confirmedEndpoint = ModelPolicy.Endpoint(original, "chat/completions");
-        await scope.Service.SaveConnectionAsync(original, "fixture-key", false, null);
-        await scope.Service.SaveConnectionAsync(original with { BaseUrl = "https://changed.example/v1" }, "fixture-key", false, null);
+        await scope.Service.SaveConnectionAsync(original, "fixture-key");
+        await scope.Service.SaveConnectionAsync(original with { BaseUrl = "https://changed.example/v1" }, "fixture-key");
         var error = await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.RecognizeImageAsync(
             new ModelReference(original.Id, "text-one"), confirmedEndpoint, new byte[] { 1 }, CancellationToken.None));
         Assert.Equal(ModelFailure.Configuration, error.Failure);
@@ -35,7 +35,7 @@ public sealed class ModelServiceTests
         var calls = 0;
         using var scope = new Scope((_, _) => { calls++; return Task.FromResult(Response(body, "application/json", (HttpStatusCode)status)); });
         var connection = scope.Connection();
-        await scope.Service.SaveConnectionAsync(connection, "fixture-key", false, null);
+        await scope.Service.SaveConnectionAsync(connection, "fixture-key");
         var error = await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.RecognizeImageAsync(
             new ModelReference(connection.Id, "text-one"), ModelPolicy.Endpoint(connection, "chat/completions"), new byte[] { 1 }, CancellationToken.None));
         Assert.Equal(failure, error.Failure);
@@ -48,13 +48,13 @@ public sealed class ModelServiceTests
     {
         using var scope = new Scope();
         var connection = scope.Connection();
-        await scope.Service.SaveConnectionAsync(connection, "  test-only-secret ", true, "text-one");
+        await scope.Service.SaveConnectionAsync(connection, "  test-only-secret ");
         var json = await File.ReadAllTextAsync(scope.Path);
         Assert.Contains("\"ApiKey\": \"test-only-secret\"", json);
         Assert.DoesNotContain("CredentialId", json);
         using var reloaded = new ModelService(scope.Path, scope.Credentials);
         await reloaded.InitializeAsync();
-        Assert.Equal("text-one", reloaded.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("text-one", reloaded.Configuration.ModelOrder[0].ModelId);
         Assert.Equal("test-only-secret", reloaded.KeyOf(connection.Id));
         Assert.Equal(0, scope.Credentials.ReadCount);
         // Caller-owned arrays and returned snapshots cannot mutate live configuration.
@@ -93,7 +93,7 @@ public sealed class ModelServiceTests
         string? body = null;
         using var scope = new Scope(async (r, ct) => { body = await r.Content!.ReadAsStringAsync(ct); return Response(CompleteStream); });
         var connection = new ModelConnection(Guid.NewGuid(), "DeepSeek", "https://api.deepseek.com", ["deepseek-flash"]);
-        await scope.Service.SaveConnectionAsync(connection, "test-only-secret", true, "deepseek-flash");
+        await scope.Service.SaveConnectionAsync(connection, "test-only-secret");
         await Collect(scope.Service.GenerateAsync(Input()));
         using var json = JsonDocument.Parse(body!);
         Assert.Equal("disabled", json.RootElement.GetProperty("thinking").GetProperty("type").GetString());
@@ -215,7 +215,7 @@ public sealed class ModelServiceTests
     public async Task SavingRequiresAKey()
     {
         using var scope = new Scope();
-        Assert.Equal(ModelFailure.Credentials, (await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(scope.Connection(), "  ", true, "text-one"))).Failure);
+        Assert.Equal(ModelFailure.Credentials, (await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(scope.Connection(), "  "))).Failure);
         Assert.False(File.Exists(scope.Path));
     }
 
@@ -232,7 +232,7 @@ public sealed class ModelServiceTests
         Assert.Contains("legacy-test-secret", json);
         Assert.DoesNotContain("CredentialId", json); Assert.DoesNotContain("RequiresKey", json);
         Assert.Empty(scope.Credentials.Values);
-        Assert.Equal("text-one", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("text-one", scope.Service.Configuration.ModelOrder[0].ModelId);
     }
 
     [Fact]
@@ -255,17 +255,17 @@ public sealed class ModelServiceTests
         using var scope = new Scope(); await scope.Save();
         var previous = scope.Service.Configuration.Connections.Single();
         File.Delete(scope.Path); Directory.CreateDirectory(scope.Path); // Force the atomic replace to fail.
-        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(previous, "replacement-test-secret", true, "text-one"));
+        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(previous, "replacement-test-secret"));
         Assert.Equal("test-only-secret", scope.Service.KeyOf(previous.Id));
     }
 
     [Fact]
-    public async Task DeletingAConnectionRemovesItsKeyAndClearsTheDefault()
+    public async Task DeletingAConnectionRemovesItsKeyAndModelsFromTheOrder()
     {
         using var scope = new Scope(); await scope.Save();
         var c = scope.Service.Configuration.Connections.Single();
         await scope.Service.DeleteConnectionAsync(c.Id);
-        Assert.Empty(scope.Service.Configuration.Connections); Assert.Null(scope.Service.Configuration.DefaultModel);
+        Assert.Empty(scope.Service.Configuration.Connections); Assert.Empty(scope.Service.Configuration.ModelOrder);
         Assert.False(scope.Service.HasKey(c.Id));
         Assert.DoesNotContain("test-only-secret", await File.ReadAllTextAsync(scope.Path));
     }
@@ -289,22 +289,58 @@ public sealed class ModelServiceTests
         await scope.Save(); var c = scope.Service.Configuration.Connections.Single();
         Assert.Equal(["first", "second"], await scope.Service.GetModelsAsync(c.Id));
         Assert.Equal(["text-one", "text-two"], scope.Service.Configuration.Connections.Single().Models); // Fetch isn't a save or test.
-        await scope.Service.SaveConnectionAsync(c with { Models = ["manually-added"] }, "test-only-secret", true, "manually-added");
-        Assert.Equal("manually-added", scope.Service.Configuration.DefaultModel!.ModelId);
+        await scope.Service.SaveConnectionAsync(c with { Models = ["manually-added"] }, "test-only-secret");
+        Assert.Equal("manually-added", scope.Service.Configuration.ModelOrder[0].ModelId);
     }
 
     [Fact]
-    public async Task DefaultModelCanChangeWithoutLosingTheKey()
+    public async Task CrossConnectionOrderSurvivesEditsAndReloadAndSkipsRemovedModels()
     {
         using var scope = new Scope(); await scope.Save();
-        var connection = scope.Service.Configuration.Connections.Single();
-        await scope.Service.SetDefaultModelAsync(new(connection.Id, "text-two"));
-        Assert.Equal("text-two", scope.Service.Configuration.DefaultModel!.ModelId);
+        var first = scope.Service.Configuration.Connections.Single();
+        var second = scope.Connection() with { Name = "第二个连接", Models = ["text-one"] };
+        await scope.Service.SaveConnectionAsync(second, "second-key");
+        var promoted = new ModelReference(second.Id, "text-one");
+        var original = new ModelReference(first.Id, "text-one");
+        await scope.Service.MoveModelAsync(promoted, original, after: false);
+        await scope.Service.SaveConnectionAsync(first with { Models = ["text-one", "text-two", "new-model"] }, "test-only-secret");
         using var reloaded = new ModelService(scope.Path);
         await reloaded.InitializeAsync();
-        Assert.Equal("test-only-secret", reloaded.KeyOf(connection.Id));
-        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SetDefaultModelAsync(new(connection.Id, "missing")));
-        Assert.Equal("text-two", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal([promoted, original, new(first.Id, "text-two"), new(first.Id, "new-model")], reloaded.Configuration.ModelOrder);
+        Assert.Equal(promoted, ModelPolicy.Resolve(reloaded.Configuration, null).Model);
+        Assert.Equal("test-only-secret", reloaded.KeyOf(first.Id));
+        Assert.Equal("second-key", reloaded.KeyOf(second.Id));
+        await Assert.ThrowsAsync<ModelServiceException>(() => reloaded.MoveModelAsync(new(first.Id, "missing"), original, after: true));
+        Assert.Equal(promoted, reloaded.Configuration.ModelOrder[0]);
+        await reloaded.DeleteConnectionAsync(second.Id);
+        Assert.Equal(original, reloaded.Configuration.ModelOrder[0]);
+    }
+
+    [Fact]
+    public async Task LegacyDefaultBecomesTheFirstModelWithoutRewritingUntilSave()
+    {
+        using var scope = new Scope();
+        var id = Guid.NewGuid();
+        var legacy = $$$"""{"Connections":[{"Id":"{{{id}}}","Name":"旧连接","BaseUrl":"https://api.example.com/v1","Models":["first","second"],"ApiKey":"fixture-key"}],"DefaultModel":{"ConnectionId":"{{{id}}}","ModelId":"second"}}""";
+        await File.WriteAllTextAsync(scope.Path, legacy);
+        await scope.Service.InitializeAsync();
+        Assert.Equal(["second", "first"], scope.Service.Configuration.ModelOrder.Select(model => model.ModelId));
+        Assert.Equal(legacy, await File.ReadAllTextAsync(scope.Path));
+        await scope.Service.MoveModelAsync(new(id, "first"), new(id, "second"), after: false);
+        var saved = await File.ReadAllTextAsync(scope.Path);
+        Assert.Contains("ModelOrder", saved);
+        Assert.DoesNotContain("DefaultModel", saved);
+    }
+
+    [Fact]
+    public async Task FailedOrderCommitKeepsThePreviousSelection()
+    {
+        using var scope = new Scope(); await scope.Save();
+        var order = scope.Service.Configuration.ModelOrder;
+        File.Delete(scope.Path);
+        Directory.CreateDirectory(scope.Path);
+        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.MoveModelAsync(order[1], order[0], after: false));
+        Assert.Equal(order, scope.Service.Configuration.ModelOrder);
     }
 
     private static TextGenerationRequest Input() => new([new("user", "private prompt")]);
@@ -359,7 +395,7 @@ public sealed class ModelServiceTests
             Service = new(Path, Credentials, new Handler(send ?? ((_, _) => Task.FromResult(Response(CompleteStream))))) { RequestTimeout = timeout ?? TimeSpan.FromSeconds(5) };
         }
         public ModelConnection Connection() => new(Guid.NewGuid(), "测试连接", "https://api.example.com/v1", ["text-one", "text-two"]);
-        public Task Save() => Service.SaveConnectionAsync(Connection(), "test-only-secret", true, "text-one");
+        public Task Save() => Service.SaveConnectionAsync(Connection(), "test-only-secret");
         public void Dispose() { Service.Dispose(); Directory.Delete(_directory, true); }
     }
 }

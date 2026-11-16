@@ -1,7 +1,10 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -41,7 +44,7 @@ public sealed class ModelServicesPageTests
         Assert.Equal(["deepseek-flash"], scope.Page.Models);
         scope.Page.Secret.Text = "simple-test-key";
         await scope.Page.SaveAsync();
-        Assert.Equal("deepseek-flash", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("deepseek-flash", scope.Service.Configuration.ModelOrder[0].ModelId);
         Assert.Equal(0, scope.Calls);
         Assert.Equal("simple-test-key", scope.Service.KeyOf(scope.Page.ConnectionId));
         Assert.Equal("已保存", scope.Page.Status);
@@ -62,7 +65,7 @@ public sealed class ModelServicesPageTests
         Assert.Empty(scope.Page.Models);
         scope.Page.Secret.Text = "zenmux-test-key";
         await scope.Page.SaveAsync();
-        Assert.Null(scope.Service.Configuration.DefaultModel);
+        Assert.Empty(scope.Service.Configuration.ModelOrder);
         Assert.Equal("https://zenmux.ai/api/v1", scope.Service.Configuration.Connections.Single().BaseUrl);
     }
 
@@ -236,11 +239,11 @@ public sealed class ModelServicesPageTests
         Assert.Equal(new[] { "deepseek-flash", "custom-model" }, scope.Service.Configuration.Connections.Single().Models);
         await scope.Page.SaveAsync();
         Assert.Equal(new[] { "custom-model", "zenmux/catalog-100" }, scope.Service.Configuration.Connections.Single().Models);
-        Assert.Equal("custom-model", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("custom-model", scope.Service.Configuration.ModelOrder[0].ModelId);
     }
 
     [AvaloniaFact]
-    public async Task CancellingModelSelectionKeepsTheSavedConnectionAndDefaultModel()
+    public async Task CancellingModelSelectionKeepsTheSavedConnectionAndOrder()
     {
         using var scope = new Scope();
         await scope.Page.OpenAsync();
@@ -262,7 +265,7 @@ public sealed class ModelServicesPageTests
         await fetching;
 
         Assert.Equal("deepseek-flash", Assert.Single(scope.Page.Models));
-        Assert.Equal("deepseek-flash", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("deepseek-flash", scope.Service.Configuration.ModelOrder[0].ModelId);
         Assert.Equal("已保存", scope.Page.Status);
     }
 
@@ -271,7 +274,7 @@ public sealed class ModelServicesPageTests
             .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
 
     [AvaloniaFact]
-    public async Task ListShowsTheSavedConnectionAndDefaultModel()
+    public async Task ListShowsTheSavedConnectionAndModels()
     {
         using var scope = new Scope();
         await scope.Page.OpenAsync();
@@ -286,6 +289,43 @@ public sealed class ModelServicesPageTests
         Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "DeepSeek");
         Assert.Contains(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && button.Content as string == "添加连接");
         TaskToolbarTests.Preview(scope.Window, "model-services-list");
+    }
+
+    [AvaloniaFact]
+    public async Task DraggingAModelAcrossConnectionsSavesTheOrderUsedByTranslation()
+    {
+        using var scope = new Scope();
+        var first = new ModelConnection(Guid.NewGuid(), "DeepSeek", "https://api.deepseek.com", ["deepseek-flash", "deepseek-v4-pro"]);
+        var second = new ModelConnection(Guid.NewGuid(), "OpenAI", "https://api.openai.com/v1", ["gpt-5-mini"]);
+        await scope.Service.SaveConnectionAsync(first, "fixture-key");
+        await scope.Service.SaveConnectionAsync(second, "fixture-key");
+        await scope.Page.OpenAsync();
+        scope.Page.Margin = new Thickness(24);
+        scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); scope.Window.UpdateLayout();
+        var handles = scope.Page.GetVisualDescendants().OfType<Control>().Where(control =>
+            AutomationProperties.GetName(control)?.StartsWith("调整 ", StringComparison.Ordinal) == true).ToArray();
+        Assert.Equal(3, handles.Length);
+        var start = handles[2].TranslatePoint(new Point(14, 15), scope.Window)!.Value;
+        var finish = handles[0].TranslatePoint(new Point(14, 4), scope.Window)!.Value;
+        scope.Window.MouseDown(start, MouseButton.Left, RawInputModifiers.None);
+        scope.Window.MouseMove(finish, RawInputModifiers.LeftMouseButton);
+        scope.Window.MouseUp(finish, MouseButton.Left, RawInputModifiers.None);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        while (scope.Service.Configuration.ModelOrder[0].ConnectionId != second.Id)
+            await Task.Delay(10, deadline.Token);
+        Dispatcher.UIThread.RunJobs(); scope.Window.UpdateLayout();
+        TaskToolbarTests.Preview(scope.Window, "model-services-order");
+
+        using var reloaded = new ModelService(scope.ConfigPath);
+        await reloaded.InitializeAsync();
+        using var translation = new TranslationPage(reloaded, () => Task.FromResult(reloaded.Configuration), () => { });
+        await translation.OpenAsync();
+        Assert.Equal("gpt-5-mini", translation.Model.SelectedItem?.ToString());
+        Assert.Equal(0, scope.Calls);
+        translation.Margin = new Thickness(24);
+        scope.Window.Content = translation;
+        Dispatcher.UIThread.RunJobs(); scope.Window.UpdateLayout();
+        TaskToolbarTests.Preview(scope.Window, "translation-model-order");
     }
 
     [AvaloniaFact]
