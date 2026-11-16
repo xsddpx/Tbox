@@ -110,8 +110,14 @@ public sealed class ModelService : ITextModelService, IDisposable
     {
         await InitializeAsync(ct);
         var connection = _configuration.Connections.FirstOrDefault(c => c.Id == connectionId) ?? throw new ModelServiceException(ModelFailure.Configuration, "请先保存连接。");
+        return await GetModelsAsync(connection, Key(connection), ct);
+    }
+
+    internal async Task<string[]> GetModelsAsync(ModelConnection draft, string key, CancellationToken ct)
+    {
+        key = ModelKey.Validate(key);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown.Token); timeout.CancelAfter(RequestTimeout);
-        try { return await _provider.GetModelsAsync(connection, Key(connection), timeout.Token); }
+        try { return await _provider.GetModelsAsync(draft, key, timeout.Token); }
         catch (Exception e) { throw Sanitize(e, ct); }
     }
 
@@ -136,13 +142,45 @@ public sealed class ModelService : ITextModelService, IDisposable
         var key = Key(connection);
         // Snapshot mutable caller-owned collections before the first network await.
         request = request with { Messages = request.Messages.Select(m => m with { }).ToArray() };
+        await foreach (var item in GenerateAsync(connection, model.ModelId, key, request, cancellationToken))
+            yield return item;
+    }
+
+    internal async Task<ModelUsage?> TestConnectionAsync(ModelConnection draft, string key, CancellationToken ct)
+    {
+        var connection = ModelPolicy.Validate(draft);
+        var model = connection.Models.FirstOrDefault()
+            ?? throw new ModelServiceException(ModelFailure.Configuration, "请先添加至少一个模型 ID。");
+        key = ModelKey.Validate(key);
+        var request = new TextGenerationRequest([new("user", "Reply with OK.")]) { MaxOutputTokens = 32 };
+        var receivedText = false;
+        var completed = false;
+        ModelUsage? usage = null;
+        await foreach (var item in GenerateAsync(connection, model, key, request, ct))
+        {
+            receivedText |= !string.IsNullOrWhiteSpace(item.Text);
+            if (!item.IsComplete) continue;
+            if (item.FinishReason != "stop")
+                throw new ModelServiceException(ModelFailure.Incomplete, "模型已结束，但未正常完成（可能达到输出上限或内容受限）。");
+            completed = true;
+            usage = item.Usage;
+        }
+        ct.ThrowIfCancellationRequested();
+        if (!completed || !receivedText)
+            throw new ModelServiceException(ModelFailure.Incomplete, "未收到完整测试结果。");
+        return usage;
+    }
+
+    private async IAsyncEnumerable<TextGenerationEvent> GenerateAsync(ModelConnection connection, string model, string key,
+        TextGenerationRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token); timeout.CancelAfter(RequestTimeout);
         var acquired = false;
         try
         {
             try { await _requests.WaitAsync(timeout.Token); acquired = true; }
             catch (Exception e) { throw Sanitize(e, cancellationToken); }
-            await using var events = _provider.GenerateAsync(connection, model.ModelId, key, request, timeout.Token).GetAsyncEnumerator(timeout.Token);
+            await using var events = _provider.GenerateAsync(connection, model, key, request, timeout.Token).GetAsyncEnumerator(timeout.Token);
             while (true)
             {
                 TextGenerationEvent next;

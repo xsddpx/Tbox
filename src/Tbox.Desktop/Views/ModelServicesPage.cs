@@ -20,6 +20,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     // Only OpenAI-compatible presets may be offered until a native protocol is implemented.
     private sealed record Preset(string Name, string BaseUrl, string? DefaultModel, string Letter, string Background, string Foreground);
+    private const int DefaultPresetIndex = 1;
     private static readonly Preset[] Presets =
     [
         new("OpenAI", "https://api.openai.com/v1", null, "O", "#F0EFF5", "#1A1B22"),
@@ -53,9 +54,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private readonly TextBox _protocol = new() { Text = "OpenAI Chat Completions", IsReadOnly = true, Focusable = false, Height = 32, FontSize = 13, MinWidth = 0,
         VerticalContentAlignment = VerticalAlignment.Center, Background = Brush.Parse("#F7F6FB"), Foreground = Secondary };
     private readonly TextBlock _editTitle = new() { FontSize = DesignTokens.PageTitle, LineHeight = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong };
-    private readonly Border _tabs;
+    private readonly Border _tabs = new() { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 16, 0, 0) };
     private readonly Grid _presetGrid = new() { ColumnDefinitions = new ColumnDefinitions("*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 12, 0, 0) };
-    private readonly StackPanel _modelsHost = new();
+    private readonly StackPanel _modelsHost = new() { Spacing = 4 };
     private readonly Border _modelsEmpty;
     private readonly Border _modelAddRow;
     private readonly Button _addModel;
@@ -66,18 +67,18 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private readonly Button _delete;
     private readonly Button _stop;
     private readonly Button _reveal;
-    private readonly Border _testResult;
+    private readonly Grid _testResult;
+    private readonly LineIcon _testCheck = new(IconKind.Check, brush: Brush.Parse("#17784A"))
+    { Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _testResultText = new() { FontSize = DesignTokens.Description, LineHeight = 18, TextWrapping = TextWrapping.Wrap };
     private StackPanel _nameBlock = new();
     private StackPanel _addressBlock = new();
     private StackPanel _protocolBlock = new();
-    private StackPanel _keyBlock = new();
-    private StackPanel _modelSection = new();
     private Grid _fieldRow = new();
-    private readonly Border _presetNote;
     private readonly List<string> _models = [];
     // Session-only test outcome per connection; a failure keeps a short reason for the list row.
     private readonly Dictionary<Guid, (bool Ready, string Reason)> _testStates = [];
+    private (bool Ready, string Reason)? _draftTest;
     private CancellationTokenSource? _operation;
     private Guid _id = Guid.NewGuid();
     private ModelConnection? _saved;
@@ -99,38 +100,39 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         AutomationProperties.SetName(ModelInput, "模型 ID");
         AutomationProperties.SetName(_protocol, "API 协议");
         AutomationProperties.SetName(_defaultModelBox, "全局默认模型");
-        _reveal = Ui.Link("显示", ToggleReveal, "显示密钥", accent: false);
+        _reveal = Ui.IconButton(IconKind.Eye, "显示密钥", ToggleReveal);
+        _reveal.MinWidth = 28;
+        _reveal.MinHeight = 24;
+        _reveal.Padding = new Thickness(5, 2);
+        _reveal.Margin = new Thickness(0, 0, 4, 0);
+        _reveal.HorizontalContentAlignment = HorizontalAlignment.Center;
+        Secret.InnerRightContent = _reveal;
 
         _addButton = Ui.Primary("添加连接", BeginAdd);
         _emptyConnections = BuildEmpty();
-        _tabs = Ui.Segmented(["预设服务商", "自定义接口"], 0, OnTabChanged, out _, out _);
-        _tabs.HorizontalAlignment = HorizontalAlignment.Left;
-        _tabs.Margin = new Thickness(0, 16, 0, 0);
+        ResetTabs();
         _modelsEmpty = BuildModelsEmpty();
         _modelAddRow = BuildModelAddRow();
-        _addModel = Ui.Button("添加模型", BeginAddModel);
-        _addModel.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children =
-        {
-            new LineIcon(IconKind.Plus, brush: Secondary) { Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center },
-            new TextBlock { Text = "添加模型", VerticalAlignment = VerticalAlignment.Center }
-        } };
-        _fetch = Ui.Link("获取可用模型", () => Run(FetchModelsAsync));
-        _test = Ui.Button("测试连接", () => Run(TestAsync));
+        _addModel = Ui.Link("手动添加", BeginAddModel);
+        _fetch = Ui.Link("获取模型", () => Run(FetchModelsAsync));
+        _test = Ui.Link("测试连接", () => Run(TestAsync));
+        ToolTip.SetTip(_test, "测试将向当前地址发送一条简短的模型请求");
         _save = Ui.Primary("保存", () => Run(SaveAsync));
         _cancel = Ui.Button("取消", () => Run(CancelAsync));
         _delete = Ui.Link("删除连接", () => Run(DeleteConnectionAsync), accent: false);
-        _stop = Ui.Button("停止", () => _operation?.Cancel());
+        _stop = Ui.Link("停止", () => _operation?.Cancel(), accent: false);
         _stop.IsVisible = false;
-        _presetNote = new Border
+        _testResult = new Grid
         {
-            IsVisible = false, Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(12, 10),
-            CornerRadius = new CornerRadius(12), Background = Brush.Parse("#F7F6FB"),
-            Child = new TextBlock { Text = "保存后可获取该服务商的模型；也可以手动添加。", FontSize = DesignTokens.Caption, Foreground = Secondary, TextWrapping = TextWrapping.Wrap }
+            ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 4,
+            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0),
+            IsVisible = false, Children = { _testCheck, Ui.Column(_testResultText, 1) }
         };
-        _testResult = new Border { IsVisible = false, Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(12, 10), CornerRadius = new CornerRadius(10), Child = _testResultText };
+        AutomationProperties.SetLiveSetting(_testResultText, AutomationLiveSetting.Polite);
+        _editStatus.HorizontalAlignment = HorizontalAlignment.Right;
 
         _defaultModelBox.SelectionChanged += (_, _) => { if (!_refreshingDefault && !_loading) Run(SetDefaultAsync); };
-        foreach (var box in new[] { ConnectionName, BaseUrl, Secret, ModelInput })
+        foreach (var box in new[] { ConnectionName, BaseUrl, Secret })
             box.PropertyChanged += (_, args) => { if (args.Property == TextBox.TextProperty) Changed(); };
         ModelInput.KeyDown += (_, args) => { if (args.Key == Avalonia.Input.Key.Enter) { CommitModel(); args.Handled = true; } };
 
@@ -150,10 +152,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _editView.Children.Add(_tabs);
         _editView.Children.Add(_presetGrid);
         _editView.Children.Add(BuildFields());
-        _editView.Children.Add(_presetNote);
         _editView.Children.Add(BuildModelSection());
-        _editView.Children.Add(_testResult);
-        _editView.Children.Add(_editStatus);
         _editView.Children.Add(BuildFooter());
 
         Content = new Grid { Children = { _listView, _editView } };
@@ -188,61 +187,72 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     internal void AddModel(string id)
     {
         id = id.Trim();
-        if (id.Length == 0) return;
-        if (!_models.Contains(id, StringComparer.Ordinal)) _models.Add(id);
-        _dirty = true; RefreshModels(); RefreshControls();
+        if (id.Length == 0 || _models.Contains(id, StringComparer.Ordinal)) return;
+        _models.Add(id);
+        RefreshModels();
+        Changed();
     }
+
+    private ModelConnection Draft() => new(_id, ConnectionName.Text?.Trim() ?? "", BaseUrl.Text?.Trim().TrimEnd('/') ?? "", _models.ToArray());
 
     internal async Task SaveAsync()
     {
-        if (_busy) return;
-        var draft = new ModelConnection(_id, ConnectionName.Text?.Trim() ?? "", BaseUrl.Text?.Trim().TrimEnd('/') ?? "", _models.ToArray()) { Protocol = "openai-chat" };
-        var configuration = _service.Configuration;
-        var currentDefault = configuration.DefaultModel;
-        var keepDefault = currentDefault?.ConnectionId == _id;
-        var makeDefault = _models.Count > 0 && (keepDefault || currentDefault is null);
+        if (_busy || !IsEditing) return;
+        var draft = Draft();
+        var key = Secret.Text ?? "";
+        var test = _draftTest;
+        var changed = _dirty;
+        var currentDefault = _service.Configuration.DefaultModel;
+        var keepDefault = currentDefault?.ConnectionId == draft.Id;
+        var makeDefault = draft.Models.Length > 0 && (keepDefault || currentDefault is null);
         var defaultModel = makeDefault
-            ? keepDefault && _models.Contains(currentDefault!.ModelId, StringComparer.Ordinal) ? currentDefault.ModelId : _models[0]
+            ? keepDefault && draft.Models.Contains(currentDefault!.ModelId, StringComparer.Ordinal) ? currentDefault.ModelId : draft.Models[0]
             : null;
-        await Busy(ct => _service.SaveConnectionAsync(draft, Secret.Text ?? "", makeDefault, defaultModel, ct));
-        _saved = _service.Configuration.Connections.FirstOrDefault(c => c.Id == _id);
-        _testStates.Remove(_id); _dirty = false;
-        ShowTestResult(null);
+        await Busy(ct => _service.SaveConnectionAsync(draft, key, makeDefault, defaultModel, ct));
+        if (test is { } outcome) _testStates[draft.Id] = outcome;
+        else if (changed) _testStates.Remove(draft.Id);
+        if (!IsEditing || _id != draft.Id) return;
+        _saved = _service.Configuration.Connections.FirstOrDefault(c => c.Id == draft.Id);
+        _dirty = false;
+        SetRevealed(false);
+        ClearTestResult();
         SetStatus("已保存");
         RefreshAll();
     }
 
     internal async Task TestAsync()
     {
-        if (_dirty) throw new ModelServiceException(ModelFailure.Configuration, "请先保存连接再测试。");
-        var connection = _editView.IsVisible ? _service.Configuration.Connections.FirstOrDefault(c => c.Id == _id) : _service.Configuration.Connections.FirstOrDefault();
-        if (connection is null) throw new ModelServiceException(ModelFailure.Configuration, "请先添加并保存一个连接。");
-        var model = connection.Models.FirstOrDefault();
-        if (model is null) throw new ModelServiceException(ModelFailure.Configuration, "请先添加并保存至少一个模型 ID。");
-        SetStatus("测试中…"); ShowTestResult(null);
+        if (_busy || !IsEditing) return;
+        var draft = Draft();
+        var key = Secret.Text ?? "";
+        var testingSavedVersion = _saved is not null && !_dirty;
+        ClearTestResult();
+        SetStatus("测试中…");
         try
         {
+            ModelUsage? usage = null;
             await Busy(async ct =>
             {
-                var input = new TextGenerationRequest([new("user", "Reply with OK.")]) { Model = new(connection.Id, model), MaxOutputTokens = 32 };
-                var completed = false; var text = "";
-                await foreach (var item in _service.GenerateAsync(input, ct))
-                {
-                    if (item.Text.Length > 0) text = (text + item.Text)[..Math.Min(200, text.Length + item.Text.Length)];
-                    if (!item.IsComplete) continue;
-                    if (item.FinishReason != "stop") throw new ModelServiceException(ModelFailure.Incomplete, "模型已结束，但未正常完成（可能达到输出上限或内容受限）。");
-                    completed = true;
-                    ToolTip.SetTip(_editStatus, item.Usage is { } usage ? $"输入 {usage.InputTokens?.ToString() ?? "未知"} / 输出 {usage.OutputTokens?.ToString() ?? "未知"} token" : "用量未返回");
-                }
-                if (!completed || string.IsNullOrWhiteSpace(text)) throw new ModelServiceException(ModelFailure.Incomplete, "未收到完整测试结果。");
-                _testStates[connection.Id] = (true, "");
-                SetStatus("连接正常"); ShowTestResult(true, "连接正常：模型 " + model + " 已返回结果。");
-            }, testing: true);
+                usage = await _service.TestConnectionAsync(draft, key, ct);
+                ct.ThrowIfCancellationRequested();
+            });
+            if (!IsEditing) return;
+            _draftTest = (true, "");
+            if (testingSavedVersion) _testStates[draft.Id] = _draftTest.Value;
+            SetStatus("连接正常");
+            ShowTestResult(true, "连接正常");
+            ToolTip.SetTip(_testResultText, usage is null ? "测试模型：" + draft.Models[0]
+                : $"测试模型：{draft.Models[0]} · 输入 {usage.InputTokens?.ToString() ?? "未知"} / 输出 {usage.OutputTokens?.ToString() ?? "未知"} token");
         }
         catch (ModelServiceException e)
         {
-            _testStates[connection.Id] = (false, ShortReason(e.Failure));
-            SetStatus(e.Message, error: true); ShowTestResult(false, "测试失败：" + e.Message);
+            if (IsEditing)
+            {
+                _draftTest = (false, ShortReason(e.Failure));
+                if (testingSavedVersion) _testStates[draft.Id] = _draftTest.Value;
+                SetStatus(e.Message, error: true);
+                ShowTestResult(false, "测试失败：" + e.Message);
+            }
             throw;
         }
         finally { RefreshList(); }
@@ -272,16 +282,18 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             _models.Clear();
             Secret.Text = connection is null ? "" : _service.KeyOf(connection.Id) ?? "";
             SetRevealed(false);
-            ShowTestResult(null);
+            ClearTestResult();
+            SetStatus("");
             _customTab = false;
+            ResetTabs();
             _selectedPreset = -1;
             _addingModel = false;
             _dirty = false;
-            ToolTip.SetTip(_editStatus, null);
+            ModelInput.Text = "";
             if (connection is null)
             {
-                var preset = Presets.FirstOrDefault(p => p.Name == "DeepSeek") ?? Presets[0];
-                _selectedPreset = Array.IndexOf(Presets, preset);
+                var preset = Presets[DefaultPresetIndex];
+                _selectedPreset = DefaultPresetIndex;
                 ConnectionName.Text = preset.Name;
                 BaseUrl.Text = preset.BaseUrl;
                 if (preset.DefaultModel is not null) _models.Add(preset.DefaultModel);
@@ -351,9 +363,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         BorderBrush = Brush.Parse("#E3E1EC"), BorderThickness = new Thickness(1), Background = Brush.Parse("#FEFEFF"),
         Child = new StackPanel { Children =
         {
-            new TextBlock { Text = "还没有模型", FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Secondary, HorizontalAlignment = HorizontalAlignment.Center },
-            new TextBlock { Text = "保存连接后可获取模型，也可以手动添加", FontSize = DesignTokens.Caption, Foreground = Hint,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) }
+            new TextBlock { Text = "还没有模型", FontSize = 13, Foreground = Secondary, HorizontalAlignment = HorizontalAlignment.Center }
         } }
     };
 
@@ -371,48 +381,43 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private Control BuildEditHeader()
     {
         var back = Ui.IconButton(IconKind.Back, "返回连接列表", () => Run(CancelAsync));
-        back.Background = Brushes.White; back.BorderBrush = Brush.Parse("#0F101220"); back.BorderThickness = new Thickness(1);
-        back.CornerRadius = new CornerRadius(DesignTokens.ControlRadius);
-        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
-        {
-            _editTitle,
-            new TextBlock { Text = "连接中转站、自部署服务或其他兼容接口。", FontSize = DesignTokens.Description, LineHeight = 18, Foreground = Secondary }
-        } };
-        return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Children =
-        {
-            back, Ui.Column(titles, 1)
-        } };
+        _editTitle.VerticalAlignment = VerticalAlignment.Center;
+        return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 12, Children = { back, Ui.Column(_editTitle, 1) } };
     }
 
     private Control BuildFields()
     {
         _nameBlock = FieldBlock("名称", ConnectionName);
-        _addressBlock = FieldBlock("API 地址", BaseUrl, hint: "填写基础地址，例如 …/v1");
+        _addressBlock = FieldBlock("API 地址", BaseUrl);
         _protocolBlock = FieldBlock("API 协议", _protocol);
         _fieldRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 14, Children = { _addressBlock, Ui.Column(_protocolBlock, 1) } };
-        var keyInput = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children = { Secret, Ui.Column(_reveal, 1) } };
-        _keyBlock = FieldBlock("API 密钥", keyInput, hint: "明文保存在本机");
-        return new StackPanel { Spacing = 12, Margin = new Thickness(0, 14, 0, 0), Children = { _nameBlock, _fieldRow, _keyBlock } };
+        return new StackPanel { Spacing = 12, Margin = new Thickness(0, 14, 0, 0), Children =
+        {
+            _nameBlock, _fieldRow, FieldBlock("API 密钥", Secret, hint: "明文保存在本机")
+        } };
     }
 
     private Control BuildModelSection()
     {
-        _modelSection = new StackPanel { Children =
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Children = { _fetch, _addModel, _test, _stop } };
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 4, MinHeight = 26, Children =
         {
-            Ui.GroupHeader("模型", _fetch),
-            _modelsEmpty,
-            new Border { Margin = new Thickness(0, 8, 0, 0), Child = _modelsHost },
-            new Border { Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Child = _addModel },
-            _modelAddRow
+            new TextBlock { Text = "模型", FontWeight = FontWeight.SemiBold, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center },
+            Ui.Column(actions, 1)
         } };
-        return _modelSection;
+        return new StackPanel { Margin = new Thickness(0, 18, 0, 0), Children =
+        {
+            header, _modelsEmpty,
+            new Border { Margin = new Thickness(0, 6, 0, 0), Child = _modelsHost },
+            _modelAddRow, _testResult, _editStatus
+        } };
     }
 
     private Control BuildFooter()
     {
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { _stop, _test, _cancel, _save } };
-        return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 8, Margin = new Thickness(0, 14, 0, 0), Children =
+            Children = { _cancel, _save } };
+        return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 8, Margin = new Thickness(0, 18, 0, 0), Children =
         {
             _delete, Ui.Column(buttons, 1)
         } };
@@ -536,26 +541,25 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             var name = new TextBlock { Text = preset.Name, FontSize = 13, FontWeight = FontWeight.Medium, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center };
             var chip = new Border
             {
-                Width = 28, Height = 28, CornerRadius = new CornerRadius(8), Background = Brush.Parse(preset.Background),
+                Width = 24, Height = 24, CornerRadius = new CornerRadius(6), Background = Brush.Parse(preset.Background),
                 Child = new TextBlock { Text = preset.Letter, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse(preset.Foreground),
                     HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
             };
-            var content = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 10, Children = { chip, Ui.Column(name, 1) } };
-            if (index == _selectedPreset)
+            var content = new Grid
             {
-                var check = new Border
-                {
-                    Width = 16, Height = 16, CornerRadius = new CornerRadius(8), Background = Brush.Parse(DesignTokens.Accent),
-                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 7, 7, 0),
-                    Child = new LineIcon(IconKind.Check, brush: Brushes.White) { Width = 9, Height = 9, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
-                };
-                Grid.SetColumn(check, 1);
-                content.Children.Add(check);
+                ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 6, Children = { chip, Ui.Column(name, 1) }
+            };
+            var selected = index == _selectedPreset;
+            if (selected)
+            {
+                content.Children.Add(Ui.Column(new LineIcon(IconKind.Check, accent: true)
+                { Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center }, 2));
             }
             var tile = new Border
             {
-                Height = 64, Padding = new Thickness(12, 0), CornerRadius = new CornerRadius(12), Background = Brushes.White,
-                BorderBrush = index == _selectedPreset ? Brush.Parse(DesignTokens.Accent) : Brush.Parse("#EEEDF3"),
+                Height = 42, Padding = new Thickness(8, 0), CornerRadius = new CornerRadius(9),
+                Background = selected ? Brush.Parse("#FAF7FF") : Brushes.White,
+                BorderBrush = Brush.Parse(selected ? DesignTokens.Accent : "#EEEDF3"),
                 BorderThickness = new Thickness(1), Child = content
             };
             var button = new SurfaceButton(preset.Name, () => SelectPreset(index)) { Content = tile };
@@ -566,7 +570,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     private void SelectPreset(int index)
     {
-        if (_loading || index < 0 || index >= Presets.Length) return;
+        if (_loading || _busy || index < 0 || index >= Presets.Length || index == _selectedPreset) return;
         _selectedPreset = index;
         var preset = Presets[index];
         _loading = true;
@@ -575,14 +579,19 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _models.Clear();
         if (preset.DefaultModel is not null) _models.Add(preset.DefaultModel);
         Secret.Text = "";
+        ModelInput.Text = "";
+        _addingModel = false;
+        SetRevealed(false);
         _loading = false;
         RefreshPresets(); RefreshModels(); Changed();
     }
 
+    private void ResetTabs() => _tabs.Child = Ui.Segmented(["预设服务商", "自定义接口"], 0, OnTabChanged, out _, out _);
+
     private void OnTabChanged(int index)
     {
         _customTab = index == 1;
-        if (_customTab && _saved is null)
+        if (_customTab)
         {
             _selectedPreset = -1;
             _loading = true;
@@ -590,54 +599,78 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             BaseUrl.Text = "";
             _models.Clear();
             Secret.Text = "";
+            ModelInput.Text = "";
+            _addingModel = false;
+            SetRevealed(false);
             _loading = false;
-            RefreshModels(); Changed();
+            RefreshPresets(); RefreshModels(); Changed();
         }
-        RefreshPresets(); RefreshControls();
+        else
+        {
+            SelectPreset(DefaultPresetIndex);
+        }
     }
 
     private void RefreshModels()
     {
         _modelsHost.Children.Clear();
-        _modelsEmpty.IsVisible = _models.Count == 0;
-        for (var i = 0; i < _models.Count; i++)
+        foreach (var id in _models)
         {
-            var id = _models[i];
-            var row = new Grid { MinHeight = 36, ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8 };
-            row.Children.Add(new TextBlock { Text = id, FontSize = 13, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-            var remove = Ui.Link("移除", () => { _models.Remove(id); _dirty = true; RefreshModels(); RefreshControls(); }, accent: false);
-            remove.FontSize = 12;
-            row.Children.Add(Ui.Column(remove, 1));
-            _modelsHost.Children.Add(row);
-            if (i < _models.Count - 1) _modelsHost.Children.Add(new Border { Height = 1, Background = Hairline });
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 8 };
+            row.Children.Add(new LineIcon(IconKind.Model, brush: Secondary)
+            { Width = 15, Height = 15, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(Ui.Column(new TextBlock
+            {
+                Text = id, FontSize = 13, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            }, 1));
+            var remove = Ui.IconButton(IconKind.Close, "移除模型 " + id, () =>
+            {
+                _models.Remove(id);
+                RefreshModels();
+                Changed();
+            });
+            remove.Content = new Border
+            {
+                Width = 23, Height = 23, CornerRadius = new CornerRadius(11.5), Background = Brush.Parse("#E9E6EF"),
+                Child = new LineIcon(IconKind.Close, brush: Secondary)
+                { Width = 15, Height = 15, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            };
+            remove.MinWidth = remove.MinHeight = 28;
+            remove.Padding = new Thickness(2);
+            remove.CornerRadius = new CornerRadius(14);
+            remove.HorizontalContentAlignment = HorizontalAlignment.Center;
+            row.Children.Add(Ui.Column(remove, 2));
+            _modelsHost.Children.Add(new Border
+            {
+                MinHeight = 36, Padding = new Thickness(10, 4), CornerRadius = new CornerRadius(7),
+                Background = Brush.Parse("#F7F6FB"), Child = row
+            });
         }
-    }
-
-    private void RefreshMode()
-    {
-        var preset = _saved is null && !_customTab;
-        _presetGrid.IsVisible = preset;
-        _presetNote.IsVisible = preset;
-        _nameBlock.IsVisible = !preset;
-        _protocolBlock.IsVisible = !preset;
-        _modelSection.IsVisible = !preset;
-        _test.IsVisible = !preset;
-        BaseUrl.IsReadOnly = preset;
-        BaseUrl.Background = preset ? Brush.Parse("#F7F6FB") : Brushes.White;
-        Grid.SetColumnSpan(_addressBlock, preset ? 2 : 1);
     }
 
     private void RefreshControls()
     {
-        RefreshMode();
+        var preset = _saved is null && !_customTab;
+        _presetGrid.IsVisible = preset;
+        _nameBlock.IsVisible = !preset;
+        _protocolBlock.IsVisible = !preset;
+        BaseUrl.IsReadOnly = preset;
+        BaseUrl.Background = preset ? Brush.Parse("#F7F6FB") : Brushes.White;
+        Grid.SetColumnSpan(_addressBlock, preset ? 2 : 1);
+
+        var canEdit = !_busy && !_loading;
+        var canConnect = canEdit && !string.IsNullOrWhiteSpace(BaseUrl.Text) && !string.IsNullOrWhiteSpace(Secret.Text);
         _tabs.IsVisible = _saved is null;
+        _tabs.IsEnabled = _presetGrid.IsEnabled = _modelsHost.IsEnabled = _modelAddRow.IsEnabled = _fieldRow.IsEnabled = canEdit;
+        ConnectionName.IsEnabled = Secret.IsEnabled = canEdit;
         _modelAddRow.IsVisible = _addingModel;
-        _fetch.IsEnabled = _saved is not null && !_dirty && !_busy;
-        _test.IsEnabled = _saved is not null && !_dirty && _models.Count > 0 && !_busy;
-        _save.IsEnabled = !_busy && !_loading;
+        _fetch.IsEnabled = canConnect;
+        _test.IsEnabled = canConnect && _models.Count > 0;
+        _save.IsEnabled = _cancel.IsEnabled = _delete.IsEnabled = canEdit;
         _delete.IsVisible = _saved is not null;
         _stop.IsVisible = _busy;
-        _addModel.IsVisible = !_addingModel;
+        _addModel.IsEnabled = canEdit && !_addingModel;
         _modelsEmpty.IsVisible = _models.Count == 0;
     }
 
@@ -645,7 +678,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     {
         if (_loading) return;
         _dirty = true;
-        SetStatus("未保存"); ShowTestResult(null);
+        ClearTestResult();
+        SetStatus("未保存");
         RefreshControls();
     }
 
@@ -658,23 +692,24 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     {
         var id = ModelInput.Text?.Trim();
         if (string.IsNullOrEmpty(id)) return;
-        if (!_models.Contains(id, StringComparer.Ordinal)) _models.Add(id);
-        ModelInput.Text = ""; _addingModel = false; _dirty = true;
-        RefreshModels(); RefreshControls(); SetStatus("未保存");
+        ModelInput.Text = "";
+        _addingModel = false;
+        AddModel(id);
+        RefreshControls();
     }
 
     internal async Task FetchModelsAsync()
     {
-        if (_busy) return;
-        if (_saved is null || _dirty) throw new ModelServiceException(ModelFailure.Configuration, "请先保存连接再获取模型。");
-        var connectionId = _id;
+        if (_busy || !IsEditing) return;
+        var draft = Draft();
+        var key = Secret.Text ?? "";
         await Busy(async ct =>
         {
-            var catalog = await _service.GetModelsAsync(connectionId, ct);
+            var catalog = await _service.GetModelsAsync(draft, key, ct);
             ct.ThrowIfCancellationRequested();
-            if (!IsEditing || _id != connectionId || _dirty) return;
+            if (!IsEditing || _id != draft.Id) return;
 
-            var picker = new ModelPickerWindow(catalog, _models);
+            var picker = new ModelPickerWindow(catalog, draft.Models);
             using var cancelPicker = ct.Register(() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
             {
                 if (picker.IsVisible) picker.Close();
@@ -684,21 +719,21 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
             _models.Clear();
             _models.AddRange(selected);
-            _dirty = true;
             RefreshModels();
+            Changed();
             SetStatus("模型列表待保存");
         });
     }
 
     private async Task CancelAsync()
     {
+        if (_busy) return;
         if (_dirty)
         {
             var discard = await new ConfirmWindow("放弃未保存的更改？", "放弃", "填写的内容不会保存。", destructive: true).ShowDialog<bool>(_owner());
             if (!discard) return;
         }
-        Secret.Text = ""; _dirty = false;
-        ShowList();
+        Leave();
     }
 
     internal void ToggleReveal()
@@ -709,19 +744,26 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private void SetRevealed(bool revealed)
     {
         Secret.RevealPassword = revealed;
-        _reveal.Content = revealed ? "隐藏" : "显示";
-        AutomationProperties.SetName(_reveal, revealed ? "隐藏密钥" : "显示密钥");
-        ToolTip.SetTip(_reveal, revealed ? "隐藏密钥" : "显示密钥");
+        _reveal.Content = new LineIcon(revealed ? IconKind.EyeOff : IconKind.Eye, brush: Secondary) { Width = 17, Height = 17 };
+        var label = revealed ? "隐藏密钥" : "显示密钥";
+        AutomationProperties.SetName(_reveal, label);
+        ToolTip.SetTip(_reveal, label);
     }
 
-    // The result box replaces the one-line status while it is shown, so the outcome is not repeated.
-    private void ShowTestResult(bool? ready, string text = "")
+    private void ClearTestResult()
     {
-        _testResult.IsVisible = ready is not null;
-        _editStatus.IsVisible = ready is null;
+        _draftTest = null;
+        _testResult.IsVisible = false;
+        ToolTip.SetTip(_testResultText, null);
+    }
+
+    private void ShowTestResult(bool ready, string text)
+    {
+        _testResult.IsVisible = true;
+        _editStatus.IsVisible = false;
+        _testCheck.IsVisible = ready;
         _testResultText.Text = text;
-        _testResult.Background = Brush.Parse(ready == true ? "#EEF8F2" : "#FDF1F1");
-        _testResultText.Foreground = Brush.Parse(ready == true ? "#17784A" : "#B42318");
+        _testResultText.Foreground = Brush.Parse(ready ? "#17784A" : "#B42318");
     }
 
     // A few words for the list row; the full message stays on the edit page.
@@ -747,11 +789,10 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     private Task<bool> Confirm(string title, string action, string detail) => new ConfirmWindow(title, action, detail, destructive: true).ShowDialog<bool>(_owner());
 
-    private async Task Busy(Func<CancellationToken, Task> work, bool testing = false)
+    private async Task Busy(Func<CancellationToken, Task> work)
     {
         if (_busy) return;
         _operation = new(); _busy = true; RefreshControls();
-        if (testing) SetStatus("测试中…");
         try { await work(_operation.Token); }
         finally { _busy = false; _operation.Dispose(); _operation = null; RefreshControls(); }
     }
@@ -760,7 +801,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     {
         try { await operation(); }
         catch (OperationCanceledException) { SetStatus("已停止"); }
-        catch (ModelServiceException e) { SetStatus(e.Message, error: true); }
+        catch (ModelServiceException e) { if (!_testResult.IsVisible || e.Message != Status) SetStatus(e.Message, error: true); }
         catch { SetStatus("操作未完成，请检查配置后重试。", error: true); }
     }
 
@@ -768,13 +809,14 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     {
         _statusMessage = message;
         _editStatus.Text = message;
+        _editStatus.IsVisible = message is not ("" or "未保存");
         _editStatus.Foreground = error ? Error : message is "已保存" or "连接正常" ? Ready : Secondary;
     }
 
     internal void Leave()
     {
         _operation?.Cancel();
-        Secret.Text = ""; SetRevealed(false); _dirty = false;
+        Secret.Text = ""; SetRevealed(false); ClearTestResult(); _dirty = false;
         ShowList();
     }
 
