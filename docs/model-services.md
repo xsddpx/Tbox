@@ -6,13 +6,15 @@
 
 设置 → **模型服务** 可以维护多个连接。首版仅实现 **OpenAI 兼容 Chat Completions**，不将 Responses、Anthropic、Gemini 原生接口冒充为兼容协议；本机模型服务可使用其 OpenAI 兼容端点。API 地址应为基础地址（如 `https://api.example.com/v1`），页面显示实际 `/chat/completions` 请求地址。远程必须使用 HTTPS，本机回环地址可使用 HTTP。
 
-1.1.63 按用户确认的设计改为“连接列表 → 添加/编辑子页”：列表显示连接、协议与地址、本次会话的测试状态、模型数和全局默认模型；添加/编辑页只收名称、基础地址、协议、密钥和模型目录，保存后停留在编辑页，可继续获取模型或测试。预设仅保留 OpenAI、DeepSeek、ZenMux，均按 OpenAI 兼容 Chat Completions 接入；Anthropic / Gemini 不提供，也不冒充兼容。新增连接默认选中 DeepSeek，地址与 `deepseek-chat` 预填；自定义接口切换时清空未保存的名称、地址、密钥和模型。首个没有默认模型的连接在保存含模型时设为默认，后续连接不抢占默认。
+1.1.63 按用户确认的设计改为“连接列表 → 添加/编辑子页”：列表显示连接、协议与地址、本次会话的测试状态、模型数和全局默认模型；添加/编辑页只收名称、基础地址、协议、密钥和模型目录，保存后停留在编辑页，可继续获取模型或测试。预设仅保留 OpenAI、DeepSeek、ZenMux，均按 OpenAI 兼容 Chat Completions 接入；Anthropic / Gemini 不提供，也不冒充兼容。新增连接默认选中 DeepSeek，地址与 `deepseek-chat` 预填（1.1.78 起改为 `deepseek-flash`）；自定义接口切换时清空未保存的名称、地址、密钥和模型。首个没有默认模型的连接在保存含模型时设为默认，后续连接不抢占默认。
 
 1.1.63 共用控件渲染：[连接列表](images/model-services-list-1.1.63.png)、[预设服务商](images/model-services-preset-1.1.63.png)、[自定义接口](images/model-services-custom-1.1.63.png)。截图来自 800 宽布局测试，使用临时连接与模拟凭据，不包含真实密钥。旧图 `model-services-simple.jpg` 记录 1.1.57 的单表单形态，不再代表 1.1.63。
 
 1.1.73 [添加连接页](images/model-services-add-1.1.73.png)在页头下方留 16 个逻辑单位，分段条在表单左侧按两个选项的内容定宽。预览来自 800 宽的共用控件布局测试。
 
 1.1.63 的 Windows 覆盖安装、凭据连续访问和安装版验证在打包后记录；1.1.57 的 Mac 安装记录保留在发布历史。
+
+2026-11-16 起 DeepSeek 预设默认模型改为 `deepseek-flash`；另一个可用 ID 为 `deepseek-v4-pro`。两者默认开启思考模式，Tbox 对 `api.deepseek.com` 的请求附带 `thinking: {"type": "disabled"}`，其他地址的请求不变。依据为 [DeepSeek 价格页](https://api-docs.deepseek.com/quick_start/pricing) 与 [思考模式说明](https://api-docs.deepseek.com/guides/thinking_mode)，2026-11-16 查阅。
 
 每个连接支持多个模型 ID，通过“添加模型”或“获取可用模型”维护；获取只采用响应里的 `id`，不能把显示名当 ID。ZenMux 的 ID 为供应商/模型 slug，必须完整保留。获取到模型并不等于它有调用权限或支持推理。一个“连接 + 模型”组合可设为全局默认，调用方也可显式指定；无默认时不能猜测或自动切换其他服务。
 

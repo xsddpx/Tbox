@@ -82,7 +82,7 @@ public sealed class SettingsTests
             var configurationPath = Path.Combine(directory, "models.json");
             var id = Guid.NewGuid();
             Directory.CreateDirectory(directory);
-            await File.WriteAllTextAsync(configurationPath, $$$"""{"Connections":[{"Id":"{{{id}}}","Name":"DeepSeek","BaseUrl":"https://api.deepseek.com","Models":["deepseek-chat"]{{{(hasKey ? ",\"ApiKey\":\"settings-test-key\"" : "")}}}}]}""");
+            await File.WriteAllTextAsync(configurationPath, $$$"""{"Connections":[{"Id":"{{{id}}}","Name":"DeepSeek","BaseUrl":"https://api.deepseek.com","Models":["deepseek-flash"]{{{(hasKey ? ",\"ApiKey\":\"settings-test-key\"" : "")}}}}]}""");
             using var service = new Tbox.Desktop.ModelServices.ModelService(configurationPath);
             var page = new ModelServicesPage(service, () => throw new InvalidOperationException());
             var window = new Window { Content = page, Width = 900, Height = 600 };

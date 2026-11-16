@@ -23,7 +23,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private static readonly Preset[] Presets =
     [
         new("OpenAI", "https://api.openai.com/v1", null, "O", "#F0EFF5", "#1A1B22"),
-        new("DeepSeek", "https://api.deepseek.com", "deepseek-chat", "D", "#E7F0FF", "#2F6BDB"),
+        new("DeepSeek", "https://api.deepseek.com", "deepseek-flash", "D", "#E7F0FF", "#2F6BDB"),
         new("ZenMux", "https://zenmux.ai/api/v1", null, "Z", "#F0EFF5", "#1A1B22")
     ];
     private sealed record DefaultOption(Guid ConnectionId, string ConnectionName, string ModelId)
@@ -48,7 +48,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     internal TextBox ConnectionName { get; } = Field("连接名称");
     internal TextBox BaseUrl { get; } = Field("API 基础地址", "例如 https://api.example.com/v1");
     internal TextBox Secret { get; } = new() { PasswordChar = '●', Watermark = "输入 API 密钥", MinWidth = 0, MaxLength = 1280, Height = 32, FontSize = 13, VerticalContentAlignment = VerticalAlignment.Center };
-    internal TextBox ModelInput { get; } = Field("模型 ID", "输入模型 ID，例如 deepseek-chat");
+    internal TextBox ModelInput { get; } = Field("模型 ID", "输入模型 ID，例如 deepseek-flash");
     // Only one protocol exists, so it is shown as read-only text rather than a one-item dropdown.
     private readonly TextBox _protocol = new() { Text = "OpenAI Chat Completions", IsReadOnly = true, Focusable = false, Height = 32, FontSize = 13, MinWidth = 0,
         VerticalContentAlignment = VerticalAlignment.Center, Background = Brush.Parse("#F7F6FB"), Foreground = Secondary };

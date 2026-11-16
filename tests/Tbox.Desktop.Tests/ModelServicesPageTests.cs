@@ -38,10 +38,10 @@ public sealed class ModelServicesPageTests
         Assert.True(scope.Page.IsEditing);
         Assert.Equal("DeepSeek", scope.Page.ConnectionName.Text);
         Assert.Equal("https://api.deepseek.com", scope.Page.BaseUrl.Text);
-        Assert.Contains("deepseek-chat", scope.Page.Models);
+        Assert.Equal(["deepseek-flash"], scope.Page.Models);
         scope.Page.Secret.Text = "simple-test-key";
         await scope.Page.SaveAsync();
-        Assert.Equal("deepseek-chat", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("deepseek-flash", scope.Service.Configuration.DefaultModel!.ModelId);
         Assert.Equal(0, scope.Calls);
         Assert.Equal("simple-test-key", scope.Service.KeyOf(scope.Page.ConnectionId));
         Assert.Equal("已保存", scope.Page.Status);
