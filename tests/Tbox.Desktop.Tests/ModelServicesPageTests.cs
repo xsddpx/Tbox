@@ -107,6 +107,7 @@ public sealed class ModelServicesPageTests
         await Assert.ThrowsAsync<ModelServiceException>(() => scope.Page.TestAsync());
         scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
         Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text?.StartsWith("测试失败：服务拒绝访问") == true);
+        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == scope.Page.Status);
         await scope.Page.OpenAsync();
         scope.Window.UpdateLayout(); Dispatcher.UIThread.RunJobs();
         Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "密钥无效或无权限");

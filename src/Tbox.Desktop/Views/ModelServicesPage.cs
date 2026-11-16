@@ -698,9 +698,11 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         ToolTip.SetTip(_reveal, revealed ? "隐藏密钥" : "显示密钥");
     }
 
+    // The result box replaces the one-line status while it is shown, so the outcome is not repeated.
     private void ShowTestResult(bool? ready, string text = "")
     {
         _testResult.IsVisible = ready is not null;
+        _editStatus.IsVisible = ready is null;
         _testResultText.Text = text;
         _testResult.Background = Brush.Parse(ready == true ? "#EEF8F2" : "#FDF1F1");
         _testResultText.Foreground = Brush.Parse(ready == true ? "#17784A" : "#B42318");
