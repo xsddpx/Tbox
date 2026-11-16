@@ -64,7 +64,11 @@ jobs:
       - name: Test shared core
         run: dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
       - name: Test shared desktop
-        run: dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
+        timeout-minutes: 5
+        run: >-
+          dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
+          --logger "console;verbosity=normal"
+          --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type none
       - name: Test Windows playback and exports
         if: runner.os == 'Windows'
         run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/windows/bin/ffmpeg.exe

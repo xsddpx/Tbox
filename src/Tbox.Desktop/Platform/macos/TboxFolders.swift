@@ -6,10 +6,11 @@ private func onFolderMainThread<T>(_ work: () -> T) -> T {
     return DispatchQueue.main.sync(execute: work)
 }
 
-private func withFolderAXOwner<T>(_ element: AXUIElement, _ work: () -> T) -> T {
-    // Self-owned AX elements invoke AppKit in this process, on the caller's thread.
-    if elementProcess(element) == ProcessInfo.processInfo.processIdentifier { return onFolderMainThread(work) }
-    return work()
+func withFolderAXOwner<T>(_ element: AXUIElement, _ work: () -> T) -> T {
+    // System-wide AX queries have no fixed owner. A focus change can route them
+    // into this app's AppKit accessibility callbacks on the caller's thread.
+    if let owner = elementProcess(element), owner > 0, owner != getpid() { return work() }
+    return onFolderMainThread(work)
 }
 
 private func folderAttribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
