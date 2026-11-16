@@ -19,8 +19,10 @@ internal sealed class CaptureSession
     private bool _detecting;
     private sealed record FrameState(uint? ActiveDisplay, CaptureSelectionBounds? Selection, bool Detected,
         IReadOnlyDictionary<uint, (CapturedDisplay Frame, AnnotationDocumentSnapshot Annotations)> Displays);
-    private readonly List<FrameState> _history = [];
-    private int _historyIndex;
+    // A saved record is read from disk the first time it is shown; until then only its entry is known.
+    private readonly List<(FrameState? State, CaptureFrameEntry? Entry)> _history = [];
+    private int _historyIndex, _historyTarget;
+    private long _historyRequest;
 
     public CaptureDetectionMode DetectionMode { get; private set; }
     public CaptureSessionState State { get; } = new();
@@ -37,33 +39,71 @@ internal sealed class CaptureSession
             _windows.Add(new CaptureWindow(this, display, controller.Platform.GetDisplayTopSafeInset(display.Id)));
         if (Preset is null)
         {
-            _history.Add(Snapshot());
-            foreach (var saved in controller.CaptureFrames.CompatibleWith(displays))
-            {
-                var displayStates = saved.Displays.ToDictionary(display => display.Id,
-                    display => (display, _windows.Single(w => w.Display.Id == display.Id).Editor.Document.Snapshot()));
-                displayStates[saved.ActiveDisplay] = (displayStates[saved.ActiveDisplay].Item1, saved.Annotations);
-                _history.Add(new FrameState(saved.ActiveDisplay, saved.Selection, false, displayStates));
-            }
+            _history.Add((Snapshot(), null));
+            foreach (var entry in controller.CaptureFrames.CompatibleWith(displays))
+                _history.Add((entry.Frame is { } frame ? FromFrame(frame) : null, entry));
         }
     }
 
     private FrameState Snapshot() => new(State.ActiveDisplay, State.Selection, State.SelectionWasDetected,
         _windows.ToDictionary(w => w.Display.Id, w => (w.Frame, w.Editor.Document.Snapshot())));
 
+    private FrameState FromFrame(CaptureFrame saved)
+    {
+        var empty = new AnnotationDocument().Snapshot();
+        var displayStates = saved.Displays.ToDictionary(display => display.Id, display => (display, empty));
+        displayStates[saved.ActiveDisplay] = (displayStates[saved.ActiveDisplay].Item1, saved.Annotations);
+        return new FrameState(saved.ActiveDisplay, saved.Selection, false, displayStates);
+    }
+
     internal void StepHistory(CaptureWindow origin, bool older)
     {
         if (Preset is not null || State.IsComplete || _windows.Any(w => w.Surface.IsDragging)) return;
-        var next = _historyIndex + (older ? 1 : -1);
+        // Steps taken while a saved record is still loading continue from the record being loaded.
+        var next = _historyTarget + (older ? 1 : -1);
         if (next < 0 || next >= _history.Count)
         {
             origin.SetHint(older ? "没有更早的截图记录" : "已经是当前截图");
             return;
         }
+        _historyTarget = next;
+        var request = ++_historyRequest;
+        if (_history[next].State is not null) { ShowHistory(origin, next); return; }
+        var entry = _history[next].Entry!;
+        origin.SetHint("正在读取截图历史…");
+        _controller.Run(async () =>
+        {
+            CaptureFrame? loaded = null;
+            try { loaded = await Task.Run(() => CaptureFrameHistory.Load(entry)); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or InvalidOperationException)
+            {
+                AppLog.Write("Loading capture history failed: " + error.Message);
+            }
+            if (State.IsComplete || _windows.Count == 0) return;
+            var index = _history.FindIndex(item => ReferenceEquals(item.Entry, entry));
+            if (index < 0) return;
+            if (loaded is null || !_windows.All(w => loaded.Displays.Any(display => display.Id == w.Display.Id)))
+            {
+                _controller.CaptureFrames.Forget(entry);
+                _history.RemoveAt(index);
+                if (_historyIndex > index) _historyIndex--;
+                if (_historyTarget > index) _historyTarget--;
+                if (request == _historyRequest) { _historyTarget = _historyIndex; origin.SetHint("这条截图历史已损坏或被删除，已跳过"); }
+                return;
+            }
+            _history[index] = (FromFrame(loaded), entry);
+            if (request != _historyRequest) return;
+            if (_windows.Any(w => w.Surface.IsDragging)) { _historyTarget = _historyIndex; return; }
+            ShowHistory(origin, index);
+        });
+    }
+
+    private void ShowHistory(CaptureWindow origin, int next)
+    {
         foreach (var window in _windows) window.CommitEditing();
-        _history[_historyIndex] = Snapshot();
-        _historyIndex = next;
-        var state = _history[next];
+        _history[_historyIndex] = (Snapshot(), _history[_historyIndex].Entry);
+        _historyIndex = _historyTarget = next;
+        var state = _history[next].State!;
         _pendingDetection = null;
         foreach (var window in _windows)
         {
