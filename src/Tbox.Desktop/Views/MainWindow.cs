@@ -269,10 +269,12 @@ public sealed class MainWindow : Window
     {
         var openCache = Ui.Link(OperatingSystem.IsMacOS() ? "在访达中显示" : "打开文件夹", () => RunCommand(_controller.OpenCache));
         _recentEmpty.Margin = new Thickness(0, 6, 0, 0);
+        var history = new SettingsLine("截图历史", "截图时按 , / . 翻看最近 7 天的截图，最多 50 张",
+            Ui.Button("清除…", () => _controller.Run(_controller.ClearCaptureHistoryAsync), "清除截图历史"));
         AddPage(MainPage.Capture, PageHeader(IconKind.Capture, "截图", "截图后可标注、贴图、识别文字", _captureToggle),
             Spaced(_capturePermission, 14), Spaced(_captureOff, 16), _captureTools,
             Ui.GroupHeader("快捷键"), Ui.Rows(_shortcuts[HotkeyAction.Capture], _shortcuts[HotkeyAction.Pin], _shortcuts[HotkeyAction.Toggle]),
-            Ui.GroupHeader("设置"), _cache,
+            Ui.GroupHeader("设置"), Ui.Rows(_cache, history),
             Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty);
 
         AddPage(MainPage.Folders, PageHeader(IconKind.Jump, "文件夹跳转", "打开或保存文件时，一键跳到正在用的文件夹", _folderToggle),
