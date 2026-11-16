@@ -16,6 +16,9 @@ internal sealed class OpenAiChatProvider : IDisposable
         _http = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
+    private static bool IsDeepSeek(ModelConnection connection) =>
+        Uri.TryCreate(connection.BaseUrl, UriKind.Absolute, out var uri) && uri.Host.Equals("api.deepseek.com", StringComparison.OrdinalIgnoreCase);
+
     private static HttpRequestMessage Request(ModelConnection connection, string resource, string? key, HttpMethod method)
     {
         var request = new HttpRequestMessage(method, ModelPolicy.Endpoint(connection, resource));
@@ -42,11 +45,14 @@ internal sealed class OpenAiChatProvider : IDisposable
     {
         using var request = Request(connection, "chat/completions", key, HttpMethod.Post);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
-        request.Content = new StringContent(JsonSerializer.Serialize(new
+        var body = new Dictionary<string, object?>
         {
-            model = modelId, messages = input.Messages.Select(m => new { role = m.Role, content = m.Content }),
-            stream = true, max_tokens = input.MaxOutputTokens
-        }), Encoding.UTF8, "application/json");
+            ["model"] = modelId, ["messages"] = input.Messages.Select(m => new { role = m.Role, content = m.Content }),
+            ["stream"] = true, ["max_tokens"] = input.MaxOutputTokens
+        };
+        // DeepSeek models think by default; reasoning tokens would consume the output budget before any answer text.
+        if (IsDeepSeek(connection)) body["thinking"] = new { type = "disabled" };
+        request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         EnsureSuccess(response);
         if (response.Content.Headers.ContentType?.MediaType == "application/json")

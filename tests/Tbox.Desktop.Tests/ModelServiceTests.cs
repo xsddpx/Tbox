@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using System.Text.Json;
 using Tbox.Core.ModelServices;
 using Tbox.Desktop.ModelServices;
 using Tbox.Desktop.Platform;
@@ -43,6 +44,7 @@ public sealed class ModelServiceTests
             Assert.Equal("test-only-secret", r.Headers.Authorization.Parameter);
             var body = await r.Content!.ReadAsStringAsync(ct);
             Assert.Contains("text-one", body); Assert.DoesNotContain("test-only-secret", body);
+            Assert.DoesNotContain("thinking", body); // Only DeepSeek's own endpoint receives its thinking switch.
             return Response(CompleteStream);
         });
         await scope.Save();
@@ -52,6 +54,19 @@ public sealed class ModelServiceTests
         Assert.Equal("stop", events.Last().FinishReason);
         Assert.Equal(new ModelUsage(3, 2), events.Last().Usage);
         Assert.Equal(1, calls); // Never automatically retry.
+    }
+
+    [Fact]
+    public async Task DeepSeekRequestsTurnThinkingOff()
+    {
+        string? body = null;
+        using var scope = new Scope(async (r, ct) => { body = await r.Content!.ReadAsStringAsync(ct); return Response(CompleteStream); });
+        var connection = new ModelConnection(Guid.NewGuid(), "DeepSeek", "https://api.deepseek.com", ["deepseek-flash"]);
+        await scope.Service.SaveConnectionAsync(connection, "test-only-secret", true, "deepseek-flash");
+        await Collect(scope.Service.GenerateAsync(Input()));
+        using var json = JsonDocument.Parse(body!);
+        Assert.Equal("disabled", json.RootElement.GetProperty("thinking").GetProperty("type").GetString());
+        Assert.Equal("deepseek-flash", json.RootElement.GetProperty("model").GetString());
     }
 
     [Theory]
