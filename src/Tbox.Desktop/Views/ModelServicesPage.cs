@@ -11,7 +11,6 @@ namespace Tbox.Desktop.Views;
 // Settings for the shared capability, not a chat/translation tool. The only generation here is a fixed smoke request.
 internal sealed class ModelServicesPage : UserControl, IDisposable
 {
-    internal const string HelpText = "密钥保存在系统凭据库。保存不发送请求；测试会发送少量文字，可能产生费用。API 地址填写基础路径，当前仅支持 OpenAI 兼容 Chat Completions。";
     private static readonly IBrush Strong = Brush.Parse("#1A1B22");
     private static readonly IBrush Secondary = Brush.Parse("#5F6270");
     private static readonly IBrush Hint = Brush.Parse("#8C8F9B");
@@ -41,7 +40,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private readonly TextBlock _connectionMeta = new() { FontSize = DesignTokens.Caption, Foreground = Hint, VerticalAlignment = VerticalAlignment.Center };
     private readonly Border _emptyConnections;
     private readonly Button _addButton;
-    private readonly Button _helpButton;
     private readonly ComboBox _defaultModelBox = new() { MinWidth = 0, Width = 232, FontSize = 12.5, MinHeight = 32 };
     private readonly TextBlock _editStatus = StatusText();
     private bool _refreshingDefault;
@@ -49,11 +47,11 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     // Edit form
     internal TextBox ConnectionName { get; } = Field("连接名称");
     internal TextBox BaseUrl { get; } = Field("API 基础地址", "例如 https://api.example.com/v1");
-    internal TextBox Secret { get; } = new() { PasswordChar = '●', Watermark = "输入新的 API 密钥", MinWidth = 0, MaxLength = 1280, Height = 32, FontSize = 13 };
-    internal CheckBox NoKey { get; } = new() { Content = "此服务无需密钥", FontSize = 12.5 };
+    internal TextBox Secret { get; } = new() { PasswordChar = '●', Watermark = "输入 API 密钥", MinWidth = 0, MaxLength = 1280, Height = 32, FontSize = 13, VerticalContentAlignment = VerticalAlignment.Center };
     internal TextBox ModelInput { get; } = Field("模型 ID", "输入模型 ID，例如 deepseek-chat");
-    private readonly ComboBox _protocol = new() { ItemsSource = new[] { "OpenAI Chat Completions" }, SelectedIndex = 0, Height = 32, FontSize = 13, MinWidth = 0 };
-    private readonly TextBlock _savedKey = new() { FontSize = 12.5, Foreground = Secondary, VerticalAlignment = VerticalAlignment.Center };
+    // Only one protocol exists, so it is shown as read-only text rather than a one-item dropdown.
+    private readonly TextBox _protocol = new() { Text = "OpenAI Chat Completions", IsReadOnly = true, Focusable = false, Height = 32, FontSize = 13, MinWidth = 0,
+        VerticalContentAlignment = VerticalAlignment.Center, Background = Brush.Parse("#F7F6FB"), Foreground = Secondary };
     private readonly TextBlock _editTitle = new() { FontSize = DesignTokens.PageTitle, LineHeight = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong };
     private readonly Border _tabs;
     private readonly Grid _presetGrid = new() { ColumnDefinitions = new ColumnDefinitions("*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 12, 0, 0) };
@@ -67,11 +65,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private readonly Button _cancel;
     private readonly Button _delete;
     private readonly Button _stop;
-    private readonly Button _replace;
-    private readonly Button _deleteKey;
-    private readonly Button _cancelReplace;
-    private readonly StackPanel _keyEditor;
-    private readonly Grid _savedKeyRow;
+    private readonly Button _reveal;
+    private readonly Border _testResult;
+    private readonly TextBlock _testResultText = new() { FontSize = DesignTokens.Description, LineHeight = 18, TextWrapping = TextWrapping.Wrap };
     private StackPanel _nameBlock = new();
     private StackPanel _addressBlock = new();
     private StackPanel _protocolBlock = new();
@@ -80,44 +76,32 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private Grid _fieldRow = new();
     private readonly Border _presetNote;
     private readonly List<string> _models = [];
-    private readonly Dictionary<Guid, bool> _testStates = [];
+    // Session-only test outcome per connection; a failure keeps a short reason for the list row.
+    private readonly Dictionary<Guid, (bool Ready, string Reason)> _testStates = [];
     private CancellationTokenSource? _operation;
     private Guid _id = Guid.NewGuid();
     private ModelConnection? _saved;
-    private bool _loading, _busy, _dirty, _editingKey = true, _customTab, _addingModel;
+    private bool _loading, _busy, _dirty, _customTab, _addingModel;
     private int _selectedPreset = -1;
     private string _statusMessage = "";
 
     internal string Status => _statusMessage;
     internal bool IsBusy => _busy;
     internal bool IsEditing => _editView.IsVisible;
-    internal bool IsEditingKey => _editView.IsVisible && _editingKey;
+    internal bool IsKeyRevealed => Secret.RevealPassword;
     internal Guid ConnectionId => _id;
     internal IReadOnlyList<string> Models => _models;
 
     public ModelServicesPage(ModelService service, Func<Window> owner)
     {
         _service = service; _owner = owner;
-        AutomationProperties.SetName(Secret, "新的 API 密钥");
+        AutomationProperties.SetName(Secret, "API 密钥");
         AutomationProperties.SetName(ModelInput, "模型 ID");
         AutomationProperties.SetName(_protocol, "API 协议");
         AutomationProperties.SetName(_defaultModelBox, "全局默认模型");
-        _replace = Ui.Link("替换", () => Run(ReplaceKeyAsync));
-        _deleteKey = Ui.Link("删除", () => Run(DeleteKeyAsync), "删除密钥", accent: false);
-        _cancelReplace = Ui.Link("取消替换", CancelReplaceKey);
-        _keyEditor = new StackPanel { Spacing = 6, Children =
-        {
-            new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children = { Secret, Ui.Column(_cancelReplace, 1) } }
-        } };
-        _savedKeyRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 6, Children =
-        {
-            _savedKey, Ui.Column(_replace, 1), Ui.Column(_deleteKey, 2)
-        } };
-        _savedKey.VerticalAlignment = VerticalAlignment.Center;
+        _reveal = Ui.Link("显示", ToggleReveal, "显示密钥", accent: false);
 
         _addButton = Ui.Primary("添加连接", BeginAdd);
-        _helpButton = Ui.IconButton(IconKind.Info, "模型服务说明", ShowHelp);
-        ToolTip.SetTip(_helpButton, HelpText);
         _emptyConnections = BuildEmpty();
         _tabs = Ui.Segmented(["预设服务商", "自定义接口"], 0, OnTabChanged, out _, out _);
         _tabs.HorizontalAlignment = HorizontalAlignment.Left;
@@ -131,8 +115,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             new TextBlock { Text = "添加模型", VerticalAlignment = VerticalAlignment.Center }
         } };
         _fetch = Ui.Link("获取可用模型", () => Run(FetchModelsAsync));
-        _test = Ui.Link("测试连接", () => Run(TestAsync));
-        _save = Ui.Primary("保存连接", () => Run(SaveAsync));
+        _test = Ui.Button("测试连接", () => Run(TestAsync));
+        _save = Ui.Primary("保存", () => Run(SaveAsync));
         _cancel = Ui.Button("取消", () => Run(CancelAsync));
         _delete = Ui.Link("删除连接", () => Run(DeleteConnectionAsync), accent: false);
         _stop = Ui.Button("停止", () => _operation?.Cancel());
@@ -143,16 +127,14 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             CornerRadius = new CornerRadius(12), Background = Brush.Parse("#F7F6FB"),
             Child = new TextBlock { Text = "保存后可获取该服务商的模型；也可以手动添加。", FontSize = DesignTokens.Caption, Foreground = Secondary, TextWrapping = TextWrapping.Wrap }
         };
+        _testResult = new Border { IsVisible = false, Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(12, 10), CornerRadius = new CornerRadius(10), Child = _testResultText };
 
         _defaultModelBox.SelectionChanged += (_, _) => { if (!_refreshingDefault && !_loading) Run(SetDefaultAsync); };
         foreach (var box in new[] { ConnectionName, BaseUrl, Secret, ModelInput })
             box.PropertyChanged += (_, args) => { if (args.Property == TextBox.TextProperty) Changed(); };
-        NoKey.IsCheckedChanged += (_, _) => { Changed(); RefreshControls(); };
-        _protocol.SelectionChanged += (_, _) => Changed();
         ModelInput.KeyDown += (_, args) => { if (args.Key == Avalonia.Input.Key.Enter) { CommitModel(); args.Handled = true; } };
 
         _listView.Children.Add(BuildListHeader());
-        _listView.Children.Add(new Border { Margin = new Thickness(0, 18, 0, 0), Child = Ui.Note("支持中转站、自部署服务，以及兼容 OpenAI Chat Completions 的接口。") });
         _listView.Children.Add(Ui.GroupHeader("连接", _connectionMeta));
         _listView.Children.Add(_connectionRows);
         _listView.Children.Add(_emptyConnections);
@@ -160,7 +142,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _listView.Children.Add(_defaultGroup);
         _listView.Children.Add(new TextBlock
         {
-            Text = "API 密钥只保存在这台电脑上。删除连接后，引用它的功能会要求重新选择。",
+            Text = "API 密钥以明文保存在本机配置文件 model-services.json 中，不要共享该文件。删除连接后，引用它的功能会要求重新选择。",
             FontSize = 11.5, LineHeight = 16, Foreground = Hint, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 18, 0, 0)
         });
 
@@ -170,6 +152,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _editView.Children.Add(BuildFields());
         _editView.Children.Add(_presetNote);
         _editView.Children.Add(BuildModelSection());
+        _editView.Children.Add(_testResult);
         _editView.Children.Add(_editStatus);
         _editView.Children.Add(BuildFooter());
 
@@ -198,10 +181,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     internal Task FetchAsync() => FetchModelsAsync();
 
-    internal void BeginReplaceKey() => ReplaceKeyAsync();
-
-    internal void CancelReplace() => CancelReplaceKey();
-
     internal void SelectPreset(string name)
     {
         var index = Array.FindIndex(Presets, p => p.Name == name);
@@ -219,9 +198,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     internal async Task SaveAsync()
     {
         if (_busy) return;
-        var draft = new ModelConnection(_id, ConnectionName.Text?.Trim() ?? "", BaseUrl.Text?.Trim().TrimEnd('/') ?? "", _models.ToArray())
-        { Protocol = "openai-chat", RequiresKey = NoKey.IsChecked != true };
-        var replacement = _editingKey && !string.IsNullOrEmpty(Secret.Text) ? Secret.Text : null;
+        var draft = new ModelConnection(_id, ConnectionName.Text?.Trim() ?? "", BaseUrl.Text?.Trim().TrimEnd('/') ?? "", _models.ToArray()) { Protocol = "openai-chat" };
         var configuration = _service.Configuration;
         var currentDefault = configuration.DefaultModel;
         var keepDefault = currentDefault?.ConnectionId == _id;
@@ -229,10 +206,10 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         var defaultModel = makeDefault
             ? keepDefault && _models.Contains(currentDefault!.ModelId, StringComparer.Ordinal) ? currentDefault.ModelId : _models[0]
             : null;
-        await Busy(ct => _service.SaveConnectionAsync(draft, replacement, false, makeDefault, defaultModel, ct));
+        await Busy(ct => _service.SaveConnectionAsync(draft, Secret.Text ?? "", makeDefault, defaultModel, ct));
         _saved = _service.Configuration.Connections.FirstOrDefault(c => c.Id == _id);
-        Secret.Text = ""; _editingKey = false; _dirty = false;
-        if (_saved?.CredentialId is not null) _savedKey.Text = "••••••••  · 已保存";
+        _testStates.Remove(_id); _dirty = false;
+        ShowTestResult(null);
         SetStatus("已保存");
         RefreshAll();
     }
@@ -244,7 +221,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         if (connection is null) throw new ModelServiceException(ModelFailure.Configuration, "请先添加并保存一个连接。");
         var model = connection.Models.FirstOrDefault();
         if (model is null) throw new ModelServiceException(ModelFailure.Configuration, "请先添加并保存至少一个模型 ID。");
-        SetStatus("测试中…");
+        SetStatus("测试中…"); ShowTestResult(null);
         try
         {
             await Busy(async ct =>
@@ -260,14 +237,14 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
                     ToolTip.SetTip(_editStatus, item.Usage is { } usage ? $"输入 {usage.InputTokens?.ToString() ?? "未知"} / 输出 {usage.OutputTokens?.ToString() ?? "未知"} token" : "用量未返回");
                 }
                 if (!completed || string.IsNullOrWhiteSpace(text)) throw new ModelServiceException(ModelFailure.Incomplete, "未收到完整测试结果。");
-                _testStates[connection.Id] = true;
-                SetStatus("连接正常");
+                _testStates[connection.Id] = (true, "");
+                SetStatus("连接正常"); ShowTestResult(true, "连接正常：模型 " + model + " 已返回结果。");
             }, testing: true);
         }
         catch (ModelServiceException e)
         {
-            _testStates[connection.Id] = false;
-            SetStatus(e.Message, error: true);
+            _testStates[connection.Id] = (false, ShortReason(e.Failure));
+            SetStatus(e.Message, error: true); ShowTestResult(false, "测试失败：" + e.Message);
             throw;
         }
         finally { RefreshList(); }
@@ -282,12 +259,12 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         {
             SetStatus("连接已不存在。", error: true); ShowList(); return;
         }
-        await LoadDraftAsync(connection);
+        LoadDraft(connection);
         _listView.IsVisible = false;
         _editView.IsVisible = true;
     }
 
-    private async Task LoadDraftAsync(ModelConnection? connection)
+    private void LoadDraft(ModelConnection? connection)
     {
         _loading = true;
         try
@@ -295,9 +272,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             _saved = connection;
             _id = connection?.Id ?? Guid.NewGuid();
             _models.Clear();
-            _editingKey = connection?.CredentialId is null;
-            Secret.Text = "";
-            NoKey.IsChecked = connection is not null && !connection.RequiresKey;
+            Secret.Text = connection is null ? "" : _service.KeyOf(connection.Id) ?? "";
+            SetRevealed(false);
+            ShowTestResult(null);
             _customTab = false;
             _selectedPreset = -1;
             _addingModel = false;
@@ -310,7 +287,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
                 ConnectionName.Text = preset.Name;
                 BaseUrl.Text = preset.BaseUrl;
                 if (preset.DefaultModel is not null) _models.Add(preset.DefaultModel);
-                _savedKey.Text = "尚未保存密钥";
             }
             else
             {
@@ -318,15 +294,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
                 BaseUrl.Text = connection.BaseUrl;
                 _models.AddRange(connection.Models);
                 _selectedPreset = Array.FindIndex(Presets, p => SameAddress(p.BaseUrl, connection.BaseUrl));
-                _savedKey.Text = connection.CredentialId is null ? "尚未保存密钥" : "••••••••  · 检查保存状态…";
-            }
-            _protocol.SelectedIndex = 0;
-            RefreshAll();
-            if (connection?.CredentialId is not null)
-            {
-                var id = _id;
-                var present = await _service.HasCredentialAsync(connection);
-                if (id == _id && _saved == connection) _savedKey.Text = present ? "••••••••  · 已保存" : "密钥缺失，请替换";
             }
         }
         finally
@@ -341,13 +308,12 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
         {
             new TextBlock { Text = "模型服务", FontSize = DesignTokens.PageTitle, LineHeight = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong },
-            new TextBlock { Text = "统一管理连接与模型，供翻译等工具复用", FontSize = DesignTokens.Description, LineHeight = 18, Foreground = Secondary }
+            new TextBlock { Text = "管理 OpenAI 兼容接口的连接与模型，供翻译等工具复用", FontSize = DesignTokens.Description, LineHeight = 18, Foreground = Secondary }
         } };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center,
-            Children = { _helpButton, _addButton } };
+        _addButton.VerticalAlignment = VerticalAlignment.Center;
         return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 14, Children =
         {
-            Ui.IconChip(IconKind.Model, ToolTone.Violet, 40, 20), Ui.Column(titles, 1), Ui.Column(actions, 2)
+            Ui.IconChip(IconKind.Model, ToolTone.Violet, 40, 20), Ui.Column(titles, 1), Ui.Column(_addButton, 2)
         } };
     }
 
@@ -423,17 +389,12 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private Control BuildFields()
     {
         _nameBlock = FieldBlock("名称", ConnectionName);
-        var addressLabel = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children =
-        {
-            new TextBlock { Text = "API 地址", FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Secondary },
-            Ui.Column(_test, 1)
-        } };
-        _addressBlock = new StackPanel { Spacing = 6, Children = { addressLabel, BaseUrl } };
+        _addressBlock = FieldBlock("API 地址", BaseUrl, hint: "填写基础地址，例如 …/v1");
         _protocolBlock = FieldBlock("API 协议", _protocol);
-        _keyBlock = FieldBlock("API 密钥", new StackPanel { Spacing = 6, Children = { _keyEditor, _savedKeyRow, NoKey } }, hint: "仅保存在本机");
-        _keyEditor.IsVisible = false; _savedKeyRow.IsVisible = false;
-        _fieldRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 14, Children = { _protocolBlock, Ui.Column(_keyBlock, 1) } };
-        return new StackPanel { Spacing = 12, Margin = new Thickness(0, 14, 0, 0), Children = { _nameBlock, _addressBlock, _fieldRow } };
+        _fieldRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 14, Children = { _addressBlock, Ui.Column(_protocolBlock, 1) } };
+        var keyInput = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 8, Children = { Secret, Ui.Column(_reveal, 1) } };
+        _keyBlock = FieldBlock("API 密钥", keyInput, hint: "明文保存在本机");
+        return new StackPanel { Spacing = 12, Margin = new Thickness(0, 14, 0, 0), Children = { _nameBlock, _fieldRow, _keyBlock } };
     }
 
     private Control BuildModelSection()
@@ -452,7 +413,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private Control BuildFooter()
     {
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right,
-            Children = { _stop, _cancel, _save } };
+            Children = { _stop, _test, _cancel, _save } };
         return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 8, Margin = new Thickness(0, 14, 0, 0), Children =
         {
             _delete, Ui.Column(buttons, 1)
@@ -475,14 +436,13 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
         {
             new TextBlock { Text = connection.Name, FontSize = DesignTokens.Body, Foreground = Strong, TextTrimming = TextTrimming.CharacterEllipsis },
-            new TextBlock { Text = ProtocolLabel(connection) + " · " + HostOf(connection.BaseUrl), FontSize = DesignTokens.Caption, Foreground = Hint,
+            new TextBlock { Text = HostOf(connection.BaseUrl) + " · " + (connection.Models.Length == 0 ? "未添加模型" : connection.Models.Length + " 个模型"), FontSize = DesignTokens.Caption, Foreground = Hint,
                 TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) }
         } };
         var (statusText, statusColor) = StatusOf(connection);
         var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center, Children =
         {
             Ui.Status(statusText, statusColor),
-            new TextBlock { Text = connection.Models.Length == 0 ? "未添加模型" : connection.Models.Length + " 个模型", FontSize = DesignTokens.Caption, Foreground = Hint, VerticalAlignment = VerticalAlignment.Center },
             new LineIcon(IconKind.Chevron, brush: Hint) { Width = 16, Height = 16, VerticalAlignment = VerticalAlignment.Center }
         } };
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Margin = new Thickness(0, 10), Children =
@@ -510,8 +470,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     private (string Text, string Color) StatusOf(ModelConnection connection)
     {
-        if (_testStates.TryGetValue(connection.Id, out var ready)) return ready ? ("可用", DesignTokens.Ready) : ("失败", DesignTokens.Error);
-        if (connection.RequiresKey && connection.CredentialId is null) return ("缺少密钥", DesignTokens.Attention);
+        if (_testStates.TryGetValue(connection.Id, out var state)) return state.Ready ? ("可用", DesignTokens.Ready) : (state.Reason, DesignTokens.Error);
+        if (!_service.HasKey(connection.Id)) return ("缺少密钥", DesignTokens.Attention);
         return ("未验证", DesignTokens.Attention);
     }
 
@@ -529,7 +489,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _tabs.IsVisible = _saved is null;
         RefreshPresets();
         RefreshModels();
-        RefreshKeyState();
         RefreshControls();
     }
 
@@ -617,9 +576,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         BaseUrl.Text = preset.BaseUrl;
         _models.Clear();
         if (preset.DefaultModel is not null) _models.Add(preset.DefaultModel);
-        Secret.Text = ""; _editingKey = true; NoKey.IsChecked = false;
+        Secret.Text = "";
         _loading = false;
-        RefreshPresets(); RefreshModels(); RefreshKeyState(); Changed();
+        RefreshPresets(); RefreshModels(); Changed();
     }
 
     private void OnTabChanged(int index)
@@ -632,9 +591,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             ConnectionName.Text = "自定义服务";
             BaseUrl.Text = "";
             _models.Clear();
-            Secret.Text = ""; _editingKey = true;
+            Secret.Text = "";
             _loading = false;
-            RefreshModels(); RefreshKeyState(); Changed();
+            RefreshModels(); Changed();
         }
         RefreshPresets(); RefreshControls();
     }
@@ -656,16 +615,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         }
     }
 
-    private void RefreshKeyState()
-    {
-        var noKey = NoKey.IsChecked == true;
-        _keyEditor.IsVisible = !noKey && _editingKey;
-        _savedKeyRow.IsVisible = !noKey && !_editingKey;
-        _replace.IsVisible = !_editingKey;
-        _cancelReplace.IsVisible = _editingKey && _saved?.CredentialId is not null;
-        _deleteKey.IsVisible = _saved?.CredentialId is not null;
-    }
-
     private void RefreshMode()
     {
         var preset = _saved is null && !_customTab;
@@ -674,12 +623,10 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _nameBlock.IsVisible = !preset;
         _protocolBlock.IsVisible = !preset;
         _modelSection.IsVisible = !preset;
-        NoKey.IsVisible = !preset;
         _test.IsVisible = !preset;
         BaseUrl.IsReadOnly = preset;
         BaseUrl.Background = preset ? Brush.Parse("#F7F6FB") : Brushes.White;
-        Grid.SetColumn(_keyBlock, preset ? 0 : 1);
-        Grid.SetColumnSpan(_keyBlock, preset ? 2 : 1);
+        Grid.SetColumnSpan(_addressBlock, preset ? 2 : 1);
     }
 
     private void RefreshControls()
@@ -700,7 +647,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     {
         if (_loading) return;
         _dirty = true;
-        SetStatus("未保存");
+        SetStatus("未保存"); ShowTestResult(null);
         RefreshControls();
     }
 
@@ -738,42 +685,51 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         ShowList();
     }
 
-    private Task ReplaceKeyAsync()
+    internal void ToggleReveal()
     {
-        _editingKey = true; Secret.Text = ""; RefreshKeyState(); RefreshControls(); Secret.Focus();
-        return Task.CompletedTask;
+        SetRevealed(!Secret.RevealPassword);
     }
 
-    private void CancelReplaceKey()
+    private void SetRevealed(bool revealed)
     {
-        Secret.Text = ""; _editingKey = _saved?.CredentialId is null;
-        RefreshKeyState(); RefreshControls();
+        Secret.RevealPassword = revealed;
+        _reveal.Content = revealed ? "隐藏" : "显示";
+        AutomationProperties.SetName(_reveal, revealed ? "隐藏密钥" : "显示密钥");
+        ToolTip.SetTip(_reveal, revealed ? "隐藏密钥" : "显示密钥");
     }
 
-    private async Task DeleteKeyAsync()
+    // The result box replaces the one-line status while it is shown, so the outcome is not repeated.
+    private void ShowTestResult(bool? ready, string text = "")
     {
-        if (!await Confirm("删除此连接的 API 密钥？", "删除密钥", "删除后需要重新填写才能调用需要认证的服务。连接和模型列表保留。")) return;
-        await Busy(ct => _service.DeleteCredentialAsync(_id, ct));
-        _saved = _service.Configuration.Connections.FirstOrDefault(c => c.Id == _id);
-        _editingKey = true; _savedKey.Text = "尚未保存密钥"; Secret.Text = "";
-        RefreshKeyState(); RefreshControls(); SetStatus("密钥已删除");
+        _testResult.IsVisible = ready is not null;
+        _editStatus.IsVisible = ready is null;
+        _testResultText.Text = text;
+        _testResult.Background = Brush.Parse(ready == true ? "#EEF8F2" : "#FDF1F1");
+        _testResultText.Foreground = Brush.Parse(ready == true ? "#17784A" : "#B42318");
     }
+
+    // A few words for the list row; the full message stays on the edit page.
+    private static string ShortReason(ModelFailure failure) => failure switch
+    {
+        ModelFailure.Authentication => "密钥无效或无权限",
+        ModelFailure.Credentials => "缺少密钥",
+        ModelFailure.RateLimited => "限流或额度不足",
+        ModelFailure.Timeout => "请求超时",
+        ModelFailure.Network => "无法连接",
+        ModelFailure.Configuration => "配置有误",
+        _ => "接口或模型不兼容"
+    };
 
     private async Task DeleteConnectionAsync()
     {
         if (!await Confirm("删除此模型连接？", "删除连接", "将同时删除此连接保存的密钥；若它是默认模型，会清除默认选择。")) return;
+        _testStates.Remove(_id);
         await Busy(ct => _service.DeleteConnectionAsync(_id, ct));
         _dirty = false; Secret.Text = "";
         ShowList(); SetStatus("连接已删除");
     }
 
     private Task<bool> Confirm(string title, string action, string detail) => new ConfirmWindow(title, action, detail, destructive: true).ShowDialog<bool>(_owner());
-
-    private void ShowHelp()
-    {
-        var flyout = new Flyout { Content = new TextBlock { Text = HelpText, MaxWidth = 280, TextWrapping = TextWrapping.Wrap, FontSize = 12.5 } };
-        flyout.ShowAt(_helpButton);
-    }
 
     private async Task Busy(Func<CancellationToken, Task> work, bool testing = false)
     {
@@ -789,7 +745,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         try { await operation(); }
         catch (OperationCanceledException) { SetStatus("已停止"); }
         catch (ModelServiceException e) { SetStatus(e.Message, error: true); }
-        catch { SetStatus("操作未完成，请检查配置或系统凭据访问权限后重试。", error: true); }
+        catch { SetStatus("操作未完成，请检查配置后重试。", error: true); }
     }
 
     private void SetStatus(string message, bool error = false)
@@ -802,7 +758,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     internal void Leave()
     {
         _operation?.Cancel();
-        Secret.Text = ""; _dirty = false;
+        Secret.Text = ""; SetRevealed(false); _dirty = false;
         ShowList();
     }
 
@@ -818,6 +774,5 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     }
 
     private static bool SameAddress(string left, string right) => string.Equals(left.Trim().TrimEnd('/'), right.Trim().TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
-    private static string ProtocolLabel(ModelConnection connection) => connection.Protocol == "openai-chat" ? "OpenAI 兼容" : connection.Protocol;
     private static string HostOf(string address) => Uri.TryCreate(address, UriKind.Absolute, out var uri) ? uri.Host : address;
 }

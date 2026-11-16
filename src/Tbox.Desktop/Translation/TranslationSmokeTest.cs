@@ -5,7 +5,6 @@ using Avalonia.Controls;
 using Avalonia.Media.Imaging;
 using Tbox.Core.ModelServices;
 using Tbox.Desktop.ModelServices;
-using Tbox.Desktop.Platform;
 using Tbox.Desktop.Views;
 
 namespace Tbox.Desktop.Translation;
@@ -16,9 +15,9 @@ internal static class TranslationSmokeTest
     public static async Task<object> RunAsync(string directory)
     {
         var handler = new Fixture();
-        using var service = new ModelService(Path.Combine(directory, "translation-models.json"), ModelCredentialStore.Create(), handler);
-        var connection = new ModelConnection(Guid.NewGuid(), "离线验证模型", "https://api.example.invalid/v1", ["fixture-text"]) { RequiresKey = false };
-        await service.SaveConnectionAsync(connection, null, false, true, "fixture-text");
+        using var service = new ModelService(Path.Combine(directory, "translation-models.json"), null, handler);
+        var connection = new ModelConnection(Guid.NewGuid(), "离线验证模型", "https://api.example.invalid/v1", ["fixture-text"]);
+        await service.SaveConnectionAsync(connection, "fixture-key", true, "fixture-text");
         var window = new Window(); Ui.Configure(window, "翻译 · 安装版离线验证", 800, 600);
         var page = new TranslationPage(service, () => Task.FromResult(service.Configuration), () => { });
         window.Content = new ScrollViewer { Content = page, Margin = new Thickness(24) };
