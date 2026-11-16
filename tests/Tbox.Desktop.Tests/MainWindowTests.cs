@@ -237,6 +237,25 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
+    public async Task SavedShortcutTakesPrecedenceWhenAnUpgradeAddsTheSameDefault()
+    {
+        var platform = new FakePlatform();
+        using var scope = new Scope(platform);
+        var mac = OperatingSystem.IsMacOS();
+        var previousPin = ShortcutPolicy.Default(HotkeyAction.Capture, mac);
+        await scope.InitializeAsync(new HotkeyBindings(Pin: previousPin));
+
+        Assert.Equal(previousPin, platform.Hotkeys[HotkeyAction.Pin]);
+        Assert.True(scope.Controller.HasHotkeyConflictFor(HotkeyAction.Capture));
+        Assert.False(platform.Hotkeys.ContainsKey(HotkeyAction.Capture));
+        Assert.Equal(ShortcutPolicy.Default(HotkeyAction.Toggle, mac), platform.Hotkeys[HotkeyAction.Toggle]);
+
+        Assert.Null(await scope.Controller.SetShortcutAsync(HotkeyAction.Pin, null));
+        Assert.Equal(previousPin, platform.Hotkeys[HotkeyAction.Capture]);
+        Assert.False(scope.Controller.HasHotkeyConflictFor(HotkeyAction.Capture));
+    }
+
+    [AvaloniaFact]
     public async Task RecordingAShortcutPausesTboxHotkeysSavesItAndUpdatesLabels()
     {
         var platform = new FakePlatform { HasScreenPermission = true };
@@ -264,7 +283,7 @@ public sealed class MainWindowTests
         Assert.Equal(captureDefault, platform.Hotkeys[HotkeyAction.Capture]);
 
         // A combination already used by another Tbox shortcut is refused and the old one stays.
-        await Press(row, mac ? Key.D2 : Key.F7, mac ? KeyModifiers.Control | KeyModifiers.Shift : KeyModifiers.None);
+        await Press(row, Key.D2, KeyModifiers.Shift | (mac ? KeyModifiers.Meta : KeyModifiers.Control));
         Assert.Equal("已被“贴出剪贴板”使用。", row.Description);
         Assert.Equal(captureDefault.Caps(mac), Caps(row));
 

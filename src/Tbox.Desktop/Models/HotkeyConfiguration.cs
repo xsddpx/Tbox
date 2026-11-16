@@ -14,16 +14,22 @@ public sealed class HotkeyConfiguration(Func<HotkeyBinding, bool> register, Acti
     public IReadOnlyCollection<HotkeyAction> Conflicts => _conflicts;
     public bool IsRegistered(HotkeyAction action) => _registered.ContainsKey(action);
 
-    // Registers every wanted shortcut and releases the rest. Unchanged registrations are left alone.
+    // Apply in priority order so an existing custom shortcut can take precedence over a new default.
     public void Apply(IEnumerable<HotkeyBinding> wanted)
     {
         Applied = true;
-        var targets = wanted.ToDictionary(binding => binding.Action, binding => binding.Shortcut);
-        foreach (var action in ShortcutPolicy.Actions.Where(action => !targets.ContainsKey(action))) Release(action);
+        var targets = wanted.ToArray();
+        var distinct = new HashSet<Shortcut>();
+        var active = targets.Where(binding => distinct.Add(binding.Shortcut)).ToDictionary(binding => binding.Action, binding => binding.Shortcut);
+        foreach (var action in ShortcutPolicy.Actions)
+        {
+            if (!active.TryGetValue(action, out var target) || !_registered.TryGetValue(action, out var current) || current != target)
+                Release(action);
+        }
         foreach (var (action, shortcut) in targets)
         {
-            if (_registered.TryGetValue(action, out var current) && current == shortcut) continue;
-            Release(action);
+            if (!active.ContainsKey(action)) { _conflicts.Add(action); continue; }
+            if (_registered.ContainsKey(action)) continue;
             if (register(new HotkeyBinding(action, shortcut))) _registered[action] = shortcut;
             else _conflicts.Add(action);
         }

@@ -5,6 +5,70 @@ namespace Tbox.Core.Tests;
 
 public sealed class SettingsTests
 {
+    [Theory]
+    [InlineData("{")]
+    [InlineData("null")]
+    public async Task UnreadableSettingsArePreservedUntilSuccessfullyReloaded(string original)
+    {
+        var directory = Directory.CreateTempSubdirectory("tbox-settings-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "settings.json");
+            await File.WriteAllTextAsync(path, original);
+            var store = new JsonSettingsStore(path);
+            Assert.Equal(new AppSettings(), await store.LoadAsync());
+            Assert.Contains(path, store.LoadWarning);
+            var edited = new AppSettings { AppTheme = "dark" };
+            await Assert.ThrowsAsync<IOException>(() => store.SaveAsync(edited));
+            Assert.Equal(original, await File.ReadAllTextAsync(path));
+
+            await File.WriteAllTextAsync(path, """{"FolderJumpEnabled":false}""");
+            var recovered = await store.LoadAsync();
+            Assert.False(recovered.FolderJumpEnabled);
+            Assert.Null(store.LoadWarning);
+            await store.SaveAsync(recovered with { AppTheme = "dark" });
+            Assert.Equal(recovered with { AppTheme = "dark" }, await store.LoadAsync());
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [Fact]
+    public async Task ReadFailurePreventsOverwritingEvenAfterTheFileIsUnlocked()
+    {
+        if (!OperatingSystem.IsWindows()) return; // Windows enforces exclusive sharing at open time.
+        var directory = Directory.CreateTempSubdirectory("tbox-settings-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "settings.json");
+            var original = """{"AppTheme":"dark","FolderJumpEnabled":false}""";
+            await File.WriteAllTextAsync(path, original);
+            var store = new JsonSettingsStore(path);
+            using (File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.Equal(new AppSettings(), await store.LoadAsync());
+                Assert.NotNull(store.LoadWarning);
+            }
+            await Assert.ThrowsAsync<IOException>(() => store.SaveAsync(new AppSettings()));
+            Assert.Equal(original, await File.ReadAllTextAsync(path));
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [Fact]
+    public async Task SettingsCanBeSavedAfterFirstLaunchWithoutAFile()
+    {
+        var directory = Directory.CreateTempSubdirectory("tbox-settings-");
+        try
+        {
+            var store = new JsonSettingsStore(Path.Combine(directory.FullName, "settings.json"));
+            var settings = await store.LoadAsync();
+            Assert.Null(store.LoadWarning);
+            await store.SaveAsync(settings with { AppTheme = "dark" });
+            Assert.Equal("dark", (await store.LoadAsync()).AppTheme);
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
     [Fact]
     public void DefaultHotkeyIsCtrlG()
     {

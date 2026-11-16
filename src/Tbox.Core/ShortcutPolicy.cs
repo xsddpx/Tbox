@@ -48,13 +48,9 @@ public static class ShortcutPolicy
         HotkeyAction.Capture => "截图", HotkeyAction.Pin => "贴出剪贴板", HotkeyAction.Toggle => "显隐贴图", _ => "文件夹跳转"
     };
 
-    // Windows keeps F6 / F7 / F8 / Ctrl+G; macOS keeps ⌃⇧1 / ⌃⇧2 / ⌃⇧3 / ⌃G.
-    public static Shortcut Default(HotkeyAction action, bool mac) => (action, mac) switch
-    {
-        (HotkeyAction.Folder, _) => new(true, false, false, false, "G"),
-        (_, true) => new(true, false, true, false, ((int)action).ToString()),
-        _ => new(false, false, false, false, $"F{5 + (int)action}")
-    };
+    public static Shortcut Default(HotkeyAction action, bool mac) => action == HotkeyAction.Folder
+        ? new(true, false, false, false, "G")
+        : new(!mac, false, true, mac, ((int)action).ToString());
 
     public static Shortcut Effective(HotkeyBindings? bindings, HotkeyAction action, bool mac) =>
         bindings?.Get(action) ?? Default(action, mac);
@@ -70,7 +66,8 @@ public static class ShortcutPolicy
         // A global hotkey would take these editing shortcuts away from every application.
         if (typed && !mac && shortcut is { Control: true, Alt: false, Shift: false, Meta: false } && "ACVXYZS".Contains(shortcut.Key[0]))
             return "这是常用的编辑快捷键，请换一个组合。";
-        if (typed && mac && shortcut is { Meta: true, Control: false, Alt: false })
+        if (typed && mac && shortcut is { Meta: true, Control: false, Alt: false } &&
+            shortcut is not { Shift: true, Key: "1" or "2" or "3" })
             return "⌘ 加字母或数字是应用常用的快捷键，请再加上 ⌃ 或 ⌥。";
         return null;
     }

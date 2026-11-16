@@ -179,6 +179,7 @@ public sealed class MainWindow : Window
 
     public void SetStatus(string message)
     {
+        if (string.IsNullOrWhiteSpace(message)) message = _controller.SettingsLoadWarning ?? "";
         _statusText.Text = message;
         _status.IsVisible = !string.IsNullOrWhiteSpace(message);
     }

@@ -77,19 +77,23 @@ internal static class Program
             controller.Main = new MainWindow(controller);
             await controller.InitializeAsync([]);
             var shortcut = controller.ShortcutFor(HotkeyAction.Pin);
-            if (ShortcutPolicy.WindowsKeyCode(shortcut.Key) != 0x76 || controller.HasHotkeyConflictFor(HotkeyAction.Pin))
-                throw new InvalidOperationException("本轮未注册默认 F7 贴图快捷键。");
+            var key = ShortcutPolicy.WindowsKeyCode(shortcut.Key) ?? throw new InvalidOperationException("默认贴图快捷键无效。");
+            var modifiers = (shortcut.Alt ? 1 : 0) | (shortcut.Control ? 2 : 0) | (shortcut.Shift ? 4 : 0) | (shortcut.Meta ? 8 : 0);
 
-            var hotkeyWindow = FindWindowEx(new IntPtr(-3), IntPtr.Zero, null, "Tbox hotkeys");
-            GetWindowThreadProcessId(hotkeyWindow, out var processId);
-            if (hotkeyWindow == IntPtr.Zero || processId != (uint)Environment.ProcessId)
+            var hotkeyWindow = IntPtr.Zero;
+            while ((hotkeyWindow = FindWindowEx(new IntPtr(-3), hotkeyWindow, null, "Tbox hotkeys")) != IntPtr.Zero)
+            {
+                GetWindowThreadProcessId(hotkeyWindow, out var processId);
+                if (processId == (uint)Environment.ProcessId) break;
+            }
+            if (hotkeyWindow == IntPtr.Zero)
                 throw new InvalidOperationException("未找到本轮的 Windows 快捷键消息窗口。");
 
-            async Task<PinnedWindow> PinWithF7Async()
+            async Task<PinnedWindow> PinFromHotkeyMessageAsync()
             {
-                // Deliver the registered Windows message without relying on physical keyboard focus on the runner.
-                if (!PostMessage(hotkeyWindow, 0x0312, (nint)HotkeyAction.Pin, 0x76 << 16))
-                    throw new InvalidOperationException("无法递交 F7 快捷键消息。");
+                // Exercise native dispatch even when a running Tbox or another app owns the global shortcut.
+                if (!PostMessage(hotkeyWindow, 0x0312, (nint)HotkeyAction.Pin, (key << 16) | modifiers))
+                    throw new InvalidOperationException("无法递交贴图快捷键消息。");
                 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
                 while (true)
                 {
@@ -99,9 +103,9 @@ internal static class Program
                 }
             }
 
-            var image = await PinWithF7Async();
+            var image = await PinFromHotkeyMessageAsync();
             if (!image.Picture.GetPixels().SequenceEqual(expected))
-                throw new InvalidOperationException("F7 贴图未保留 Windows 剪贴板中的彩色像素。");
+                throw new InvalidOperationException("快捷键贴图未保留 Windows 剪贴板中的彩色像素。");
             image.Close();
 
             const string text = "Tbox clipboard fixture";
@@ -109,13 +113,13 @@ internal static class Program
             data.SetText(text);
             Clipboard.SetContent(data);
             Clipboard.Flush();
-            var textPin = await PinWithF7Async();
+            var textPin = await PinFromHotkeyMessageAsync();
             using var expectedCard = DesktopController.RenderText(text);
             if (!textPin.Picture.GetPixels().SequenceEqual(expectedCard.GetPixels()))
-                throw new InvalidOperationException("F7 未把纯文本创建为贴图。");
+                throw new InvalidOperationException("快捷键未把纯文本创建为贴图。");
             textPin.Close();
             controller.Main.Close();
-            Console.WriteLine("OK Windows F7 快捷键消息经应用入口把系统剪贴板的彩色图片和纯文本创建为贴图。");
+            Console.WriteLine("OK Windows 快捷键消息将系统剪贴板中的彩色图片和纯文本创建为贴图。");
         }
         finally
         {

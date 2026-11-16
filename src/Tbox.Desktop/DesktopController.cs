@@ -51,6 +51,7 @@ public sealed class DesktopController : IDisposable
     public bool IsQuitting { get; private set; }
     public string CacheDirectory => _cache.DirectoryPath;
     public AppSettings Settings => _settings;
+    internal string? SettingsLoadWarning => _settingsStore.LoadWarning;
     public string FolderDirectory => _folders.CurrentDirectory;
     public bool HasFolderPermission => _folders.HasPermission;
     public bool ScreenPermissionRequested => _screenPermissionRequested;
@@ -109,6 +110,7 @@ public sealed class DesktopController : IDisposable
             await CaptureFrames.OpenAsync(_cache.DirectoryPath);
             RecordingWorkspace.CleanupExpired();
             if (migrationNotice is not null) Main.SetStatus(migrationNotice);
+            if (SettingsLoadWarning is { } warning) Main.SetStatus(warning);
         }
         else
         {
@@ -144,6 +146,7 @@ public sealed class DesktopController : IDisposable
         if (_recordingShortcut) return;
         _hotkeys.Apply(ShortcutPolicy.Actions
             .Where(action => action == HotkeyAction.Folder ? settings.FolderJumpEnabled : settings.ScreenPasteEnabled)
+            .OrderByDescending(action => settings.Hotkeys?.Get(action) is not null)
             .Select(action => new HotkeyBinding(action, ShortcutPolicy.Effective(settings.Hotkeys, action, OperatingSystem.IsMacOS()))));
     }
 
@@ -187,6 +190,7 @@ public sealed class DesktopController : IDisposable
             var updated = previous with { Hotkeys = saved == new HotkeyBindings() ? null : saved };
             try { await _settingsStore.SaveAsync(updated, _stop.Token); _settings = updated; }
             catch { ApplyHotkeys(previous); throw; }
+            ApplyHotkeys(updated);
             ShortcutsChanged?.Invoke();
             return null;
         }
@@ -672,6 +676,7 @@ public sealed class DesktopController : IDisposable
         await _moduleChanges.WaitAsync(_stop.Token);
         try
         {
+            if (SettingsLoadWarning is { } warning) throw new IOException(warning);
             Startup = await _startup.SetEnabledAsync(enabled);
             var updated = _settings with { StartWithWindows = Startup.Enabled };
             await _settingsStore.SaveAsync(updated, _stop.Token); _settings = updated;
