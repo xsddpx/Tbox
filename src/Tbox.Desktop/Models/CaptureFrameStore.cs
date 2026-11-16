@@ -38,7 +38,7 @@ internal static partial class CaptureFrameStore
                 SelectionData.From(frame.Selection), frame.Displays.Select(CaptureFrameDisplay.From).ToArray(),
                 AnnotationSnapshotData.From(frame.Annotations)), Options);
             File.WriteAllBytes(Path.Combine(temporary, MetadataFile), metadata);
-            Directory.Move(temporary, target);
+            MoveWhenReleased(temporary, target);
             return (target, bytes + metadata.LongLength);
         }
         catch
@@ -122,6 +122,16 @@ internal static partial class CaptureFrameStore
     }
 
     private static string ImageFile(uint displayId) => $"display-{displayId.ToString(CultureInfo.InvariantCulture)}.png";
+
+    // Virus scanners and search indexers briefly open newly written files, which blocks renaming their folder.
+    private static void MoveWhenReleased(string source, string target)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try { Directory.Move(source, target); return; }
+            catch (Exception error) when (attempt < 20 && error is IOException or UnauthorizedAccessException) { Thread.Sleep(50); }
+        }
+    }
 
     // Windows captures arrive as raw pixels. Encode a separate copy instead of caching PNG bytes on the display.
     private static byte[] EncodePng(CapturedDisplay display)
