@@ -62,57 +62,41 @@ public sealed class SettingsTests
         controller.Dispose(); window.Close();
     }
 
-    // The model page opens on its connection list, which always offers "添加连接"; opening the
-    // saved connection shows either the key input (no saved credential) or the "替换" link.
-    // Which shape appears depends on this machine's saved models, so the assertion accepts either.
+    // The model page opens on its connection list, which always offers "添加连接" regardless of this machine's saved models.
     private static void AssertModelPageOffersAKeyField(Window window)
     {
         Assert.Contains(window.GetVisualDescendants().OfType<Button>(),
             b => b.IsEffectivelyVisible && b.Content as string == "添加连接");
     }
 
-    // Pins both shapes of the key field so the layout test above does not depend on this machine's saved models.
+    // The saved key is loaded masked into the same input; a connection without a key shows an empty input.
     [AvaloniaTheory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public async Task ModelPageShowsTheKeyInputOnlyUntilACredentialIsSaved(bool hasCredential, bool expectsInput)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ModelPageLoadsTheSavedKeyMasked(bool hasKey)
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
         var directory = Path.Combine(Path.GetTempPath(), "tbox-model-key-" + Guid.NewGuid().ToString("N"));
         try
         {
             var configurationPath = Path.Combine(directory, "models.json");
-            var connection = new ModelConnection(Guid.NewGuid(), "DeepSeek", "https://api.deepseek.com", ["deepseek-chat"])
-            {
-                CredentialId = hasCredential ? Guid.NewGuid() : null
-            };
-            await new Tbox.Desktop.ModelServices.ModelConfigurationStore(configurationPath)
-                .SaveAsync(new ModelConfiguration { Connections = [connection] }, default);
-            var service = new Tbox.Desktop.ModelServices.ModelService(configurationPath, new FakeCredentials());
+            var id = Guid.NewGuid();
+            Directory.CreateDirectory(directory);
+            await File.WriteAllTextAsync(configurationPath, $$$"""{"Connections":[{"Id":"{{{id}}}","Name":"DeepSeek","BaseUrl":"https://api.deepseek.com","Models":["deepseek-chat"]{{{(hasKey ? ",\"ApiKey\":\"settings-test-key\"" : "")}}}}]}""");
+            using var service = new Tbox.Desktop.ModelServices.ModelService(configurationPath);
             var page = new ModelServicesPage(service, () => throw new InvalidOperationException());
             var window = new Window { Content = page, Width = 900, Height = 600 };
             window.Show();
             await page.OpenAsync();
-            await page.BeginEditAsync(connection.Id);
+            await page.BeginEditAsync(id);
             window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
 
-            // IsEditingKey drives whether the input or the "替换" link is offered; it is the authoritative state.
-            Assert.Equal(expectsInput, page.IsEditingKey);
-            var replace = page.GetVisualDescendants().OfType<Button>()
-                .Any(b => b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "替换");
-            Assert.Equal(!expectsInput, replace);
+            Assert.Equal(hasKey ? "settings-test-key" : "", page.Secret.Text);
+            Assert.False(page.IsKeyRevealed);
+            Assert.True(page.Secret.IsEffectivelyVisible);
             window.Close();
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
-    }
-
-    // Settings-only credential store: the page never needs real secrets to decide what to show.
-    private sealed class FakeCredentials : Tbox.Desktop.Platform.IModelCredentialStore
-    {
-        public Task<bool> ContainsAsync(Guid connectionId, CancellationToken cancellationToken = default) => Task.FromResult(false);
-        public Task<string?> ReadAsync(Guid connectionId, CancellationToken cancellationToken = default) => Task.FromResult<string?>(null);
-        public Task WriteAsync(Guid connectionId, string secret, CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task DeleteAsync(Guid connectionId, CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     [Theory]

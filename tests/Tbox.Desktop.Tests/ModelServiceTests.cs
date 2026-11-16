@@ -12,19 +12,18 @@ public sealed class ModelServiceTests
     private const string CompleteStream = "data: {\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"世界\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n";
 
     [Fact]
-    public async Task SavesOnlyCredentialReferencesAndReloadsModelsWithoutReadingSecrets()
+    public async Task SavesTheKeyInPlaintextAndReloadsItWithoutTheCredentialStore()
     {
         using var scope = new Scope();
         var connection = scope.Connection();
-        await scope.Service.SaveConnectionAsync(connection, "test-only-secret", false, true, "text-one");
+        await scope.Service.SaveConnectionAsync(connection, "  test-only-secret ", true, "text-one");
         var json = await File.ReadAllTextAsync(scope.Path);
-        Assert.DoesNotContain("test-only-secret", json);
-        Assert.Contains("CredentialId", json);
+        Assert.Contains("\"ApiKey\": \"test-only-secret\"", json);
+        Assert.DoesNotContain("CredentialId", json);
         using var reloaded = new ModelService(scope.Path, scope.Credentials);
         await reloaded.InitializeAsync();
         Assert.Equal("text-one", reloaded.Configuration.DefaultModel!.ModelId);
-        Assert.Equal(0, scope.Credentials.ReadCount);
-        Assert.True(await reloaded.HasCredentialAsync(reloaded.Configuration.Connections.Single()));
+        Assert.Equal("test-only-secret", reloaded.KeyOf(connection.Id));
         Assert.Equal(0, scope.Credentials.ReadCount);
         // Caller-owned arrays and returned snapshots cannot mutate live configuration.
         connection.Models[0] = "mutated";
@@ -155,66 +154,74 @@ public sealed class ModelServiceTests
     }
 
     [Fact]
-    public async Task MissingOrUnavailableCredentialsNeverFallBackToUnauthenticatedRequests()
+    public async Task ConnectionWithoutAKeyNeverSendsAnUnauthenticatedRequest()
     {
         var calls = 0;
         using var scope = new Scope((_, _) => { calls++; return Task.FromResult(Response(CompleteStream)); });
-        await scope.Save();
-        scope.Credentials.Values.Clear();
+        var id = Guid.NewGuid();
+        await File.WriteAllTextAsync(scope.Path, $$$"""{"Connections":[{"Id":"{{{id}}}","Name":"无密钥","BaseUrl":"https://api.example.com/v1","Models":["text-one"]}],"DefaultModel":{"ConnectionId":"{{{id}}}","ModelId":"text-one"}}""");
         Assert.Equal(ModelFailure.Credentials, (await Assert.ThrowsAsync<ModelServiceException>(() => Collect(scope.Service.GenerateAsync(Input())))).Failure);
         Assert.Equal(0, calls);
+        Assert.False(scope.Service.HasKey(id));
     }
 
     [Fact]
-    public async Task ExplicitNoKeyModeNeverReadsOrSendsThePreviouslySavedSecret()
+    public async Task SavingRequiresAKey()
     {
-        using var scope = new Scope((r, _) => { Assert.Null(r.Headers.Authorization); return Task.FromResult(Response(CompleteStream)); });
-        await scope.Save();
-        var c = scope.Service.Configuration.Connections.Single();
-        await scope.Service.SaveConnectionAsync(c with { RequiresKey = false }, null, false, true, "text-one");
-        await Collect(scope.Service.GenerateAsync(Input()));
-        Assert.Equal(0, scope.Credentials.ReadCount);
+        using var scope = new Scope();
+        Assert.Equal(ModelFailure.Credentials, (await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(scope.Connection(), "  ", true, "text-one"))).Failure);
+        Assert.False(File.Exists(scope.Path));
     }
 
     [Fact]
-    public async Task ChangingOriginRequiresExplicitReplacementOrRemoval()
+    public async Task LegacyCredentialIsMigratedIntoTheFileThenDeleted()
     {
-        using var scope = new Scope(); await scope.Save();
-        var c = scope.Service.Configuration.Connections.Single();
-        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(c with { BaseUrl = "https://other.example/v1" }, null, false, true, "text-one"));
-        Assert.Equal(c.BaseUrl, scope.Service.Configuration.Connections.Single().BaseUrl);
-        await scope.Service.SaveConnectionAsync(c with { BaseUrl = "https://other.example/v1" }, "new-test-secret", false, true, "text-one");
-        Assert.Equal("new-test-secret", Assert.Single(scope.Credentials.Values).Value);
+        using var scope = new Scope();
+        var id = Guid.NewGuid(); var credential = Guid.NewGuid();
+        scope.Credentials.Values[credential] = "legacy-test-secret";
+        await File.WriteAllTextAsync(scope.Path, $$$"""{"Connections":[{"Id":"{{{id}}}","Name":"旧连接","BaseUrl":"https://api.example.com/v1","Models":["text-one"],"Protocol":"openai-chat","RequiresKey":true,"CredentialId":"{{{credential}}}"}],"DefaultModel":{"ConnectionId":"{{{id}}}","ModelId":"text-one"}}""");
+        await scope.Service.InitializeAsync();
+        Assert.Equal("legacy-test-secret", scope.Service.KeyOf(id));
+        var json = await File.ReadAllTextAsync(scope.Path);
+        Assert.Contains("legacy-test-secret", json);
+        Assert.DoesNotContain("CredentialId", json); Assert.DoesNotContain("RequiresKey", json);
+        Assert.Empty(scope.Credentials.Values);
+        Assert.Equal("text-one", scope.Service.Configuration.DefaultModel!.ModelId);
     }
 
     [Fact]
-    public async Task FailedConfigurationCommitPreservesOldCredentialAndCleansNewOne()
+    public async Task UnreadableLegacyCredentialIsKeptForTheNextStart()
+    {
+        using var scope = new Scope();
+        var id = Guid.NewGuid(); var credential = Guid.NewGuid();
+        scope.Credentials.Values[credential] = "legacy-test-secret"; scope.Credentials.FailRead = true;
+        var original = $$$"""{"Connections":[{"Id":"{{{id}}}","Name":"旧连接","BaseUrl":"https://api.example.com/v1","Models":["text-one"],"CredentialId":"{{{credential}}}"}]}""";
+        await File.WriteAllTextAsync(scope.Path, original);
+        await scope.Service.InitializeAsync();
+        Assert.False(scope.Service.HasKey(id));
+        Assert.Equal(original, await File.ReadAllTextAsync(scope.Path));
+        Assert.Single(scope.Credentials.Values);
+    }
+
+    [Fact]
+    public async Task FailedConfigurationCommitKeepsThePreviousKey()
     {
         using var scope = new Scope(); await scope.Save();
         var previous = scope.Service.Configuration.Connections.Single();
-        File.Delete(scope.Path); Directory.CreateDirectory(scope.Path); // Force atomic replace to fail, not the credential write.
-        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(previous, "replacement-test-secret", false, true, "text-one"));
-        Assert.Equal(previous.CredentialId, scope.Service.Configuration.Connections.Single().CredentialId);
-        Assert.Equal("test-only-secret", Assert.Single(scope.Credentials.Values).Value);
+        File.Delete(scope.Path); Directory.CreateDirectory(scope.Path); // Force the atomic replace to fail.
+        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SaveConnectionAsync(previous, "replacement-test-secret", true, "text-one"));
+        Assert.Equal("test-only-secret", scope.Service.KeyOf(previous.Id));
     }
 
     [Fact]
-    public async Task FailedCredentialWriteNeverClaimsTheConfigurationWasSaved()
-    {
-        using var scope = new Scope(); scope.Credentials.FailWrite = true;
-        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Save());
-        Assert.False(File.Exists(scope.Path)); Assert.Empty(scope.Service.Configuration.Connections);
-    }
-
-    [Fact]
-    public async Task DeleteFailuresPreserveTheVisibleConnectionAndSuccessfulDeleteClearsDefault()
+    public async Task DeletingAConnectionRemovesItsKeyAndClearsTheDefault()
     {
         using var scope = new Scope(); await scope.Save();
-        var c = scope.Service.Configuration.Connections.Single(); scope.Credentials.FailDelete = true;
-        await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.DeleteConnectionAsync(c.Id));
-        Assert.Single(scope.Service.Configuration.Connections);
-        scope.Credentials.FailDelete = false; await scope.Service.DeleteConnectionAsync(c.Id);
-        Assert.Empty(scope.Service.Configuration.Connections); Assert.Null(scope.Service.Configuration.DefaultModel); Assert.Empty(scope.Credentials.Values);
+        var c = scope.Service.Configuration.Connections.Single();
+        await scope.Service.DeleteConnectionAsync(c.Id);
+        Assert.Empty(scope.Service.Configuration.Connections); Assert.Null(scope.Service.Configuration.DefaultModel);
+        Assert.False(scope.Service.HasKey(c.Id));
+        Assert.DoesNotContain("test-only-secret", await File.ReadAllTextAsync(scope.Path));
     }
 
     [Fact]
@@ -236,19 +243,20 @@ public sealed class ModelServiceTests
         await scope.Save(); var c = scope.Service.Configuration.Connections.Single();
         Assert.Equal(["first", "second"], await scope.Service.GetModelsAsync(c.Id));
         Assert.Equal(["text-one", "text-two"], scope.Service.Configuration.Connections.Single().Models); // Fetch isn't a save or test.
-        await scope.Service.SaveConnectionAsync(c with { Models = ["manually-added"] }, null, false, true, "manually-added");
+        await scope.Service.SaveConnectionAsync(c with { Models = ["manually-added"] }, "test-only-secret", true, "manually-added");
         Assert.Equal("manually-added", scope.Service.Configuration.DefaultModel!.ModelId);
     }
 
     [Fact]
-    public async Task DefaultModelCanChangeWithoutRewritingTheConnectionOrReadingTheSecret()
+    public async Task DefaultModelCanChangeWithoutLosingTheKey()
     {
         using var scope = new Scope(); await scope.Save();
         var connection = scope.Service.Configuration.Connections.Single();
         await scope.Service.SetDefaultModelAsync(new(connection.Id, "text-two"));
         Assert.Equal("text-two", scope.Service.Configuration.DefaultModel!.ModelId);
-        Assert.Equal(connection.CredentialId, scope.Service.Configuration.Connections.Single().CredentialId);
-        Assert.Equal(0, scope.Credentials.ReadCount);
+        using var reloaded = new ModelService(scope.Path);
+        await reloaded.InitializeAsync();
+        Assert.Equal("test-only-secret", reloaded.KeyOf(connection.Id));
         await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.SetDefaultModelAsync(new(connection.Id, "missing")));
         Assert.Equal("text-two", scope.Service.Configuration.DefaultModel!.ModelId);
     }
@@ -258,18 +266,15 @@ public sealed class ModelServiceTests
     internal static async Task<List<TextGenerationEvent>> Collect(IAsyncEnumerable<TextGenerationEvent> stream)
     { var events = new List<TextGenerationEvent>(); await foreach (var item in stream) events.Add(item); return events; }
 
+    // Legacy credential store holding keys saved before plaintext storage.
     internal sealed class Credentials : IModelCredentialStore
     {
         public Dictionary<Guid, string> Values { get; } = [];
         public int ReadCount { get; private set; }
-        public bool FailWrite { get; set; }
-        public bool FailDelete { get; set; }
-        public Task<bool> ContainsAsync(Guid id, CancellationToken ct = default) => Task.FromResult(Values.ContainsKey(id));
-        public Task<string?> ReadAsync(Guid id, CancellationToken ct = default) { ReadCount++; return Task.FromResult(Values.GetValueOrDefault(id)); }
-        public Task WriteAsync(Guid id, string secret, CancellationToken ct = default)
-        { if (FailWrite) throw new ModelServiceException(ModelFailure.Credentials, "模拟凭据写入失败"); Values[id] = secret; return Task.CompletedTask; }
-        public Task DeleteAsync(Guid id, CancellationToken ct = default)
-        { if (FailDelete) throw new ModelServiceException(ModelFailure.Credentials, "模拟凭据删除失败"); Values.Remove(id); return Task.CompletedTask; }
+        public bool FailRead { get; set; }
+        public Task<string?> ReadAsync(Guid id, CancellationToken ct = default)
+        { ReadCount++; if (FailRead) throw new ModelServiceException(ModelFailure.Credentials, "模拟凭据读取失败"); return Task.FromResult(Values.GetValueOrDefault(id)); }
+        public Task DeleteAsync(Guid id, CancellationToken ct = default) { Values.Remove(id); return Task.CompletedTask; }
     }
     internal sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     { protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) => send(request, ct); }
@@ -308,7 +313,7 @@ public sealed class ModelServiceTests
             Service = new(Path, Credentials, new Handler(send ?? ((_, _) => Task.FromResult(Response(CompleteStream))))) { RequestTimeout = timeout ?? TimeSpan.FromSeconds(5) };
         }
         public ModelConnection Connection() => new(Guid.NewGuid(), "测试连接", "https://api.example.com/v1", ["text-one", "text-two"]);
-        public Task Save() => Service.SaveConnectionAsync(Connection(), "test-only-secret", false, true, "text-one");
+        public Task Save() => Service.SaveConnectionAsync(Connection(), "test-only-secret", true, "text-one");
         public void Dispose() { Service.Dispose(); Directory.Delete(_directory, true); }
     }
 }
