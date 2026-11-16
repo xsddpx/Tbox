@@ -1,6 +1,6 @@
 namespace Tbox.Desktop.Platform;
 
-// Keys saved before 1.1.75 live in the system credential store. They are read once, copied into the
+// Keys saved before 1.1.76 live in the system credential store. They are read once, copied into the
 // plaintext model configuration, then deleted. New keys are never written here.
 public interface IModelCredentialStore
 {

@@ -5,7 +5,7 @@ using Tbox.Core.ModelServices;
 namespace Tbox.Desktop.ModelServices;
 
 // The file holds each connection's API key in plaintext; the public ModelConfiguration never carries keys.
-// Legacy maps a connection to its pre-1.1.75 system-credential reference until that key is migrated.
+// Legacy maps a connection to its pre-1.1.76 system-credential reference until that key is migrated.
 internal sealed record ModelFileSnapshot(ModelConfiguration Configuration, IReadOnlyDictionary<Guid, string> Keys, IReadOnlyDictionary<Guid, Guid> Legacy);
 
 internal sealed class ModelConfigurationStore(string path)
