@@ -41,6 +41,8 @@ public sealed class MainWindow : Window
     private readonly Control _captureTools;
     private readonly Button _captureButton;
     private readonly Dictionary<HotkeyAction, ShortcutRow> _shortcuts = [];
+    private readonly ToggleSwitch _systemScreenshotShortcutToggle = Switch("接管 macOS 全屏截图快捷键");
+    private readonly SettingsLine _systemScreenshotShortcut;
     private readonly SettingsLine _cache;
     private readonly Grid _recent = new() { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 6, 0, 0) };
     private readonly TextBlock _recentEmpty = Ui.Description("截图后会显示在这里。");
@@ -81,6 +83,10 @@ public sealed class MainWindow : Window
         _captureButton = Ui.Primary("截图", () => controller.Run(controller.CaptureAsync), $"截图 · {ShortcutLabels.Capture}");
         _captureButton.MinHeight = 36; _captureButton.Padding = new Thickness(14, 0, 10, 0);
         foreach (var action in ShortcutPolicy.Actions) _shortcuts[action] = new ShortcutRow(controller, action);
+        _systemScreenshotShortcut = new SettingsLine("接管 macOS 全屏截图快捷键", "", _systemScreenshotShortcutToggle)
+        {
+            IsVisible = controller.Platform.SupportsSystemScreenshotShortcutTakeover
+        };
         controller.ShortcutsChanged += RefreshShortcutLabels;
         _cache = new SettingsLine("保存位置", "", Ui.Button("更改…", () => controller.Run(controller.ChooseCacheAsync), "更改保存位置"));
         _captureTools = CaptureTools();
@@ -179,6 +185,7 @@ public sealed class MainWindow : Window
 
     public void SetStatus(string message)
     {
+        if (string.IsNullOrWhiteSpace(message)) message = _controller.SettingsLoadWarning ?? "";
         _statusText.Text = message;
         _status.IsVisible = !string.IsNullOrWhiteSpace(message);
     }
@@ -193,6 +200,7 @@ public sealed class MainWindow : Window
         _folderBarToggle.IsChecked = settings.ShowFolderJumpBar;
         _folderBarToggle.IsEnabled = folders;
         _startupToggle.IsChecked = _controller.Startup.Enabled; _failureToggle.IsChecked = settings.ShowFailureNotifications;
+        _systemScreenshotShortcutToggle.IsChecked = settings.TakeOverSystemScreenshotShortcut;
         _updating = false;
 
         // 截图: the permission bar owns the page's single primary button while it is shown.
@@ -204,6 +212,18 @@ public sealed class MainWindow : Window
         _captureOff.IsVisible = !capture;
         _captureTools.IsEnabled = capture; _captureTools.Opacity = capture ? 1 : .45;
         foreach (var row in _shortcuts.Values) row.Refresh();
+        if (_systemScreenshotShortcut.IsVisible)
+        {
+            var canTakeOver = _controller.CanTakeOverSystemScreenshotShortcut;
+            var active = _controller.Platform.IsSystemScreenshotShortcutTakeoverActive;
+            _systemScreenshotShortcutToggle.IsEnabled = canTakeOver || settings.TakeOverSystemScreenshotShortcut;
+            _systemScreenshotShortcut.SetDescription(!canTakeOver
+                ? "启用截图与贴图，并将显隐贴图恢复为默认快捷键后可用"
+                : active ? "⌘⇧3 显示或隐藏贴图。关闭开关后恢复系统截图"
+                : settings.TakeOverSystemScreenshotShortcut ? "接管未生效，请检查辅助功能授权后重新开启"
+                : "允许辅助功能后，用 ⌘⇧3 显示或隐藏贴图",
+                error: canTakeOver && settings.TakeOverSystemScreenshotShortcut && !active);
+        }
         _cache.SetDescription(_controller.CacheDirectory);
 
         // 文件夹跳转
@@ -241,6 +261,7 @@ public sealed class MainWindow : Window
         void On(ToggleSwitch toggle, Func<bool, Task> change) =>
             toggle.IsCheckedChanged += (_, _) => { if (!_updating) _controller.Run(() => change(toggle.IsChecked == true)); };
         On(_captureToggle, enabled => _controller.SetModulesAsync(enabled, null));
+        On(_systemScreenshotShortcutToggle, _controller.SetSystemScreenshotShortcutTakeoverAsync);
         On(_folderToggle, enabled => _controller.SetModulesAsync(null, enabled));
         On(_folderBarToggle, _controller.SetFolderJumpBarAsync);
         On(_startupToggle, _controller.SetStartupAsync);
@@ -271,9 +292,11 @@ public sealed class MainWindow : Window
         _recentEmpty.Margin = new Thickness(0, 6, 0, 0);
         var history = new SettingsLine("截图历史", "截图时按 , / . 翻看最近 7 天的截图，最多 50 张",
             Ui.Button("清除…", () => _controller.Run(_controller.ClearCaptureHistoryAsync), "清除截图历史"));
+        var captureShortcuts = new List<Control> { _shortcuts[HotkeyAction.Capture], _shortcuts[HotkeyAction.Pin], _shortcuts[HotkeyAction.Toggle] };
+        if (_systemScreenshotShortcut.IsVisible) captureShortcuts.Add(_systemScreenshotShortcut);
         AddPage(MainPage.Capture, PageHeader(IconKind.Capture, "截图", "截图后可标注、贴图、识别文字", _captureToggle),
             Spaced(_capturePermission, 14), Spaced(_captureOff, 16), _captureTools,
-            Ui.GroupHeader("快捷键"), Ui.Rows(_shortcuts[HotkeyAction.Capture], _shortcuts[HotkeyAction.Pin], _shortcuts[HotkeyAction.Toggle]),
+            Ui.GroupHeader("快捷键"), Ui.Rows([.. captureShortcuts]),
             Ui.GroupHeader("设置"), Ui.Rows(_cache, history),
             Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty);
 

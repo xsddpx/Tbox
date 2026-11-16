@@ -55,6 +55,10 @@ public interface IPlatformServices : IDisposable
     // false means the system or another application already holds the combination.
     bool RegisterHotkey(Tbox.Core.HotkeyBinding binding, Action<Tbox.Core.HotkeyAction> onPressed);
     void UnregisterHotkey(Tbox.Core.HotkeyAction action);
+    bool SupportsSystemScreenshotShortcutTakeover => false;
+    bool IsSystemScreenshotShortcutTakeoverActive => false;
+    bool TryStartSystemScreenshotShortcutTakeover(Action onPressed, bool requestPermission) => false;
+    void StopSystemScreenshotShortcutTakeover() { }
     void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay);
     void MoveToPointer(nint handle);
     DesktopPlacement GetWindowPlacement(nint handle);

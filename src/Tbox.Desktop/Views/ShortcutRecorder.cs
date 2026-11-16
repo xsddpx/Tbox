@@ -139,6 +139,12 @@ internal sealed class ShortcutRow : SettingsLine
         if (Recorder.IsRecording) { SetDescription("按 Esc 取消"); return; }
         if (_error is not null) { SetDescription(_error, error: true); return; }
         if (enabled && _controller.HasHotkeyConflictFor(_action)) { SetDescription("被其他应用占用，请换一个组合", error: true); return; }
+        if (enabled && _controller.UsesSystemScreenshotShortcut(_action, _controller.ShortcutFor(_action)) &&
+            !_controller.Platform.IsSystemScreenshotShortcutTakeoverActive)
+        {
+            SetDescription("此组合由系统处理；可开启下方接管选项或改绑");
+            return;
+        }
         SetDescription(_action switch
         {
             HotkeyAction.Capture => "框选区域后标注、贴图或识别文字",

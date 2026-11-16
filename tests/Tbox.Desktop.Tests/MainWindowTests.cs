@@ -237,6 +237,100 @@ public sealed class MainWindowTests
     }
 
     [AvaloniaFact]
+    public async Task ScreenshotShortcutIsOptInAndReleasesWhenDisabledOrReassigned()
+    {
+        var platform = new FakePlatform { SupportsSystemScreenshotShortcutTakeover = true };
+        using var scope = new Scope(platform);
+        var chord = ShortcutPolicy.Default(HotkeyAction.Toggle, mac: true);
+        await scope.InitializeAsync(new HotkeyBindings(Toggle: chord));
+        var controller = scope.Controller;
+        controller.ShowMain();
+        Layout(controller.Main);
+        var option = Assert.Single(controller.Main.GetVisualDescendants().OfType<ToggleSwitch>(),
+            t => Name(t) == "接管 macOS 全屏截图快捷键");
+        Assert.False(option.IsChecked);
+        Assert.Empty(platform.SystemScreenshotShortcutAttempts);
+        Assert.False(platform.Hotkeys.ContainsKey(HotkeyAction.Toggle));
+
+        await controller.SetSystemScreenshotShortcutTakeoverAsync(true);
+        Assert.False(option.IsChecked);
+        Assert.Equal(new[] { true }, platform.SystemScreenshotShortcutAttempts);
+        Assert.False((await scope.ReadSettingsAsync()).TakeOverSystemScreenshotShortcut);
+
+        platform.CanStartSystemScreenshotShortcutTakeover = true;
+        await controller.SetSystemScreenshotShortcutTakeoverAsync(true);
+        Assert.True(option.IsChecked);
+        Assert.True((await scope.ReadSettingsAsync()).TakeOverSystemScreenshotShortcut);
+        Assert.NotNull(platform.SystemScreenshotShortcutHandler);
+        await controller.PinPictureAsync(DesktopController.RenderText("Takeover fixture"));
+        platform.SystemScreenshotShortcutHandler!();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(controller.PinsHidden);
+
+        Assert.True(controller.TryPauseHotkeys());
+        Assert.Null(platform.SystemScreenshotShortcutHandler);
+        controller.ResumeHotkeys();
+        Assert.False(platform.SystemScreenshotShortcutAttempts[^1]);
+        Assert.NotNull(platform.SystemScreenshotShortcutHandler);
+
+        Assert.Null(await controller.SetShortcutAsync(HotkeyAction.Toggle, new Shortcut(false, false, false, false, "F9")));
+        Assert.Null(platform.SystemScreenshotShortcutHandler);
+        Assert.Equal("F9", platform.Hotkeys[HotkeyAction.Toggle].Key);
+        Assert.Null(await controller.SetShortcutAsync(HotkeyAction.Toggle, chord));
+        Assert.NotNull(platform.SystemScreenshotShortcutHandler);
+
+        var previousHandler = platform.SystemScreenshotShortcutHandler!;
+        var werePinsHidden = controller.PinsHidden;
+        await controller.SetSystemScreenshotShortcutTakeoverAsync(false);
+        previousHandler();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(werePinsHidden, controller.PinsHidden);
+        Assert.Null(platform.SystemScreenshotShortcutHandler);
+        Assert.False((await scope.ReadSettingsAsync()).TakeOverSystemScreenshotShortcut);
+        Assert.False(platform.Hotkeys.ContainsKey(HotkeyAction.Toggle));
+    }
+
+    [AvaloniaFact]
+    public async Task SavedScreenshotTakeoverStartsWithoutPromptAndStopsWithTheModule()
+    {
+        var platform = new FakePlatform
+        {
+            SupportsSystemScreenshotShortcutTakeover = true,
+            CanStartSystemScreenshotShortcutTakeover = true
+        };
+        using var scope = new Scope(platform);
+        await scope.InitializeAsync(new HotkeyBindings(Toggle: ShortcutPolicy.Default(HotkeyAction.Toggle, mac: true)),
+            screenshotTakeover: true);
+        Assert.Equal(new[] { false }, platform.SystemScreenshotShortcutAttempts);
+        Assert.NotNull(platform.SystemScreenshotShortcutHandler);
+        await scope.Controller.SetModulesAsync(false, null);
+        Assert.Null(platform.SystemScreenshotShortcutHandler);
+        await scope.Controller.SetModulesAsync(true, null);
+        Assert.NotNull(platform.SystemScreenshotShortcutHandler);
+        scope.Controller.Dispose();
+        Assert.Null(platform.SystemScreenshotShortcutHandler);
+    }
+
+    [AvaloniaFact]
+    public async Task SavedShortcutTakesPrecedenceWhenAnUpgradeAddsTheSameDefault()
+    {
+        var platform = new FakePlatform();
+        using var scope = new Scope(platform);
+        var mac = OperatingSystem.IsMacOS();
+        var previousPin = ShortcutPolicy.Default(HotkeyAction.Capture, mac);
+        await scope.InitializeAsync(new HotkeyBindings(Pin: previousPin));
+
+        Assert.Equal(previousPin, platform.Hotkeys[HotkeyAction.Pin]);
+        Assert.True(scope.Controller.HasHotkeyConflictFor(HotkeyAction.Capture));
+        Assert.False(platform.Hotkeys.ContainsKey(HotkeyAction.Capture));
+        Assert.Equal(ShortcutPolicy.Default(HotkeyAction.Toggle, mac), platform.Hotkeys[HotkeyAction.Toggle]);
+
+        Assert.Null(await scope.Controller.SetShortcutAsync(HotkeyAction.Pin, null));
+        Assert.Equal(previousPin, platform.Hotkeys[HotkeyAction.Capture]);
+        Assert.False(scope.Controller.HasHotkeyConflictFor(HotkeyAction.Capture));
+    }
+
+    [AvaloniaFact]
     public async Task RecordingAShortcutPausesTboxHotkeysSavesItAndUpdatesLabels()
     {
         var platform = new FakePlatform { HasScreenPermission = true };
@@ -264,7 +358,7 @@ public sealed class MainWindowTests
         Assert.Equal(captureDefault, platform.Hotkeys[HotkeyAction.Capture]);
 
         // A combination already used by another Tbox shortcut is refused and the old one stays.
-        await Press(row, mac ? Key.D2 : Key.F7, mac ? KeyModifiers.Control | KeyModifiers.Shift : KeyModifiers.None);
+        await Press(row, Key.D2, KeyModifiers.Shift | (mac ? KeyModifiers.Meta : KeyModifiers.Control));
         Assert.Equal("已被“贴出剪贴板”使用。", row.Description);
         Assert.Equal(captureDefault.Caps(mac), Caps(row));
 
@@ -400,15 +494,18 @@ public sealed class MainWindowTests
             Controller.UseCacheDirectoryForTests(directory ?? Path.Combine(_settings, "cache"));
             Controller.Main = new MainWindow(Controller);
         }
-        public async Task InitializeAsync(HotkeyBindings? hotkeys = null)
+        public async Task InitializeAsync(HotkeyBindings? hotkeys = null, bool screenshotTakeover = false)
         {
             await new JsonSettingsStore(Path.Combine(_settings, "settings.json")).SaveAsync(new AppSettings
             {
                 ScreenCaptureCacheDirectory = Path.Combine(_settings, "cache"),
-                Hotkeys = hotkeys
+                Hotkeys = hotkeys,
+                TakeOverSystemScreenshotShortcut = screenshotTakeover
             });
             await Controller.InitializeAsync([]);
         }
+        public Task<AppSettings> ReadSettingsAsync() =>
+            new JsonSettingsStore(Path.Combine(_settings, "settings.json")).LoadAsync();
         public void Dispose()
         {
             Controller.Dispose();

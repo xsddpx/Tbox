@@ -31,6 +31,19 @@ internal sealed class FakePlatform : IPlatformServices
         Hotkeys[binding.Action] = binding.Shortcut; return true;
     }
     public void UnregisterHotkey(HotkeyAction action) => Hotkeys.Remove(action);
+    public bool SupportsSystemScreenshotShortcutTakeover { get; set; }
+    public bool CanStartSystemScreenshotShortcutTakeover { get; set; }
+    public Action? SystemScreenshotShortcutHandler { get; private set; }
+    public List<bool> SystemScreenshotShortcutAttempts { get; } = [];
+    public bool IsSystemScreenshotShortcutTakeoverActive => SystemScreenshotShortcutHandler is not null;
+    public bool TryStartSystemScreenshotShortcutTakeover(Action onPressed, bool requestPermission)
+    {
+        SystemScreenshotShortcutAttempts.Add(requestPermission);
+        if (!CanStartSystemScreenshotShortcutTakeover) return false;
+        SystemScreenshotShortcutHandler = onPressed;
+        return true;
+    }
+    public void StopSystemScreenshotShortcutTakeover() => SystemScreenshotShortcutHandler = null;
     public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) { }
     public void MoveToPointer(nint handle) { }
     public DesktopPlacement GetWindowPlacement(nint handle) => new(0, 0, 800, 600);

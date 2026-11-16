@@ -7,22 +7,28 @@ namespace Tbox.Core.Tests;
 public sealed class ShortcutPolicyTests
 {
     [Theory]
-    [InlineData(HotkeyAction.Capture, false, "F6")]
-    [InlineData(HotkeyAction.Pin, false, "F7")]
-    [InlineData(HotkeyAction.Toggle, false, "F8")]
+    [InlineData(HotkeyAction.Capture, false, "Ctrl+Shift+1")]
+    [InlineData(HotkeyAction.Pin, false, "Ctrl+Shift+2")]
+    [InlineData(HotkeyAction.Toggle, false, "Ctrl+Shift+3")]
     [InlineData(HotkeyAction.Folder, false, "Ctrl+G")]
-    [InlineData(HotkeyAction.Capture, true, "⌃⇧1")]
-    [InlineData(HotkeyAction.Toggle, true, "⌃⇧3")]
+    [InlineData(HotkeyAction.Capture, true, "⇧⌘1")]
+    [InlineData(HotkeyAction.Pin, true, "⇧⌘2")]
+    [InlineData(HotkeyAction.Toggle, true, "⇧⌘3")]
     [InlineData(HotkeyAction.Folder, true, "⌃G")]
-    public void DefaultsKeepTheExistingShortcuts(HotkeyAction action, bool mac, string expected) =>
-        Assert.Equal(expected, ShortcutPolicy.Default(action, mac).Display(mac));
+    public void DefaultsUseThePlatformModifiersAndCanBeRecorded(HotkeyAction action, bool mac, string expected)
+    {
+        var shortcut = ShortcutPolicy.Default(action, mac);
+        Assert.Equal(expected, shortcut.Display(mac));
+        Assert.Null(ShortcutPolicy.Validate(shortcut, mac));
+    }
 
     [Fact]
     public void SavedChoicesOverrideOnlyTheirAction()
     {
-        var bindings = new HotkeyBindings().With(HotkeyAction.Pin, new Shortcut(true, true, false, false, "P"));
-        Assert.Equal("Ctrl+Alt+P", ShortcutPolicy.Effective(bindings, HotkeyAction.Pin, false).Display(false));
-        Assert.Equal("F6", ShortcutPolicy.Effective(bindings, HotkeyAction.Capture, false).Display(false));
+        var custom = new Shortcut(false, false, false, false, "F7");
+        var bindings = new HotkeyBindings().With(HotkeyAction.Pin, custom);
+        Assert.Equal(custom, ShortcutPolicy.Effective(bindings, HotkeyAction.Pin, false));
+        Assert.Equal("Ctrl+Shift+1", ShortcutPolicy.Effective(bindings, HotkeyAction.Capture, false).Display(false));
         Assert.Equal(new HotkeyBindings(), bindings.With(HotkeyAction.Pin, null));
     }
 
