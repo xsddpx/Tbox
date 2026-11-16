@@ -85,7 +85,9 @@ public sealed class ModelServicesPageTests
         var reveal = Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "显示密钥");
         reveal.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Assert.True(scope.Page.IsKeyRevealed);
-        Assert.Equal("隐藏", reveal.Content as string);
+        Assert.IsType<LineIcon>(reveal.Content);
+        Assert.Same(reveal, scope.Page.Secret.InnerRightContent);
+        Assert.Equal("隐藏密钥", AutomationProperties.GetName(reveal));
         foreach (var removed in new[] { "替换", "删除密钥", "取消替换" })
             Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == removed);
         Assert.Empty(scope.Page.GetVisualDescendants().OfType<CheckBox>());
@@ -114,19 +116,88 @@ public sealed class ModelServicesPageTests
     }
 
     [AvaloniaFact]
-    public async Task TestUsesTheSavedConnectionAndDirtyEditsBlockAnotherTest()
+    public async Task AddAndEditTestTheCurrentFormWithoutSavingIt()
     {
         using var scope = new Scope();
         await scope.Page.OpenAsync();
         await scope.Page.BeginAddAsync();
-        scope.Page.Secret.Text = "page-test-secret";
+        var test = FindButton(scope.Page, "测试连接");
+        Assert.False(test.IsEnabled);
+        scope.Page.Secret.Text = "before-save-key";
+        Assert.True(test.IsEnabled);
+        test.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        await scope.WaitForIdleAsync();
+        Assert.Equal("连接正常", scope.Page.Status);
+        Assert.Equal(("https://api.deepseek.com/chat/completions", "before-save-key", "deepseek-flash"), Assert.Single(scope.Requests));
+        Assert.Empty(scope.Service.Configuration.Connections);
+        Assert.False(File.Exists(scope.ConfigPath));
+        scope.Window.UpdateLayout();
+        TaskToolbarTests.Preview(scope.Window, "model-services-add-tested");
         await scope.Page.SaveAsync();
+        Assert.Equal(1, scope.Calls);
+        var savedConfig = await File.ReadAllTextAsync(scope.ConfigPath);
+        var id = scope.Page.ConnectionId;
+        await scope.Page.OpenAsync();
+        scope.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "可用");
+
+        await scope.Page.BeginEditAsync(id);
+        scope.Page.BaseUrl.Text = "https://gateway.example/v1";
+        scope.Page.Secret.Text = "new-draft-key";
+        FindButton(scope.Page, "移除模型 deepseek-flash").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.False(FindButton(scope.Page, "测试连接").IsEnabled);
+        scope.Page.AddModel("replacement");
         await scope.Page.TestAsync();
         Assert.Equal("连接正常", scope.Page.Status);
-        Assert.Equal(1, scope.Calls);
-        scope.Page.AddModel("different-model");
+        Assert.Equal(("https://gateway.example/v1/chat/completions", "new-draft-key", "replacement"), scope.Requests.Last());
+        Assert.Equal("before-save-key", scope.Service.KeyOf(id));
+        Assert.Equal(savedConfig, await File.ReadAllTextAsync(scope.ConfigPath));
+        scope.Page.Secret.Text = "another-draft-key";
+        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "连接正常");
+        await scope.Page.SaveAsync();
+        Assert.Equal(2, scope.Calls);
+        Assert.Equal("another-draft-key", scope.Service.KeyOf(id));
+        Assert.Equal(["replacement"], scope.Service.Configuration.Connections.Single().Models);
+    }
+
+    [AvaloniaFact]
+    public async Task DiscardingAFailedDraftDoesNotChangeTheSavedTestResult()
+    {
+        using var scope = new Scope();
+        await scope.Page.BeginAddAsync();
+        scope.Page.Secret.Text = "working-key";
+        await scope.Page.TestAsync();
+        await scope.Page.SaveAsync();
+        scope.Page.Secret.Text = "rejected-test-key";
         await Assert.ThrowsAsync<ModelServiceException>(() => scope.Page.TestAsync());
-        Assert.Equal(1, scope.Calls);
+        Assert.Equal("working-key", scope.Service.KeyOf(scope.Page.ConnectionId));
+        scope.Page.Leave();
+        scope.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "可用");
+        Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "密钥无效或无权限");
+    }
+
+    [AvaloniaFact]
+    public async Task NewPresetCanFetchAndTestAModelBeforeItsFirstSave()
+    {
+        using var scope = new Scope();
+        await scope.Page.BeginAddAsync();
+        scope.Page.SelectPreset("OpenAI");
+        scope.Page.Secret.Text = "new-catalog-key";
+        Assert.False(FindButton(scope.Page, "测试连接").IsEnabled);
+        Assert.True(FindButton(scope.Page, "获取模型").IsEnabled);
+        var fetching = scope.Page.FetchModelsAsync();
+        var picker = Assert.IsType<ModelPickerWindow>(Assert.Single(scope.Window.OwnedWindows));
+        Assert.Single(picker.GetVisualDescendants().OfType<CheckBox>(), checkbox => AutomationProperties.GetName(checkbox) == "openai/gpt-5").IsChecked = true;
+        ClickPickerButton(picker, "更新列表");
+        await fetching;
+        Assert.Equal(("https://api.openai.com/v1/models", "new-catalog-key", null), Assert.Single(scope.Requests));
+        Assert.True(FindButton(scope.Page, "测试连接").IsEnabled);
+        await scope.Page.TestAsync();
+        Assert.Equal("openai/gpt-5", scope.Requests.Last().Model);
+        Assert.False(File.Exists(scope.ConfigPath));
     }
 
     [AvaloniaFact]
@@ -232,7 +303,7 @@ public sealed class ModelServicesPageTests
         Assert.Equal("", scope.Page.BaseUrl.Text);
         Assert.Empty(scope.Page.Models);
         Assert.False(scope.Page.BaseUrl.IsReadOnly);
-        Assert.Contains(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "添加模型");
+        Assert.Contains(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "手动添加");
         scope.Page.ConnectionName.Text = "自定义中转";
         scope.Page.BaseUrl.Text = "https://gateway.example/v1";
         scope.Page.Secret.Text = "custom-test-key";
@@ -276,10 +347,29 @@ public sealed class ModelServicesPageTests
         Assert.Equal(tabs.Child!.Bounds.Width + tabs.Padding.Left + tabs.Padding.Right, tabs.Bounds.Width, precision: 2);
         Assert.True(tabs.Bounds.Width < header.Bounds.Width);
 
+        var actions = new[] { "获取模型", "手动添加", "测试连接" }.Select(text => FindButton(scope.Page, text)).ToArray();
+        Assert.All(actions, action => Assert.Contains("link", action.Classes));
+        Assert.All(actions, action =>
+        {
+            var origin = action.TranslatePoint(default, scope.Page)!.Value;
+            Assert.True(origin.X >= 0 && origin.X + action.Bounds.Width <= scope.Page.Bounds.Width);
+        });
+        var remove = FindButton(scope.Page, "移除模型 deepseek-flash");
+        var circle = Assert.IsType<Border>(remove.Content);
+        Assert.IsType<LineIcon>(circle.Child);
+        Assert.Equal(circle.Width / 2, circle.CornerRadius.TopLeft);
+        Assert.NotNull(circle.Background);
         foreach (var field in scope.Page.GetVisualDescendants().OfType<TextBox>().Where(control => control.IsEffectivelyVisible))
             Assert.True(field.Bounds.Width <= scope.Page.Bounds.Width, $"{field.Bounds} / {scope.Page.Bounds}");
         Assert.Single(scope.Page.GetVisualDescendants().OfType<Button>(), button => button.IsEffectivelyVisible && button.Classes.Contains("accent"));
         TaskToolbarTests.Preview(scope.Window, $"model-services-{width}");
+    }
+
+    private static Button FindButton(ModelServicesPage page, string name)
+    {
+        Dispatcher.UIThread.RunJobs();
+        return Assert.Single(page.GetVisualDescendants().OfType<Button>(),
+            button => button.IsEffectivelyVisible && AutomationProperties.GetName(button) == name);
     }
 
     private sealed class Scope : IDisposable
@@ -289,14 +379,23 @@ public sealed class ModelServicesPageTests
         public ModelService Service { get; }
         public ModelServicesPage Page { get; }
         public Window Window { get; } = new();
-        public int Calls { get; private set; }
+        public List<(string Endpoint, string? Key, string? Model)> Requests { get; } = [];
+        public int Calls => Requests.Count;
+        public string ConfigPath => Path.Combine(_directory, "models.json");
         public Scope(bool unauthorized = false)
         {
             Directory.CreateDirectory(_directory);
-            Service = new(Path.Combine(_directory, "models.json"), Credentials, new ModelServiceTests.Handler((request, _) =>
+            Service = new(ConfigPath, Credentials, new ModelServiceTests.Handler((request, ct) =>
             {
-                Calls++;
-                if (unauthorized) return Task.FromResult(ModelServiceTests.Response("{}", "application/json", System.Net.HttpStatusCode.Unauthorized));
+                string? model = null;
+                if (request.Content is { } content)
+                {
+                    using var json = System.Text.Json.JsonDocument.Parse(content.ReadAsStringAsync(ct).GetAwaiter().GetResult());
+                    model = json.RootElement.GetProperty("model").GetString();
+                }
+                var key = request.Headers.Authorization?.Parameter;
+                Requests.Add((request.RequestUri!.AbsoluteUri, key, model));
+                if (unauthorized || key == "rejected-test-key") return Task.FromResult(ModelServiceTests.Response("{}", "application/json", System.Net.HttpStatusCode.Unauthorized));
                 if (request.Method == HttpMethod.Get)
                 {
                     var sample = new[] { "deepseek-flash", "openai/gpt-5", "anthropic/claude-sonnet-4.6",
@@ -312,6 +411,12 @@ public sealed class ModelServicesPageTests
             Window.Content = new ScrollViewer { Content = Page, HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center };
             Window.Show(); Window.UpdateLayout();
         }
+        public async Task WaitForIdleAsync()
+        {
+            for (var attempt = 0; Page.IsBusy && attempt < 50; attempt++) await Task.Delay(10);
+            Assert.False(Page.IsBusy);
+        }
+
         public void Dispose() { Page.Dispose(); Window.Close(); Service.Dispose(); Directory.Delete(_directory, true); }
     }
 }
