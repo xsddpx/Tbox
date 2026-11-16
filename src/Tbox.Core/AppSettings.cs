@@ -24,6 +24,7 @@ public sealed record AppSettings
     public string[]? FavoriteFolders { get; init; }
     public string[]? RecentFolderJumps { get; init; }
     public bool ScreenPasteEnabled { get; init; } = true;
+    public bool TakeOverSystemScreenshotShortcut { get; init; }
     public string? ScreenCaptureCacheDirectory { get; init; }
     public bool StartWithWindows { get; init; }
     public bool ShowFailureNotifications { get; init; } = true;

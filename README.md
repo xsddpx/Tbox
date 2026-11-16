@@ -30,7 +30,7 @@
 | 显示或隐藏全部贴图 | `Ctrl+Shift+3` | `Cmd+Shift+3` |
 | 文件夹跳转 | `Ctrl+G` | `Control+G` |
 
-升级时，已自定义的快捷键会保留。如果 Mac 的 `Cmd+Shift+3` 触发了系统全屏截图，可在「系统设置 → 键盘 → 键盘快捷键 → 截屏」更改系统快捷键，然后重启 Tbox，也可在 Tbox 的截图页选择其他组合。参见 [Apple 截图快捷键说明](https://support.apple.com/zh-cn/guide/mac-help/mh26782/mac)。
+升级时，已自定义的快捷键会保留。macOS 默认由系统处理 `Cmd+Shift+3`。要用它显隐贴图，可在 Tbox 的「截图 → 快捷键」开启「接管 macOS 全屏截图快捷键」并授予辅助功能权限。关闭开关或退出 Tbox 后，快捷键交回系统。也可在 Tbox 中为显隐贴图选择其他组合。
 
 [各版本更新说明](https://github.com/xsddpx/Tbox/releases)
 

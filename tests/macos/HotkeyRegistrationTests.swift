@@ -1,3 +1,4 @@
+import ApplicationServices
 import Carbon
 import Foundation
 
@@ -13,6 +14,7 @@ struct HotkeyRegistrationTests {
             return
         }
 
+        verifyScreenshotShortcutFiltering()
         try withOccupiedShortcut {
             let status = registerHotkey({ _ in }, 1, Int32(occupiedKey), Int32(modifiers))
             precondition(status == eventHotKeyExistsErr, "Registration should report the conflict, got \(status)")
@@ -22,6 +24,23 @@ struct HotkeyRegistrationTests {
         precondition(registerHotkey({ _ in }, 1, Int32(occupiedKey), Int32(modifiers)) == noErr)
         unregisterHotkeys()
         print("PASS: native hotkeys reject an exclusive conflict and register again after release")
+    }
+
+    private static func verifyScreenshotShortcutFiltering() {
+        let three = Int64(kVK_ANSI_3)
+        let combo: CGEventFlags = [.maskCommand, .maskShift]
+        var filter = ScreenshotShortcutFilter()
+        precondition(filter.handle(.keyDown, key: three, flags: combo, repeats: true) == .pass)
+        precondition(filter.handle(.keyDown, key: three, flags: combo.union(.maskControl), repeats: false) == .pass)
+        precondition(filter.handle(.keyDown, key: Int64(kVK_ANSI_Keypad3), flags: combo, repeats: false) == .pass)
+        precondition(filter.handle(.keyDown, key: three, flags: combo, repeats: false) == .activate)
+        precondition(filter.handle(.keyDown, key: Int64(kVK_ANSI_2), flags: combo, repeats: false) == .pass)
+        precondition(filter.handle(.keyDown, key: three, flags: combo, repeats: true) == .consume)
+        precondition(filter.handle(.keyUp, key: three, flags: [], repeats: false) == .consume)
+        precondition(filter.handle(.keyUp, key: three, flags: [], repeats: false) == .pass)
+        stopScreenshotShortcut()
+        precondition(screenshotShortcutActive() == 0)
+        print("PASS: screenshot takeover consumes exactly the Command-Shift-3 press and release")
     }
 
     private static func holdShortcut() throws {

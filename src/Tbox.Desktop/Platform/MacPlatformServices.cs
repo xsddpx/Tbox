@@ -9,6 +9,7 @@ public sealed class MacPlatformServices : IPlatformServices
     private const string Library = "TboxNative";
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
     private HotkeyCallback? _callback;
+    private ScreenshotShortcutCallback? _screenshotShortcutCallback;
     private readonly SemaphoreSlim _recognitionLock = new(1, 1);
 
     public bool HasScreenPermission => NativePermission() != 0;
@@ -58,6 +59,23 @@ public sealed class MacPlatformServices : IPlatformServices
     }
     public void UnregisterHotkey(HotkeyAction action) => NativeUnregisterHotkey((int)action);
 
+    public bool SupportsSystemScreenshotShortcutTakeover => true;
+    public bool IsSystemScreenshotShortcutTakeoverActive => NativeScreenshotShortcutActive() != 0;
+
+    public bool TryStartSystemScreenshotShortcutTakeover(Action onPressed, bool requestPermission)
+    {
+        _screenshotShortcutCallback ??= () => onPressed();
+        if (NativeStartScreenshotShortcut(_screenshotShortcutCallback, requestPermission ? 1 : 0) != 0) return true;
+        _screenshotShortcutCallback = null;
+        return false;
+    }
+
+    public void StopSystemScreenshotShortcutTakeover()
+    {
+        NativeStopScreenshotShortcut();
+        _screenshotShortcutCallback = null;
+    }
+
     public void PlaceWindow(nint handle, DesktopPlacement p, bool overlay) =>
         NativePlaceWindow(handle, p.Left, p.Top, p.Width, p.Height, overlay ? 1 : 0);
     public void MoveToPointer(nint handle) => NativeMoveToPointer(handle);
@@ -74,6 +92,7 @@ public sealed class MacPlatformServices : IPlatformServices
 
     public void Dispose()
     {
+        StopSystemScreenshotShortcutTakeover();
         NativeUnregisterHotkeys();
         _callback = null;
     }
@@ -97,6 +116,11 @@ public sealed class MacPlatformServices : IPlatformServices
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void HotkeyCallback(int id);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void ScreenshotShortcutCallback();
+    [DllImport(Library, EntryPoint = "tbox_start_screenshot_shortcut")] private static extern int NativeStartScreenshotShortcut(ScreenshotShortcutCallback callback, int requestPermission);
+    [DllImport(Library, EntryPoint = "tbox_stop_screenshot_shortcut")] private static extern void NativeStopScreenshotShortcut();
+    [DllImport(Library, EntryPoint = "tbox_screenshot_shortcut_active")] private static extern int NativeScreenshotShortcutActive();
     [DllImport(Library, EntryPoint = "tbox_permission")] private static extern int NativePermission();
     [DllImport(Library, EntryPoint = "tbox_request_permission")] private static extern int NativeRequestPermission();
     [DllImport(Library, EntryPoint = "tbox_open_permission_settings")] private static extern void NativeOpenPermissionSettings();

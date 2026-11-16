@@ -75,7 +75,7 @@ public sealed class DesktopController : IDisposable
         _folders = platform.CreateFolderNavigation();
         _folderBar = new(this, _folders, _stop.Token);
         _startup = platform.CreateStartupRegistration();
-        _hotkeys = new HotkeyConfiguration(binding => platform.RegisterHotkey(binding, OnHotkey), platform.UnregisterHotkey);
+        _hotkeys = new HotkeyConfiguration(binding => platform.RegisterHotkey(binding, action => OnHotkey(action)), platform.UnregisterHotkey);
         // Tooltips and labels across the windows read the shortcuts from this controller's settings.
         ShortcutLabels.Bindings = () => _settings.Hotkeys;
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -131,9 +131,11 @@ public sealed class DesktopController : IDisposable
         }
     }
 
-    private void OnHotkey(HotkeyAction action) => Dispatcher.UIThread.Post(() =>
+    private void OnHotkey(HotkeyAction action, bool fromSystemTakeover = false) => Dispatcher.UIThread.Post(() =>
     {
         if (_recordingShortcut) return;
+        if (fromSystemTakeover && (IsQuitting || _installingUpdate || !_settings.TakeOverSystemScreenshotShortcut ||
+            !CanTakeOverSystemScreenshotShortcut || !Platform.IsSystemScreenshotShortcutTakeoverActive)) return;
         if (action == HotkeyAction.Capture) Run(CaptureAsync);
         if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
         if (action == HotkeyAction.Toggle) TogglePins();
@@ -147,7 +149,57 @@ public sealed class DesktopController : IDisposable
         _hotkeys.Apply(ShortcutPolicy.Actions
             .Where(action => action == HotkeyAction.Folder ? settings.FolderJumpEnabled : settings.ScreenPasteEnabled)
             .OrderByDescending(action => settings.Hotkeys?.Get(action) is not null)
-            .Select(action => new HotkeyBinding(action, ShortcutPolicy.Effective(settings.Hotkeys, action, OperatingSystem.IsMacOS()))));
+            .Select(action => new HotkeyBinding(action, ShortcutPolicy.Effective(settings.Hotkeys, action, OperatingSystem.IsMacOS())))
+            .Where(binding => !UsesSystemScreenshotShortcut(binding.Action, binding.Shortcut)));
+        if (!Platform.SupportsSystemScreenshotShortcutTakeover) return;
+        if (settings.TakeOverSystemScreenshotShortcut && CanTakeOverSystemScreenshotShortcutWith(settings))
+            StartSystemScreenshotShortcutTakeover(requestPermission: false);
+        else
+            Platform.StopSystemScreenshotShortcutTakeover();
+    }
+
+    private static readonly Shortcut SystemScreenshotShortcut = new(false, false, true, true, "3");
+    internal bool UsesSystemScreenshotShortcut(HotkeyAction action, Shortcut shortcut) =>
+        Platform.SupportsSystemScreenshotShortcutTakeover && action == HotkeyAction.Toggle && shortcut == SystemScreenshotShortcut;
+    internal bool CanTakeOverSystemScreenshotShortcut => CanTakeOverSystemScreenshotShortcutWith(_settings);
+
+    private bool CanTakeOverSystemScreenshotShortcutWith(AppSettings settings) =>
+        Platform.SupportsSystemScreenshotShortcutTakeover && settings.ScreenPasteEnabled &&
+        ShortcutPolicy.Effective(settings.Hotkeys, HotkeyAction.Toggle, mac: true) == SystemScreenshotShortcut &&
+        !ShortcutPolicy.Actions.Any(action => action != HotkeyAction.Toggle &&
+            (action != HotkeyAction.Folder || settings.FolderJumpEnabled) && settings.Hotkeys?.Get(action) == SystemScreenshotShortcut);
+
+    private bool StartSystemScreenshotShortcutTakeover(bool requestPermission) =>
+        Platform.IsSystemScreenshotShortcutTakeoverActive ||
+        Platform.TryStartSystemScreenshotShortcutTakeover(() => OnHotkey(HotkeyAction.Toggle, fromSystemTakeover: true), requestPermission);
+
+    internal async Task SetSystemScreenshotShortcutTakeoverAsync(bool enabled)
+    {
+        if (!Platform.SupportsSystemScreenshotShortcutTakeover) return;
+        await _moduleChanges.WaitAsync(_stop.Token);
+        try
+        {
+            if (_settings.TakeOverSystemScreenshotShortcut == enabled) return;
+            if (SettingsLoadWarning is { } warning) throw new IOException(warning);
+            if (enabled && (!CanTakeOverSystemScreenshotShortcut || _recordingShortcut)) return;
+            if (enabled && !StartSystemScreenshotShortcutTakeover(requestPermission: true))
+            {
+                Main.SetStatus("无法接管快捷键。请在「系统设置 → 隐私与安全性 → 辅助功能」中允许 Tbox 后重试。");
+                return;
+            }
+
+            var updated = _settings with { TakeOverSystemScreenshotShortcut = enabled };
+            try { await _settingsStore.SaveAsync(updated, _stop.Token); }
+            catch
+            {
+                if (enabled) Platform.StopSystemScreenshotShortcutTakeover();
+                throw;
+            }
+            _settings = updated;
+            ApplyHotkeys(updated);
+            Main.SetStatus("");
+        }
+        finally { _moduleChanges.Release(); Main.Refresh(); }
     }
 
     // Let the recorder receive combinations that Tbox would otherwise handle globally.
@@ -156,6 +208,7 @@ public sealed class DesktopController : IDisposable
         if (_recordingShortcut) return false;
         _recordingShortcut = true;
         _hotkeys.Apply([]);
+        if (Platform.SupportsSystemScreenshotShortcutTakeover) Platform.StopSystemScreenshotShortcutTakeover();
         return true;
     }
 
@@ -182,7 +235,9 @@ public sealed class DesktopController : IDisposable
 
             var previous = _settings;
             var enabled = action == HotkeyAction.Folder ? previous.FolderJumpEnabled : previous.ScreenPasteEnabled;
-            if (!_hotkeys.TryChange(action, target, enabled && !_recordingShortcut ? ShortcutFor(action) : null))
+            var current = ShortcutFor(action);
+            if (!UsesSystemScreenshotShortcut(action, target) &&
+                !_hotkeys.TryChange(action, target, enabled && !_recordingShortcut && !UsesSystemScreenshotShortcut(action, current) ? current : null))
                 return $"{target.Display(mac)} 已被其他应用占用，请换一个组合。";
             if (!enabled) _hotkeys.Release(action);
             // Store only the overrides; a default choice clears the entry so platform defaults keep applying.
@@ -750,6 +805,7 @@ public sealed class DesktopController : IDisposable
     public void Dispose()
     {
         IsQuitting = true; _stop.Cancel();
+        if (Platform.SupportsSystemScreenshotShortcutTakeover) Platform.StopSystemScreenshotShortcutTakeover();
         Models.Dispose();
         _folderBar.Dispose();
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
