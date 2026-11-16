@@ -7,6 +7,7 @@ namespace Tbox.Desktop.ModelServices;
 
 public sealed class ModelService : ITextModelService, IDisposable
 {
+    internal const int MaximumRecognitionImageBytes = 8 * 1024 * 1024;
     private readonly ModelConfigurationStore _store;
     private readonly IModelCredentialStore? _legacyCredentials;
     private readonly OpenAiChatProvider _provider;
@@ -150,6 +151,30 @@ public sealed class ModelService : ITextModelService, IDisposable
                 yield return next;
             }
         }
+        finally { if (acquired) _requests.Release(); }
+    }
+
+    internal async Task<string> RecognizeImageAsync(ModelReference model, Uri confirmedEndpoint, ReadOnlyMemory<byte> png, CancellationToken ct)
+    {
+        if (png.Length is 0 or > MaximumRecognitionImageBytes)
+            throw new ModelServiceException(ModelFailure.Configuration, "AI 识别支持不超过 8 MiB 的图片，请截取更小的区域。");
+        await InitializeAsync(ct);
+        var (connection, reference) = ModelPolicy.Resolve(_configuration, model);
+        var endpoint = ModelPolicy.Endpoint(connection, "chat/completions");
+        if (!string.Equals(endpoint.AbsoluteUri, confirmedEndpoint.AbsoluteUri, StringComparison.Ordinal))
+            throw new ModelServiceException(ModelFailure.Configuration, "模型服务地址已改变，请重新确认发送。");
+        var key = Key(connection);
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown.Token);
+        timeout.CancelAfter(RequestTimeout);
+        var acquired = false;
+        try
+        {
+            await _requests.WaitAsync(timeout.Token).ConfigureAwait(false);
+            acquired = true;
+            return await _provider.RecognizeImageAsync(connection, reference.ModelId, key, png, timeout.Token).ConfigureAwait(false);
+        }
+        catch (Exception error) { throw Sanitize(error, ct); }
         finally { if (acquired) _requests.Release(); }
     }
 

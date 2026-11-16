@@ -13,6 +13,37 @@ public sealed class ModelServiceTests
     private const string CompleteStream = "data: {\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"世界\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n";
 
     [Fact]
+    public async Task ImageIsNotSentIfTheConfirmedEndpointChanges()
+    {
+        var calls = 0;
+        using var scope = new Scope((_, _) => { calls++; return Task.FromResult(Response("{}")); });
+        var original = scope.Connection();
+        var confirmedEndpoint = ModelPolicy.Endpoint(original, "chat/completions");
+        await scope.Service.SaveConnectionAsync(original, "fixture-key", false, null);
+        await scope.Service.SaveConnectionAsync(original with { BaseUrl = "https://changed.example/v1" }, "fixture-key", false, null);
+        var error = await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.RecognizeImageAsync(
+            new ModelReference(original.Id, "text-one"), confirmedEndpoint, new byte[] { 1 }, CancellationToken.None));
+        Assert.Equal(ModelFailure.Configuration, error.Failure);
+        Assert.Equal(0, calls);
+    }
+
+    [Theory]
+    [InlineData(200, "{\"choices\":[{\"message\":{\"content\":\"部分结果\"},\"finish_reason\":\"length\"}]}", ModelFailure.Incomplete)]
+    [InlineData(400, "private image echoed by server", ModelFailure.Response)]
+    public async Task ImageRequestRejectsIncompleteAndUnsupportedResponsesWithoutRetry(int status, string body, ModelFailure failure)
+    {
+        var calls = 0;
+        using var scope = new Scope((_, _) => { calls++; return Task.FromResult(Response(body, "application/json", (HttpStatusCode)status)); });
+        var connection = scope.Connection();
+        await scope.Service.SaveConnectionAsync(connection, "fixture-key", false, null);
+        var error = await Assert.ThrowsAsync<ModelServiceException>(() => scope.Service.RecognizeImageAsync(
+            new ModelReference(connection.Id, "text-one"), ModelPolicy.Endpoint(connection, "chat/completions"), new byte[] { 1 }, CancellationToken.None));
+        Assert.Equal(failure, error.Failure);
+        Assert.DoesNotContain(body, error.ToString());
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
     public async Task SavesTheKeyInPlaintextAndReloadsItWithoutTheCredentialStore()
     {
         using var scope = new Scope();

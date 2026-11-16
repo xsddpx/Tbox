@@ -20,9 +20,11 @@ public sealed class LatestOperation : IDisposable
         operation.Dispose();
     }
 
-    public void Dispose()
+    public void CancelCurrent()
     {
         _current?.Cancel();
         _current = null;
     }
+
+    public void Dispose() => CancelCurrent();
 }

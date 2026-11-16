@@ -10,6 +10,8 @@ using Tbox.Desktop.Views;
 using Xunit;
 
 [assembly: AvaloniaTestApplication(typeof(Tbox.Desktop.Tests.TestApplication))]
+// Headless UI tests share one dispatcher. Parallel xUnit collections can block it while queuing the next test.
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
 
 namespace Tbox.Desktop.Tests;
 
