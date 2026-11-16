@@ -130,22 +130,74 @@ public sealed class ModelServicesPageTests
     }
 
     [AvaloniaFact]
-    public async Task FetchModelsUpdatesTheDraftOnlyAndRequiresAnotherSave()
+    public async Task DownloadedModelsCanBeFilteredAndOnlyTheConfirmedSelectionIsSaved()
+    {
+        using var scope = new Scope();
+        await scope.Page.OpenAsync();
+        await scope.Page.BeginAddAsync();
+        scope.Page.Secret.Text = "page-test-secret";
+        scope.Page.AddModel("custom-model");
+        await scope.Page.SaveAsync();
+
+        var fetching = scope.Page.FetchModelsAsync();
+        var picker = Assert.IsType<ModelPickerWindow>(Assert.Single(scope.Window.OwnedWindows));
+        var search = Assert.Single(picker.GetVisualDescendants().OfType<TextBox>());
+        var choices = picker.GetVisualDescendants().OfType<CheckBox>()
+            .ToDictionary(box => AutomationProperties.GetName(box)!);
+        Assert.True(choices["deepseek-flash"].IsChecked);
+        Assert.True(choices["custom-model"].IsChecked);
+        Assert.False(choices["zenmux/catalog-100"].IsChecked);
+        choices["deepseek-flash"].IsChecked = false;
+
+        search.Text = "CATALOG-100";
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(choices["custom-model"].IsVisible);
+        Assert.True(choices["zenmux/catalog-100"].IsVisible);
+        ClickPickerButton(picker, "全选结果");
+        Assert.True(choices["zenmux/catalog-100"].IsChecked);
+        Assert.True(choices["custom-model"].IsChecked);
+        Assert.False(choices["zenmux/catalog-099"].IsChecked);
+
+        ClickPickerButton(picker, "更新列表");
+        await fetching;
+        Assert.Equal("模型列表待保存", scope.Page.Status);
+        Assert.Equal(new[] { "custom-model", "zenmux/catalog-100" }, scope.Page.Models);
+        Assert.Equal(new[] { "deepseek-flash", "custom-model" }, scope.Service.Configuration.Connections.Single().Models);
+        await scope.Page.SaveAsync();
+        Assert.Equal(new[] { "custom-model", "zenmux/catalog-100" }, scope.Service.Configuration.Connections.Single().Models);
+        Assert.Equal("custom-model", scope.Service.Configuration.DefaultModel!.ModelId);
+    }
+
+    [AvaloniaFact]
+    public async Task CancellingModelSelectionKeepsTheSavedConnectionAndDefaultModel()
     {
         using var scope = new Scope();
         await scope.Page.OpenAsync();
         await scope.Page.BeginAddAsync();
         scope.Page.Secret.Text = "page-test-secret";
         await scope.Page.SaveAsync();
-        await scope.Page.FetchAsync();
-        Assert.Equal("已获取，待保存", scope.Page.Status);
-        Assert.Equal(2, scope.Page.Models.Count);
-        Assert.Equal("fetched-one", scope.Page.Models[0]);
-        Assert.Single(scope.Service.Configuration.Connections.Single().Models);
-        await scope.Page.SaveAsync();
-        Assert.Equal(2, scope.Service.Configuration.Connections.Single().Models.Length);
-        Assert.Equal("fetched-one", scope.Service.Configuration.DefaultModel!.ModelId);
+
+        var fetching = scope.Page.FetchModelsAsync();
+        var picker = Assert.IsType<ModelPickerWindow>(Assert.Single(scope.Window.OwnedWindows));
+        picker.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+        picker.UpdateLayout();
+        TaskToolbarTests.Preview(picker, "model-picker");
+        ClickPickerButton(picker, "全选结果");
+        Assert.False(Assert.Single(picker.GetVisualDescendants().OfType<Button>(),
+            button => button.Content as string == "更新列表").IsEnabled);
+        ClickPickerButton(picker, "取消全选");
+        ClickPickerButton(picker, "取消");
+        await fetching;
+
+        Assert.Equal("deepseek-flash", Assert.Single(scope.Page.Models));
+        Assert.Equal("deepseek-flash", scope.Service.Configuration.DefaultModel!.ModelId);
+        Assert.Equal("已保存", scope.Page.Status);
     }
+
+    private static void ClickPickerButton(Window picker, string label) =>
+        Assert.Single(picker.GetVisualDescendants().OfType<Button>(), button => button.Content as string == label)
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
 
     [AvaloniaFact]
     public async Task ListShowsTheSavedConnectionAndDefaultModel()
@@ -246,7 +298,13 @@ public sealed class ModelServicesPageTests
                 Calls++;
                 if (unauthorized) return Task.FromResult(ModelServiceTests.Response("{}", "application/json", System.Net.HttpStatusCode.Unauthorized));
                 if (request.Method == HttpMethod.Get)
-                    return Task.FromResult(ModelServiceTests.Response("{\"data\":[{\"id\":\"fetched-one\"},{\"id\":\"fetched-two\"}]}", "application/json"));
+                {
+                    var sample = new[] { "deepseek-flash", "openai/gpt-5", "anthropic/claude-sonnet-4.6",
+                        "google/gemini-2.5-flash", "deepseek/deepseek-v3.2", "qwen/qwen3.7-flash" };
+                    var catalog = sample.Concat(Enumerable.Range(0, 101).Select(index => $"zenmux/catalog-{index:D3}"));
+                    var json = System.Text.Json.JsonSerializer.Serialize(new { data = catalog.Select(id => new { id }) });
+                    return Task.FromResult(ModelServiceTests.Response(json, "application/json"));
+                }
                 return Task.FromResult(ModelServiceTests.Response("data: {\"choices\":[{\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"));
             }));
             Page = new(Service, () => Window);

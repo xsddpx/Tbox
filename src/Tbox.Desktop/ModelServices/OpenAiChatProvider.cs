@@ -35,7 +35,7 @@ internal sealed class OpenAiChatProvider : IDisposable
         using var json = JsonDocument.Parse(await ReadBoundedAsync(response.Content, ct));
         if (!json.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) throw Invalid();
         var models = data.EnumerateArray().Select(m => m.TryGetProperty("id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() : null)
-            .Where(id => !string.IsNullOrWhiteSpace(id) && id.Length <= 200 && !id.Any(char.IsControl)).Select(id => id!).Distinct(StringComparer.Ordinal).Take(100).ToArray();
+            .Where(id => !string.IsNullOrWhiteSpace(id) && id.Length <= 200 && !id.Any(char.IsControl)).Select(id => id!).Distinct(StringComparer.Ordinal).ToArray();
         if (models.Length == 0) throw new ModelServiceException(ModelFailure.Response, "服务未返回可用模型，请手动添加模型 ID。");
         return models;
     }
