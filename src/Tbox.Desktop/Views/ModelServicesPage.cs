@@ -27,23 +27,16 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         new("DeepSeek", "https://api.deepseek.com", "deepseek-flash", "D", "#E7F0FF", "#2F6BDB"),
         new("ZenMux", "https://zenmux.ai/api/v1", null, "Z", "#F0EFF5", "#1A1B22")
     ];
-    private sealed record DefaultOption(Guid ConnectionId, string ConnectionName, string ModelId)
-    {
-        public override string ToString() => ConnectionName + " · " + ModelId;
-    }
-
     private readonly ModelService _service;
     private readonly Func<Window> _owner;
     private readonly StackPanel _listView = new();
     private readonly StackPanel _editView = new();
     private readonly StackPanel _connectionRows = new();
-    private readonly StackPanel _defaultGroup;
+    private readonly ModelOrderList _modelOrder;
     private readonly TextBlock _connectionMeta = new() { FontSize = DesignTokens.Caption, Foreground = Hint, VerticalAlignment = VerticalAlignment.Center };
     private readonly Border _emptyConnections;
     private readonly Button _addButton;
-    private readonly ComboBox _defaultModelBox = new() { MinWidth = 0, Width = 232, FontSize = 12.5, MinHeight = 32 };
     private readonly TextBlock _editStatus = StatusText();
-    private bool _refreshingDefault;
 
     // Edit form
     internal TextBox ConnectionName { get; } = Field("连接名称");
@@ -99,7 +92,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         AutomationProperties.SetName(Secret, "API 密钥");
         AutomationProperties.SetName(ModelInput, "模型 ID");
         AutomationProperties.SetName(_protocol, "API 协议");
-        AutomationProperties.SetName(_defaultModelBox, "全局默认模型");
         _reveal = Ui.IconButton(IconKind.Eye, "显示密钥", ToggleReveal);
         _reveal.MinWidth = 28;
         _reveal.MinHeight = 24;
@@ -131,7 +123,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         AutomationProperties.SetLiveSetting(_testResultText, AutomationLiveSetting.Polite);
         _editStatus.HorizontalAlignment = HorizontalAlignment.Right;
 
-        _defaultModelBox.SelectionChanged += (_, _) => { if (!_refreshingDefault && !_loading) Run(SetDefaultAsync); };
         foreach (var box in new[] { ConnectionName, BaseUrl, Secret })
             box.PropertyChanged += (_, args) => { if (args.Property == TextBox.TextProperty) Changed(); };
         ModelInput.KeyDown += (_, args) => { if (args.Key == Avalonia.Input.Key.Enter) { CommitModel(); args.Handled = true; } };
@@ -140,8 +131,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _listView.Children.Add(Ui.GroupHeader("连接", _connectionMeta));
         _listView.Children.Add(_connectionRows);
         _listView.Children.Add(_emptyConnections);
-        _defaultGroup = BuildDefaultGroup();
-        _listView.Children.Add(_defaultGroup);
+        _modelOrder = new ModelOrderList(MoveModelAsync);
+        _listView.Children.Add(_modelOrder);
         _listView.Children.Add(new TextBlock
         {
             Text = "API 密钥以明文保存在本机配置文件 model-services.json 中，不要共享该文件。删除连接后，引用它的功能会要求重新选择。",
@@ -202,13 +193,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         var key = Secret.Text ?? "";
         var test = _draftTest;
         var changed = _dirty;
-        var currentDefault = _service.Configuration.DefaultModel;
-        var keepDefault = currentDefault?.ConnectionId == draft.Id;
-        var makeDefault = draft.Models.Length > 0 && (keepDefault || currentDefault is null);
-        var defaultModel = makeDefault
-            ? keepDefault && draft.Models.Contains(currentDefault!.ModelId, StringComparer.Ordinal) ? currentDefault.ModelId : draft.Models[0]
-            : null;
-        await Busy(ct => _service.SaveConnectionAsync(draft, key, makeDefault, defaultModel, ct));
+        await Busy(ct => _service.SaveConnectionAsync(draft, key, ct));
         if (test is { } outcome) _testStates[draft.Id] = outcome;
         else if (changed) _testStates.Remove(draft.Id);
         if (!IsEditing || _id != draft.Id) return;
@@ -325,20 +310,6 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         {
             Ui.IconChip(IconKind.Model, ToolTone.Violet, 40, 20), Ui.Column(titles, 1), Ui.Column(_addButton, 2)
         } };
-    }
-
-    private StackPanel BuildDefaultGroup()
-    {
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
-        {
-            new TextBlock { Text = "功能默认使用", FontSize = DesignTokens.Body, Foreground = Strong },
-            new TextBlock { Text = "未单独指定时，翻译等工具使用这个模型", FontSize = DesignTokens.Caption, Foreground = Hint, Margin = new Thickness(0, 1, 0, 0) }
-        } };
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 14, MinHeight = 52, Children =
-        {
-            text, Ui.Column(_defaultModelBox, 1)
-        } };
-        return new StackPanel { Children = { Ui.GroupHeader("默认模型"), row } };
     }
 
     private Border BuildEmpty()
@@ -506,29 +477,16 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         }
         _emptyConnections.IsVisible = configuration.Connections.Length == 0;
         _connectionRows.IsVisible = configuration.Connections.Length > 0;
-        _defaultGroup.IsVisible = configuration.Connections.Length > 0;
         _addButton.IsVisible = configuration.Connections.Length > 0;
         _connectionMeta.Text = configuration.Connections.Length + " 个连接 · " + configuration.Connections.Sum(c => c.Models.Length) + " 个模型";
-        RefreshDefault(configuration);
+        _modelOrder.Show(configuration);
     }
 
-    private void RefreshDefault(ModelConfiguration configuration)
+    private async Task<ModelConfiguration> MoveModelAsync(ModelReference model, ModelReference target, bool after)
     {
-        _refreshingDefault = true;
-        var options = configuration.Connections.SelectMany(c => c.Models.Select(m => new DefaultOption(c.Id, c.Name, m))).ToArray();
-        _defaultModelBox.ItemsSource = options;
-        _defaultModelBox.SelectedItem = options.FirstOrDefault(o => configuration.DefaultModel is { } d && d.ConnectionId == o.ConnectionId && d.ModelId == o.ModelId);
-        _defaultModelBox.IsEnabled = options.Length > 0;
-        _defaultModelBox.PlaceholderText = options.Length == 0 ? "先添加连接和模型" : "选择默认模型";
-        _refreshingDefault = false;
-    }
-
-    private async Task SetDefaultAsync()
-    {
-        if (_refreshingDefault || _busy || _defaultModelBox.SelectedItem is not DefaultOption option) return;
-        await Busy(ct => _service.SetDefaultModelAsync(new ModelReference(option.ConnectionId, option.ModelId), ct));
-        SetStatus("已更新默认模型");
-        RefreshList();
+        if (!_busy && !IsEditing)
+            await Busy(_ => _service.MoveModelAsync(model, target, after));
+        return _service.Configuration;
     }
 
     private void RefreshPresets()
@@ -780,7 +738,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     private async Task DeleteConnectionAsync()
     {
-        if (!await Confirm("删除此模型连接？", "删除连接", "将同时删除此连接保存的密钥；若它是默认模型，会清除默认选择。")) return;
+        if (!await Confirm("删除此模型连接？", "删除连接", "将同时移除这个连接的模型和密钥。")) return;
         _testStates.Remove(_id);
         await Busy(ct => _service.DeleteConnectionAsync(_id, ct));
         _dirty = false; Secret.Text = "";

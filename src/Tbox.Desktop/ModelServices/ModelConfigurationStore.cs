@@ -21,7 +21,8 @@ internal sealed class ModelConfigurationStore(string path)
     private sealed record StoredFile
     {
         public StoredConnection[] Connections { get; init; } = [];
-        public ModelReference? DefaultModel { get; init; }
+        public ModelReference[]? ModelOrder { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ModelReference? DefaultModel { get; init; }
     }
 
     public async Task<ModelFileSnapshot> LoadAsync(CancellationToken ct)
@@ -29,7 +30,8 @@ internal sealed class ModelConfigurationStore(string path)
         if (!File.Exists(path)) return new(new(), new Dictionary<Guid, string>(), new Dictionary<Guid, Guid>());
         try
         {
-            if (new FileInfo(path).Length > 1_000_000) throw new JsonException();
+            // Ordered references repeat model IDs, which can contain escaped Unicode.
+            if (new FileInfo(path).Length > 6_000_000) throw new JsonException();
             await using var stream = File.OpenRead(path);
             var file = await JsonSerializer.DeserializeAsync<StoredFile>(stream, Options, ct) ?? throw new JsonException();
             if (file.Connections is null || file.Connections.Length > 20
@@ -37,10 +39,10 @@ internal sealed class ModelConfigurationStore(string path)
             var configuration = new ModelConfiguration
             {
                 Connections = file.Connections.Select(c => new ModelConnection(c.Id, c.Name, c.BaseUrl, c.Models) { Protocol = c.Protocol }).ToArray(),
-                DefaultModel = file.DefaultModel
+                ModelOrder = file.ModelOrder ?? (file.DefaultModel is { } old ? [old] : [])
             };
             foreach (var connection in configuration.Connections) ModelPolicy.Validate(connection);
-            if (configuration.DefaultModel is not null) ModelPolicy.Resolve(configuration, configuration.DefaultModel);
+            configuration = configuration with { ModelOrder = ModelPolicy.OrderedModels(configuration) };
             var keys = new Dictionary<Guid, string>();
             var legacy = new Dictionary<Guid, Guid>();
             foreach (var connection in file.Connections)
@@ -62,7 +64,7 @@ internal sealed class ModelConfigurationStore(string path)
             {
                 Protocol = c.Protocol, ApiKey = keys.GetValueOrDefault(c.Id), CredentialId = legacy.TryGetValue(c.Id, out var old) ? old : null
             }).ToArray(),
-            DefaultModel = configuration.DefaultModel
+            ModelOrder = configuration.ModelOrder
         };
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try

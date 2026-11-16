@@ -136,7 +136,7 @@ public sealed class OcrWorkspaceTests
         }
 
         public Task SaveModelAsync() => _service.SaveConnectionAsync(
-            new ModelConnection(Guid.NewGuid(), "模拟连接", "https://vision.example.com/v1", ["vision-fixture"]), "fixture-key", false, null);
+            new ModelConnection(Guid.NewGuid(), "模拟连接", "https://vision.example.com/v1", ["vision-fixture"]), "fixture-key");
 
         public void Show(Models.Picture picture)
         {

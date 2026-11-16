@@ -17,7 +17,7 @@ internal static class TranslationSmokeTest
         var handler = new Fixture();
         using var service = new ModelService(Path.Combine(directory, "translation-models.json"), null, handler);
         var connection = new ModelConnection(Guid.NewGuid(), "离线验证模型", "https://api.example.invalid/v1", ["fixture-text"]);
-        await service.SaveConnectionAsync(connection, "fixture-key", true, "fixture-text");
+        await service.SaveConnectionAsync(connection, "fixture-key");
         var window = new Window(); Ui.Configure(window, "翻译 · 安装版离线验证", 800, 600);
         var page = new TranslationPage(service, () => Task.FromResult(service.Configuration), () => { });
         window.Content = new ScrollViewer { Content = page, Margin = new Thickness(24) };
