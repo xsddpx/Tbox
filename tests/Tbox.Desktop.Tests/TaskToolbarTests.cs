@@ -44,7 +44,7 @@ public sealed class TaskToolbarTests
             await controller.CompleteCaptureAsync(scope.Frame.Clone(), cancelledRegion, CaptureAction.Save, frame: cancelledFrame);
 
             Assert.Equal(cached, Assert.Single(Directory.GetFiles(cache, "*.png")));
-            Assert.Same(previousFrame, Assert.Single(controller.CaptureFrames.CompatibleWith([display])));
+            Assert.Same(previousFrame, Assert.Single(controller.CaptureFrames.CompatibleWith([display])).Frame);
             Assert.Equal(previousRegion, controller.CaptureHistory.LastRegion);
         }
         finally
@@ -66,7 +66,7 @@ public sealed class TaskToolbarTests
         oldEditor.Document.Commit(new RectangleAnnotationCommand(new(60, 60), new(90, 90), AnnotationStyle.Default));
         oldEditor.Undo();
         var oldSelection = new CaptureSelectionBounds(100, 80, 300, 200);
-        controller.CaptureFrames.Add(new CaptureFrame([oldDisplay], 1, oldSelection, oldEditor.Document.Snapshot()));
+        await controller.CaptureFrames.AddAsync(new CaptureFrame([oldDisplay], 1, oldSelection, oldEditor.Document.Snapshot()));
         var session = new CaptureSession(controller, [currentDisplay], _ => { });
         session.Show();
         var window = Assert.Single(session.Windows);
@@ -101,6 +101,48 @@ public sealed class TaskToolbarTests
         Assert.Equal(",.", text.Text);
         Assert.Same(oldDisplay, window.Frame);
         session.Cancel();
+    }
+
+    [AvaloniaFact]
+    public async Task CaptureHistorySavedBeforeARestartIsLoadedFromDiskWhenSteppedTo()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        scope.Window.Close();
+        var controller = scope.Controller;
+        var folder = Path.Combine(Path.GetTempPath(), "tbox-saved-history-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var savedDisplay = new CapturedDisplay(1, 0, 0, 1200, 720, scope.Frame.Png);
+            var document = new AnnotationDocument();
+            document.Commit(new RectangleAnnotationCommand(new(10, 10), new(50, 50), AnnotationStyle.Default));
+            var savedSelection = new CaptureSelectionBounds(100, 80, 300, 200);
+            await controller.CaptureFrames.OpenAsync(folder);
+            await controller.CaptureFrames.AddAsync(new CaptureFrame([savedDisplay], 1, savedSelection, document.Snapshot()));
+            // Reopening the folder drops the in-memory pixels, as a restart does.
+            await controller.CaptureFrames.OpenAsync(Path.Combine(folder, "other"));
+            await controller.CaptureFrames.OpenAsync(folder);
+            Assert.Null(Assert.Single(controller.CaptureFrames.CompatibleWith([savedDisplay])).Frame);
+
+            var currentDisplay = new CapturedDisplay(1, 0, 0, 1200, 720, scope.Frame.Png);
+            var session = new CaptureSession(controller, [currentDisplay], _ => { });
+            session.Show();
+            var window = Assert.Single(session.Windows);
+            Layout(window);
+            window.KeyPress(Key.OemComma, RawInputModifiers.None, PhysicalKey.Comma, null);
+            for (var i = 0; i < 200 && ReferenceEquals(window.Frame, currentDisplay); i++) { Dispatcher.UIThread.RunJobs(); await Task.Delay(10); }
+
+            Assert.NotSame(currentDisplay, window.Frame);
+            Assert.Equal(scope.Frame.Png, window.Frame.Png);
+            Assert.Equal(savedSelection, session.State.Selection);
+            Assert.Single(window.Editor.Document.Commands);
+            window.KeyPress(Key.OemPeriod, RawInputModifiers.None, PhysicalKey.Period, null);
+            Assert.Same(currentDisplay, window.Frame);
+            session.Cancel();
+        }
+        finally
+        {
+            if (Directory.Exists(folder)) Directory.Delete(folder, true);
+        }
     }
 
     [AvaloniaTheory]

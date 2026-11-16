@@ -106,6 +106,7 @@ public sealed class DesktopController : IDisposable
             if (location.IsFallback) Main.SetStatus("首选缓存目录不可写，本次运行使用本地应用数据目录；原设置和已有文件保持不变。");
             Main.Refresh();
             PruneCache();
+            await CaptureFrames.OpenAsync(_cache.DirectoryPath);
             RecordingWorkspace.CleanupExpired();
             if (migrationNotice is not null) Main.SetStatus(migrationNotice);
         }
@@ -348,7 +349,12 @@ public sealed class DesktopController : IDisposable
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
             await CacheAsync(picture, pinned);
             CaptureHistory.Remember(placement);
-            if (frame is not null) CaptureFrames.Add(frame);
+            if (frame is not null)
+            {
+                // Saved history follows the screenshot folder, including a fallback chosen while saving.
+                if (CaptureFrames.Root is not null) await CaptureFrames.OpenAsync(CacheDirectory);
+                await CaptureFrames.AddAsync(frame);
+            }
         }
     }
 
@@ -697,7 +703,16 @@ public sealed class DesktopController : IDisposable
         await Task.Run(() => CacheLocation.VerifyWritable(cache.DirectoryPath));
         await UpdateSettingsAsync(settings => settings with { ScreenCaptureCacheDirectory = path });
         _cache = cache;
+        if (CaptureFrames.Root is not null) await CaptureFrames.OpenAsync(cache.DirectoryPath);
         Main.Refresh();
+    }
+
+    public async Task ClearCaptureHistoryAsync()
+    {
+        if (!await new ConfirmWindow("清除截图历史？", "清除", "截图时按 , / . 将无法再翻到以前的截图。已保存的截图文件不受影响。",
+            destructive: true).ShowDialog<bool>(Main)) return;
+        await CaptureFrames.ClearAsync();
+        Main.SetStatus("已清除截图历史。");
     }
 
     public void Quit() => Run(QuitAsync);
