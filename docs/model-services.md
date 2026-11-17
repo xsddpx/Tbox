@@ -6,7 +6,7 @@
 
 设置 → **模型服务** 可以维护多个连接。首版仅实现 **OpenAI 兼容 Chat Completions**，不将 Responses、Anthropic、Gemini 原生接口冒充为兼容协议；本机模型服务可使用其 OpenAI 兼容端点。API 地址应为基础地址（如 `https://api.example.com/v1`），页面显示实际 `/chat/completions` 请求地址。远程必须使用 HTTPS，本机回环地址可使用 HTTP。
 
-1.1.63 按用户确认的设计改为“连接列表 → 添加/编辑子页”：列表显示连接、协议与地址、本次会话的测试状态、模型数和全局默认模型；添加/编辑页只收名称、基础地址、协议、密钥和模型目录，保存后停留在编辑页，可继续获取模型或测试。预设仅保留 OpenAI、DeepSeek、ZenMux，均按 OpenAI 兼容 Chat Completions 接入；Anthropic / Gemini 不提供，也不冒充兼容。新增连接默认选中 DeepSeek，地址与 `deepseek-chat` 预填（1.1.80 起改为 `deepseek-flash`）；自定义接口切换时清空未保存的名称、地址、密钥和模型。首个没有默认模型的连接在保存含模型时设为默认，后续连接不抢占默认。
+模型服务采用“连接列表 → 添加/编辑子页”。列表显示连接、地址、本次会话的测试状态和模型数。添加/编辑页只收名称、基础地址、协议、密钥和模型目录，保存后停留在编辑页，可继续获取模型或测试。预设仅保留 OpenAI、DeepSeek、ZenMux，均按 OpenAI 兼容 Chat Completions 接入；Anthropic / Gemini 不提供，也不冒充兼容。新增连接默认选中 DeepSeek，地址与 `deepseek-chat` 预填（1.1.80 起改为 `deepseek-flash`）；自定义接口切换时清空未保存的名称、地址、密钥和模型。
 
 1.1.63 共用控件渲染：[连接列表](images/model-services-list-1.1.63.png)、[预设服务商](images/model-services-preset-1.1.63.png)、[自定义接口](images/model-services-custom-1.1.63.png)。截图来自 800 宽布局测试，使用临时连接与模拟凭据，不包含真实密钥。旧图 `model-services-simple.jpg` 记录 1.1.57 的单表单形态，不再代表 1.1.63。
 
@@ -16,7 +16,9 @@
 
 2026-11-16 起 DeepSeek 预设默认模型改为 `deepseek-flash`；另一个可用 ID 为 `deepseek-v4-pro`。两者默认开启思考模式，Tbox 对 `api.deepseek.com` 的请求附带 `thinking: {"type": "disabled"}`，其他地址的请求不变。依据为 [DeepSeek 价格页](https://api-docs.deepseek.com/quick_start/pricing) 与 [思考模式说明](https://api-docs.deepseek.com/guides/thinking_mode)，2026-11-16 查阅。
 
-每个连接支持多个模型 ID，通过“添加模型”或“获取可用模型”维护。获取后可按模型 ID 搜索并勾选，已有模型预先勾选，手动添加的模型也可在此保留。点击“更新列表”后回到连接页保存。获取只采用响应里的 `id`。ZenMux 的 ID 为供应商/模型 slug，必须完整保留。获取到模型并不等于它有调用权限或支持推理。一个“连接 + 模型”组合可设为全局默认，调用方也可显式指定；无默认时不能猜测或自动切换其他服务。
+每个连接支持多个模型 ID，通过“手动添加”或“获取模型”维护。获取后可按模型 ID 搜索并勾选，已有模型预先勾选，手动添加的模型也可在此保留。点击“更新列表”后回到连接页保存。获取只采用响应里的 `id`。ZenMux 的 ID 为供应商/模型 slug，必须完整保留。获取到模型并不等于它有调用权限或支持推理。
+
+1.1.90 起，连接列表下方集中显示各连接的模型。拖动左侧把手可上下排序，松手后自动保存。翻译等未指定模型的调用使用列表首位。升级时，原来保存的默认模型排在首位。新增模型排在末尾。[模型排序截图](images/model-services-order-1.1.90.png)。
 
 [模型选择窗口预览](images/model-picker-1.1.83.png)使用模拟目录。
 
@@ -40,7 +42,7 @@
 ITextModelService models = controller.Models;
 var request = new TextGenerationRequest([new("user", input)])
 {
-    // Model = new(connectionId, modelId), // 省略时使用全局默认
+    // Model = new(connectionId, modelId), // 省略时使用模型列表首位
     MaxOutputTokens = 1024
 };
 await foreach (var item in models.GenerateAsync(request, cancellationToken))

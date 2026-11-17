@@ -102,17 +102,29 @@ public sealed class TranslationTests
     }
 
     [AvaloniaFact]
-    public async Task ExplicitModelChoiceDoesNotModifyTheGlobalDefaultAndDoesNotSilentlyFallbackWhenDeleted()
+    public async Task TranslationFollowsFirstModelUntilAnExplicitSelection()
     {
         using var scope = new PageScope(); await scope.Page.OpenAsync();
-        var originalDefault = scope.Config.DefaultModel;
-        scope.Page.Model.SelectedIndex = 2; scope.Page.Source.Text = "Hello";
+        Assert.Equal("first", scope.Page.Model.SelectedItem?.ToString());
+        var connection = scope.Config.Connections.Single();
+        var second = new ModelReference(connection.Id, "second");
+        scope.Config = scope.Config with { ModelOrder = [second] };
+        await scope.Page.OpenAsync();
+        Assert.Equal("second", scope.Page.Model.SelectedItem?.ToString());
+        scope.Page.Source.Text = "Hello";
         await scope.Page.TranslateOrStopAsync();
         Assert.Equal("second", scope.Capability.Requests.Single().Model!.ModelId);
-        Assert.Equal(originalDefault, scope.Config.DefaultModel);
-        scope.Config = scope.Config with { Connections = [] , DefaultModel = null };
-        await scope.Page.OpenAsync(); await scope.Page.TranslateOrStopAsync();
-        Assert.Single(scope.Capability.Requests);
+
+        scope.Page.Model.SelectedIndex = 1;
+        await scope.Page.OpenAsync();
+        await scope.Page.TranslateOrStopAsync();
+        Assert.Equal("first", scope.Capability.Requests.Last().Model!.ModelId);
+        Assert.Equal(second, scope.Config.ModelOrder[0]);
+        scope.Config = scope.Config with { Connections = [connection with { Models = ["second"] }] };
+        await scope.Page.OpenAsync();
+        Assert.Null(scope.Page.Model.SelectedItem);
+        await scope.Page.TranslateOrStopAsync();
+        Assert.Equal(2, scope.Capability.Requests.Count);
     }
 
     [AvaloniaFact]
@@ -174,7 +186,7 @@ public sealed class TranslationTests
         public PageScope()
         {
             var connection = new ModelConnection(Guid.NewGuid(), "示例模型服务", "https://api.example.invalid/v1", ["first", "second"]);
-            Config = new() { Connections = [connection], DefaultModel = new(connection.Id, "first") };
+            Config = new() { Connections = [connection] };
             Page = new(Capability, () => Task.FromResult(Config), () => { },
                 () => { ClipboardReads++; return Task.FromResult<string?>("Clipboard text"); }, text => { Copied = text; return Task.CompletedTask; });
             Ui.Configure(Window, "翻译测试", 800, 600);

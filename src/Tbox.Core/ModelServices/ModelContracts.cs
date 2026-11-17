@@ -9,7 +9,7 @@ public sealed record ModelConnection(Guid Id, string Name, string BaseUrl, strin
 public sealed record ModelConfiguration
 {
     public ModelConnection[] Connections { get; init; } = [];
-    public ModelReference? DefaultModel { get; init; }
+    public ModelReference[] ModelOrder { get; init; } = [];
 }
 public sealed record ModelMessage(string Role, string Content);
 public sealed record TextGenerationRequest(IReadOnlyList<ModelMessage> Messages)
@@ -62,9 +62,16 @@ public static class ModelPolicy
         return connection with { Name = connection.Name.Trim(), BaseUrl = connection.BaseUrl.Trim().TrimEnd('/'), Models = connection.Models.Distinct(StringComparer.Ordinal).ToArray() };
     }
 
+    public static ModelReference[] OrderedModels(ModelConfiguration configuration)
+    {
+        var models = configuration.Connections.SelectMany(c => c.Models.Select(id => new ModelReference(c.Id, id))).ToArray();
+        var remaining = models.ToHashSet();
+        return configuration.ModelOrder.Concat(models).Where(remaining.Remove).ToArray();
+    }
+
     public static (ModelConnection Connection, ModelReference Model) Resolve(ModelConfiguration configuration, ModelReference? requested)
     {
-        var model = requested ?? configuration.DefaultModel ?? throw Invalid("请先在模型服务中选择默认模型。");
+        var model = requested ?? OrderedModels(configuration).FirstOrDefault() ?? throw Invalid("请先在模型服务中添加模型。");
         var connection = configuration.Connections.FirstOrDefault(c => c.Id == model.ConnectionId)
             ?? throw Invalid("指定的模型连接已不存在，请重新选择。");
         Validate(connection);

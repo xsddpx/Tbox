@@ -311,7 +311,7 @@ public sealed class MainWindow : Window
             Spaced(Ui.Note("关闭窗口后 Tbox 继续在托盘运行，快捷键照常可用。右键托盘图标可退出。"), 18));
 
         AddPage(MainPage.Models, _models);
-        AddPage(MainPage.Translation, PageHeader(IconKind.Translate, "翻译", "复用公共模型能力 · 原文与译文对照", null), _translation);
+        AddPage(MainPage.Translation, _translation);
 
         var feedback = new SurfaceButton("反馈问题", () => _controller.Run(async () =>
         {

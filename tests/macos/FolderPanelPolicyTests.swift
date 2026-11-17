@@ -4,6 +4,7 @@ import Foundation
 // Model the AX identity checks without requesting permissions or sending keys.
 @main struct FolderPanelPolicyTests {
     static func main() {
+        verifyAXWorkRunsOnOwnerThread()
         let host: pid_t = 41
         let service: pid_t = 42
         precondition(!shouldInspectFolderPanel(host: host, ownProcess: host, hasLocalFilePanel: { false }),
@@ -51,6 +52,24 @@ import Foundation
             "An unrelated title does not authorize navigation")
         precondition(finderFolderFromItems([], title: "目标 同名") == nil,
             "A title alone cannot identify a directory")
-        print("PASS: 19 native folder panel and path regressions")
+        print("PASS: native folder panel, AX threading, and path regressions")
+    }
+
+    private static func verifyAXWorkRunsOnOwnerThread() {
+        var result: (system: Bool, own: Bool, external: Bool)?
+        DispatchQueue.global().async {
+            let system = withFolderAXOwner(AXUIElementCreateSystemWide()) { Thread.isMainThread }
+            let own = withFolderAXOwner(AXUIElementCreateApplication(getpid())) { Thread.isMainThread }
+            let external = withFolderAXOwner(AXUIElementCreateApplication(getppid())) { !Thread.isMainThread }
+            DispatchQueue.main.async { result = (system, own, external) }
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while result == nil && Date() < deadline {
+            _ = RunLoop.main.run(mode: .default, before: deadline)
+        }
+        guard let result, result.system && result.own && result.external else {
+            fputs("FAIL: system-wide and own AX reads must run on main, external reads stay off-main\n", stderr)
+            exit(EXIT_FAILURE)
+        }
     }
 }

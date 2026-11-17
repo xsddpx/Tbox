@@ -64,7 +64,7 @@ public sealed class ModelService : ITextModelService, IDisposable
     // The settings page shows the saved key masked and may reveal it on request; tools use GenerateAsync instead.
     internal string? KeyOf(Guid connectionId) => _keys.GetValueOrDefault(connectionId);
 
-    public async Task SaveConnectionAsync(ModelConnection draft, string key, bool makeDefault, string? defaultModel, CancellationToken ct = default)
+    public async Task SaveConnectionAsync(ModelConnection draft, string key, CancellationToken ct = default)
     {
         await InitializeAsync(ct);
         await _changes.WaitAsync(ct);
@@ -74,12 +74,11 @@ public sealed class ModelService : ITextModelService, IDisposable
             var previous = _configuration.Connections.FirstOrDefault(c => c.Id == connection.Id);
             if (previous is null && _configuration.Connections.Length >= 20) throw new ModelServiceException(ModelFailure.Configuration, "最多保存 20 个模型连接。");
             key = ModelKey.Validate(key);
-            var connections = _configuration.Connections.Where(c => c.Id != connection.Id).Append(connection).ToArray();
-            var selected = _configuration.DefaultModel;
-            if (makeDefault) selected = new(connection.Id, defaultModel ?? "");
-            else if (selected?.ConnectionId == connection.Id) selected = null;
-            var next = new ModelConfiguration { Connections = connections, DefaultModel = selected };
-            if (next.DefaultModel is not null) ModelPolicy.Resolve(next, next.DefaultModel);
+            var connections = previous is null
+                ? _configuration.Connections.Append(connection).ToArray()
+                : _configuration.Connections.Select(c => c.Id == connection.Id ? connection : c).ToArray();
+            var next = _configuration with { Connections = connections };
+            next = next with { ModelOrder = ModelPolicy.OrderedModels(next) };
             var keys = new Dictionary<Guid, string>(_keys) { [connection.Id] = key };
             var legacy = new Dictionary<Guid, Guid>(_legacy);
             var retired = legacy.Remove(connection.Id, out var old) ? old : (Guid?)null;
@@ -95,7 +94,11 @@ public sealed class ModelService : ITextModelService, IDisposable
         await InitializeAsync(ct); await _changes.WaitAsync(ct);
         try
         {
-            var next = _configuration with { Connections = _configuration.Connections.Where(c => c.Id != id).ToArray(), DefaultModel = _configuration.DefaultModel?.ConnectionId == id ? null : _configuration.DefaultModel };
+            var next = _configuration with
+            {
+                Connections = _configuration.Connections.Where(c => c.Id != id).ToArray(),
+                ModelOrder = _configuration.ModelOrder.Where(model => model.ConnectionId != id).ToArray()
+            };
             var keys = new Dictionary<Guid, string>(_keys); keys.Remove(id);
             var legacy = new Dictionary<Guid, Guid>(_legacy);
             var retired = legacy.Remove(id, out var old) ? old : (Guid?)null;
@@ -110,18 +113,30 @@ public sealed class ModelService : ITextModelService, IDisposable
     {
         await InitializeAsync(ct);
         var connection = _configuration.Connections.FirstOrDefault(c => c.Id == connectionId) ?? throw new ModelServiceException(ModelFailure.Configuration, "请先保存连接。");
+        return await GetModelsAsync(connection, Key(connection), ct);
+    }
+
+    internal async Task<string[]> GetModelsAsync(ModelConnection draft, string key, CancellationToken ct)
+    {
+        key = ModelKey.Validate(key);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdown.Token); timeout.CancelAfter(RequestTimeout);
-        try { return await _provider.GetModelsAsync(connection, Key(connection), timeout.Token); }
+        try { return await _provider.GetModelsAsync(draft, key, timeout.Token); }
         catch (Exception e) { throw Sanitize(e, ct); }
     }
 
-    public async Task SetDefaultModelAsync(ModelReference? model, CancellationToken ct = default)
+    public async Task MoveModelAsync(ModelReference model, ModelReference target, bool after, CancellationToken ct = default)
     {
         await InitializeAsync(ct); await _changes.WaitAsync(ct);
         try
         {
-            var next = _configuration with { DefaultModel = model };
-            if (model is not null) ModelPolicy.Resolve(next, model);
+            if (model == target) return;
+            ModelPolicy.Resolve(_configuration, model);
+            ModelPolicy.Resolve(_configuration, target);
+            var order = _configuration.ModelOrder.ToList();
+            order.Remove(model);
+            order.Insert(order.IndexOf(target) + (after ? 1 : 0), model);
+            if (order.SequenceEqual(_configuration.ModelOrder)) return;
+            var next = _configuration with { ModelOrder = order.ToArray() };
             await _store.SaveAsync(next, _keys, _legacy, ct);
             _configuration = Clone(next);
         }
@@ -136,13 +151,45 @@ public sealed class ModelService : ITextModelService, IDisposable
         var key = Key(connection);
         // Snapshot mutable caller-owned collections before the first network await.
         request = request with { Messages = request.Messages.Select(m => m with { }).ToArray() };
+        await foreach (var item in GenerateAsync(connection, model.ModelId, key, request, cancellationToken))
+            yield return item;
+    }
+
+    internal async Task<ModelUsage?> TestConnectionAsync(ModelConnection draft, string key, CancellationToken ct)
+    {
+        var connection = ModelPolicy.Validate(draft);
+        var model = connection.Models.FirstOrDefault()
+            ?? throw new ModelServiceException(ModelFailure.Configuration, "请先添加至少一个模型 ID。");
+        key = ModelKey.Validate(key);
+        var request = new TextGenerationRequest([new("user", "Reply with OK.")]) { MaxOutputTokens = 32 };
+        var receivedText = false;
+        var completed = false;
+        ModelUsage? usage = null;
+        await foreach (var item in GenerateAsync(connection, model, key, request, ct))
+        {
+            receivedText |= !string.IsNullOrWhiteSpace(item.Text);
+            if (!item.IsComplete) continue;
+            if (item.FinishReason != "stop")
+                throw new ModelServiceException(ModelFailure.Incomplete, "模型已结束，但未正常完成（可能达到输出上限或内容受限）。");
+            completed = true;
+            usage = item.Usage;
+        }
+        ct.ThrowIfCancellationRequested();
+        if (!completed || !receivedText)
+            throw new ModelServiceException(ModelFailure.Incomplete, "未收到完整测试结果。");
+        return usage;
+    }
+
+    private async IAsyncEnumerable<TextGenerationEvent> GenerateAsync(ModelConnection connection, string model, string key,
+        TextGenerationRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token); timeout.CancelAfter(RequestTimeout);
         var acquired = false;
         try
         {
             try { await _requests.WaitAsync(timeout.Token); acquired = true; }
             catch (Exception e) { throw Sanitize(e, cancellationToken); }
-            await using var events = _provider.GenerateAsync(connection, model.ModelId, key, request, timeout.Token).GetAsyncEnumerator(timeout.Token);
+            await using var events = _provider.GenerateAsync(connection, model, key, request, timeout.Token).GetAsyncEnumerator(timeout.Token);
             while (true)
             {
                 TextGenerationEvent next;
@@ -195,6 +242,10 @@ public sealed class ModelService : ITextModelService, IDisposable
         try { await _legacyCredentials.DeleteAsync(credential); }
         catch { AppLog.Write("Legacy model credential cleanup failed; no credential content recorded."); }
     }
-    private static ModelConfiguration Clone(ModelConfiguration c) => c with { Connections = c.Connections.Select(connection => connection with { Models = connection.Models.ToArray() }).ToArray() };
+    private static ModelConfiguration Clone(ModelConfiguration c) => c with
+    {
+        Connections = c.Connections.Select(connection => connection with { Models = connection.Models.ToArray() }).ToArray(),
+        ModelOrder = c.ModelOrder.ToArray()
+    };
     public void Dispose() { _shutdown.Cancel(); _provider.Dispose(); }
 }

@@ -29,11 +29,11 @@ public sealed class ModelPolicyTests
     public void ResolvesExplicitModelIndependentlyOfDefault()
     {
         var first = Connection("https://first.example/v1"); var second = Connection("https://second.example/v1");
-        var config = new ModelConfiguration { Connections = [first, second], DefaultModel = new(first.Id, "text-model") };
+        var config = new ModelConfiguration { Connections = [second, first], ModelOrder = [new(first.Id, "text-model")] };
         Assert.Equal(first.Id, ModelPolicy.Resolve(config, null).Connection.Id);
         Assert.Equal(second.Id, ModelPolicy.Resolve(config, new(second.Id, "text-model")).Connection.Id);
         Assert.Throws<ModelServiceException>(() => ModelPolicy.Resolve(config, new(first.Id, "unlisted")));
-        Assert.Throws<ModelServiceException>(() => ModelPolicy.Resolve(config with { DefaultModel = null }, null));
+        Assert.Throws<ModelServiceException>(() => ModelPolicy.Resolve(new(), null));
     }
 
     [Fact]
