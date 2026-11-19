@@ -16,7 +16,7 @@ namespace Tbox.Desktop;
 
 public sealed class DesktopController : IDisposable
 {
-    private readonly IClassicDesktopStyleApplicationLifetime _lifetime;
+    private readonly Action _shutdown;
     private readonly JsonSettingsStore _settingsStore;
     private readonly string _settingsPath;
     private readonly string? _legacySettingsPath;
@@ -27,6 +27,10 @@ public sealed class DesktopController : IDisposable
     private readonly HotkeyConfiguration _hotkeys;
     private bool _recordingShortcut;
     private readonly SemaphoreSlim _moduleChanges = new(1);
+    private readonly PinSessionStore _pinSession;
+    private static readonly string AppVersion = typeof(DesktopController).Assembly.GetName().Version!.ToString();
+    private bool _pinSessionReady;
+    private Task _pinSessionWrite = Task.CompletedTask;
     private readonly List<PinnedWindow> _pins = [];
     private CaptureSession? _capture;
     private LongCaptureSession? _longCapture;
@@ -70,8 +74,11 @@ public sealed class DesktopController : IDisposable
     public event Action? ShortcutsChanged;
 
     public DesktopController(IPlatformServices platform, IClassicDesktopStyleApplicationLifetime lifetime, string? settingsPath = null)
+        : this(platform, () => lifetime.Shutdown(), settingsPath) { }
+
+    internal DesktopController(IPlatformServices platform, Action shutdown, string? settingsPath)
     {
-        Platform = platform; _lifetime = lifetime;
+        Platform = platform; _shutdown = shutdown;
         _folders = platform.CreateFolderNavigation();
         _folderBar = new(this, _folders, _stop.Token);
         _startup = platform.CreateStartupRegistration();
@@ -82,6 +89,7 @@ public sealed class DesktopController : IDisposable
         _settingsPath = settingsPath ?? Path.Combine(local, "Tbox", "desktop-settings.json");
         _legacySettingsPath = settingsPath is null && OperatingSystem.IsWindows() ? Path.Combine(local, "Tbox", "settings.json") : null;
         _settingsStore = new JsonSettingsStore(_settingsPath);
+        _pinSession = new PinSessionStore(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!);
         Models = new ModelServices.ModelService(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!, "model-services.json"), ModelCredentialStore.Create());
         _cache = CreateCache(null);
     }
@@ -106,6 +114,7 @@ public sealed class DesktopController : IDisposable
             _cache = new CaptureCache(location.Path);
             if (location.IsFallback) Main.SetStatus("首选缓存目录不可写，本次运行使用本地应用数据目录；原设置和已有文件保持不变。");
             Main.Refresh();
+            await RestorePinsAfterUpgradeAsync();
             PruneCache();
             await CaptureFrames.OpenAsync(_cache.DirectoryPath);
             RecordingWorkspace.CleanupExpired();
@@ -506,19 +515,64 @@ public sealed class DesktopController : IDisposable
         _reviews.Add(review); review.Released += () => _reviews.Remove(review); review.Show();
     }
 
-    private void Pin(Picture picture, DesktopPlacement? placement = null, IReadOnlyList<AnnotationCommand>? annotations = null)
+    private void Pin(Picture picture, DesktopPlacement? placement = null, IReadOnlyList<AnnotationCommand>? annotations = null,
+        SavedPin? restored = null)
     {
-        if (!_settings.ScreenPasteEnabled || IsQuitting || _installingUpdate) { picture.Dispose(); return; }
+        if (!_settings.ScreenPasteEnabled || IsQuitting || _quitRequested || _installingUpdate) { picture.Dispose(); return; }
         var pin = new PinnedWindow(this, picture);
         foreach (var command in annotations ?? []) pin.Editor.Document.Commit(command);
         _pins.Add(pin);
         pin.Closed += (_, _) => { _pins.Remove(pin); PruneCache(); };
         _pinsHidden = false;
+        pin.ShowActivated = restored is null;
         pin.Show();
+        if (restored is not null)
+        {
+            try { pin.RestoreForUpgrade(restored); }
+            catch { pin.Close(); throw; }
+            return;
+        }
         var handle = pin.TryGetPlatformHandle()!.Handle;
         if (placement is not null) Platform.PlaceWindow(handle, placement, false);
         else Platform.MoveToPointer(handle);
         pin.Activate();
+    }
+
+    private async Task RestorePinsAfterUpgradeAsync()
+    {
+        try
+        {
+            if (_settings.ScreenPasteEnabled)
+            {
+                var session = await Task.Run(() => _pinSession.ReadForUpgrade(AppVersion));
+                foreach (var saved in session.Pins)
+                {
+                    if (IsQuitting || _quitRequested || _installingUpdate) return;
+                    var picture = new Picture(saved.Png) { CachePath = saved.State.CachePath };
+                    Pin(picture, restored: saved.State);
+                }
+                if (session.Pins.Count > 0) _pinsHidden = session.Hidden;
+            }
+            _pinSession.Consume();
+            _pinSessionReady = true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or OverflowException
+            or System.Text.Json.JsonException or ArgumentException or InvalidOperationException or NullReferenceException or NotSupportedException)
+        {
+            Main.SetStatus("上次贴图会话读取失败，已保留原文件。");
+            AppLog.Write("Pin session restore failed: " + ex.GetType().Name);
+            try { _pinSession.PreserveUnreadableSession(); _pinSessionReady = true; }
+            catch (Exception io) when (io is IOException or UnauthorizedAccessException)
+            { AppLog.Write("Pin session recovery file is unavailable."); }
+        }
+    }
+
+    internal Task SavePinsForUpgradeAsync()
+    {
+        if (!_pinSessionReady || !_pinSessionWrite.IsCompleted) return _pinSessionWrite;
+        var pins = _pins.Select(pin => pin.SnapshotForUpgrade()).ToArray();
+        var hidden = _pinsHidden;
+        return _pinSessionWrite = Task.Run(() => _pinSession.Save(AppVersion, hidden, pins));
     }
 
     public void TogglePins()
@@ -785,7 +839,9 @@ public sealed class DesktopController : IDisposable
             foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
             if (_recording is { } recording) await recording.CancelAsync();
             if (_installingUpdate) return;
-            IsQuitting = true; _lifetime.Shutdown();
+            await SavePinsForUpgradeAsync();
+            if (_installingUpdate || IsQuitting) return;
+            IsQuitting = true; _shutdown();
         }
         finally { _quitRequested = false; }
     }
@@ -797,8 +853,9 @@ public sealed class DesktopController : IDisposable
         {
             if (_recording is { } recording) await recording.CancelAsync();
             foreach (var review in _reviews.ToArray()) await review.RequestCloseAsync(discardUnsaved: true);
+            await SavePinsForUpgradeAsync();
             launchInstaller();
-            IsQuitting = true; _lifetime.Shutdown();
+            IsQuitting = true; _shutdown();
         }
         finally { _installingUpdate = false; }
     }

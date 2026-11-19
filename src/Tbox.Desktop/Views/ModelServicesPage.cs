@@ -69,8 +69,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private StackPanel _protocolBlock = new();
     private Grid _fieldRow = new();
     private readonly List<string> _models = [];
-    // Session-only test outcome per connection; a failure keeps a short reason for the list row.
-    private readonly Dictionary<Guid, (bool Ready, string Reason)> _testStates = [];
+    // A saved success follows the configuration. Keep failure messages only for this session.
+    private readonly Dictionary<Guid, string> _testFailures = [];
     private (bool Ready, string Reason)? _draftTest;
     private CancellationTokenSource? _operation;
     private Guid _id = Guid.NewGuid();
@@ -193,9 +193,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         var key = Secret.Text ?? "";
         var test = _draftTest;
         var changed = _dirty;
-        await Busy(ct => _service.SaveConnectionAsync(draft, key, ct));
-        if (test is { } outcome) _testStates[draft.Id] = outcome;
-        else if (changed) _testStates.Remove(draft.Id);
+        await Busy(ct => _service.SaveConnectionAsync(draft, key, test?.Ready, ct));
+        if (test is { Ready: false } failure) _testFailures[draft.Id] = failure.Reason;
+        else if (test.HasValue || changed) _testFailures.Remove(draft.Id);
         if (!IsEditing || _id != draft.Id) return;
         _saved = _service.Configuration.Connections.FirstOrDefault(c => c.Id == draft.Id);
         _dirty = false;
@@ -218,12 +218,18 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             ModelUsage? usage = null;
             await Busy(async ct =>
             {
-                usage = await _service.TestConnectionAsync(draft, key, ct);
+                try { usage = await _service.TestConnectionAsync(draft, key, ct); }
+                catch (ModelServiceException) when (testingSavedVersion)
+                {
+                    await _service.RecordSavedTestAsync(draft, key, false, ct);
+                    throw;
+                }
+                if (testingSavedVersion) await _service.RecordSavedTestAsync(draft, key, true, ct);
                 ct.ThrowIfCancellationRequested();
             });
             if (!IsEditing) return;
             _draftTest = (true, "");
-            if (testingSavedVersion) _testStates[draft.Id] = _draftTest.Value;
+            if (testingSavedVersion) _testFailures.Remove(draft.Id);
             SetStatus("连接正常");
             ShowTestResult(true, "连接正常");
             ToolTip.SetTip(_testResultText, usage is null ? "测试模型：" + draft.Models[0]
@@ -234,7 +240,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             if (IsEditing)
             {
                 _draftTest = (false, ShortReason(e.Failure));
-                if (testingSavedVersion) _testStates[draft.Id] = _draftTest.Value;
+                if (testingSavedVersion) _testFailures[draft.Id] = _draftTest.Value.Reason;
                 SetStatus(e.Message, error: true);
                 ShowTestResult(false, "测试失败：" + e.Message);
             }
@@ -289,6 +295,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
                 BaseUrl.Text = connection.BaseUrl;
                 _models.AddRange(connection.Models);
                 _selectedPreset = Array.FindIndex(Presets, p => SameAddress(p.BaseUrl, connection.BaseUrl));
+                if (connection.IsVerified) ShowTestResult(true, "连接正常");
             }
         }
         finally
@@ -444,7 +451,8 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     private (string Text, string Color) StatusOf(ModelConnection connection)
     {
-        if (_testStates.TryGetValue(connection.Id, out var state)) return state.Ready ? ("可用", DesignTokens.Ready) : (state.Reason, DesignTokens.Error);
+        if (connection.IsVerified) return ("可用", DesignTokens.Ready);
+        if (_testFailures.TryGetValue(connection.Id, out var reason)) return (reason, DesignTokens.Error);
         if (!_service.HasKey(connection.Id)) return ("缺少密钥", DesignTokens.Attention);
         return ("未验证", DesignTokens.Attention);
     }
@@ -739,7 +747,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     private async Task DeleteConnectionAsync()
     {
         if (!await Confirm("删除此模型连接？", "删除连接", "将同时移除这个连接的模型和密钥。")) return;
-        _testStates.Remove(_id);
+        _testFailures.Remove(_id);
         await Busy(ct => _service.DeleteConnectionAsync(_id, ct));
         _dirty = false; Secret.Text = "";
         ShowList(); SetStatus("连接已删除");

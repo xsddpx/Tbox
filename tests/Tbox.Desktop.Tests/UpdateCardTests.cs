@@ -45,15 +45,21 @@ public sealed class UpdateCardTests
         typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
             .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
         var recorder = new FakeRecorder();
-        using var controller = new DesktopController(new FakePlatform { Recorder = recorder }, lifetime);
-        controller.Main = new MainWindow(controller);
         var temp = Path.Combine(Path.GetTempPath(), "tbox-update-card-" + Guid.NewGuid().ToString("N"));
-        controller.UseCacheDirectoryForTests(Path.Combine(temp, "captures"));
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Close this case's windows without shutting down the dispatcher shared by the headless tests.
+        using var controller = new DesktopController(new FakePlatform { Recorder = recorder }, () =>
+        {
+            foreach (var window in lifetime.Windows.ToArray()) window.Close();
+            exited.SetResult();
+        }, Path.Combine(temp, "settings.json"));
+        controller.Main = new MainWindow(controller);
+        await new Tbox.Core.JsonSettingsStore(Path.Combine(temp, "settings.json")).SaveAsync(
+            new Tbox.Core.AppSettings { ScreenCaptureCacheDirectory = Path.Combine(temp, "captures") });
+        await controller.InitializeAsync([]);
         var handler = new AvailableRelease();
         var invalidPackage = new TaskCompletionSource<PreparedUpdate>(TaskCreationOptions.RunContinuationsAsynchronously);
         var validated = new TaskCompletionSource<PreparedUpdate>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        lifetime.Exit += (_, _) => exited.TrySetResult();
         var validationAttempts = 0;
         var installerLaunched = false;
         var card = new UpdateCard(controller, new GitHubUpdateClient(handler), (file, _, token) =>
@@ -127,6 +133,9 @@ public sealed class UpdateCardTests
             validated.SetResult(new PreparedUpdate(() => installerLaunched = true, () => { }));
             await exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(installerLaunched);
+            var checkpoint = new Models.PinSessionStore(temp).ReadForUpgrade("next-version");
+            Assert.Equal(hasWork ? 1 : 0, checkpoint.Pins.Count);
+            Assert.Equal(hasWork, checkpoint.Hidden);
             Assert.Equal(0, controller.PinCount);
             Assert.Empty(lifetime.Windows.OfType<ImageResultWindow>());
             if (closingReview is not null)

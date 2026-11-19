@@ -25,6 +25,22 @@ public sealed class TestApplication : Application
 public sealed class PictureTests
 {
     [AvaloniaFact]
+    public void CroppingOffsetRowsPreservesColorAndAlphaForRawAndDecodedPictures()
+    {
+        var pixels = Enumerable.Range(0, 35).SelectMany(i => new byte[] { 0, 0, 255, (byte)(32 + i * 6) }).ToArray();
+        using var raw = Picture.FromPixels(pixels, 7, 5);
+        using var decoded = new Picture(raw.Png);
+        foreach (var source in new[] { raw, decoded })
+        {
+            using var crop = source.Crop(new PixelRegion(3, 2, 3, 2));
+            var original = source.GetPixels();
+            var expected = original.Skip((2 * 7 + 3) * 4).Take(12)
+                .Concat(original.Skip((3 * 7 + 3) * 4).Take(12)).ToArray();
+            Assert.Equal(expected, crop.GetPixels());
+        }
+    }
+
+    [AvaloniaFact]
     public void RawPixelsDisplayAndCropWithoutEncodingAndEncodeOnlyOnDemand()
     {
         byte[] pixels = [10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 100, 110, 120, 255];

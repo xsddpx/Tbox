@@ -4,6 +4,7 @@ namespace Tbox.Core.ModelServices;
 public sealed record ModelReference(Guid ConnectionId, string ModelId);
 public sealed record ModelConnection(Guid Id, string Name, string BaseUrl, string[] Models)
 {
+    public bool IsVerified { get; init; }
     public string Protocol { get; init; } = "openai-chat";
 }
 public sealed record ModelConfiguration
