@@ -453,6 +453,22 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public void PinchScaleFactorsAccumulateAndReverseWithoutLeavingPartialSteps()
+    {
+        var remainder = 0d;
+        var halfStep = Math.Sqrt(1.05);
+        Assert.Equal(0, PinWindowScalePolicy.ConsumePinchSteps(ref remainder, halfStep - 1));
+        Assert.Equal(0, PinWindowScalePolicy.ConsumePinchSteps(ref remainder, 1 / halfStep - 1));
+        Assert.Equal(0, remainder);
+        Assert.Equal(0, PinWindowScalePolicy.ConsumePinchSteps(ref remainder, halfStep - 1));
+        Assert.Equal(1, PinWindowScalePolicy.ConsumePinchSteps(ref remainder, halfStep - 1));
+        Assert.Equal(-1, PinWindowScalePolicy.ConsumePinchSteps(ref remainder, 1 / 1.05 - 1));
+        Assert.Equal(0, PinWindowScalePolicy.ConsumePinchSteps(ref remainder, double.NaN));
+        Assert.Equal(0, PinWindowScalePolicy.ConsumePinchSteps(ref remainder, -1));
+        Assert.Equal(0, remainder);
+    }
+
+    [Fact]
     public void PinWheelKeepsSmallerStepsForAHighlyReducedLongImage()
     {
         const double fit = 0.023;

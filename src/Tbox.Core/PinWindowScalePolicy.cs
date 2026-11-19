@@ -21,6 +21,7 @@ public static class PinWindowScalePolicy
     private const double StandardStep = 0.05;
     private const double SmallStep = 0.01;
     private const double MaximumScale = 8;
+    private static readonly double PinchStep = Math.Log(1 + StandardStep);
 
     internal static int ConsumeWheelSteps(ref double remainder, double delta)
     {
@@ -29,6 +30,14 @@ public static class PinWindowScalePolicy
         var steps = (int)Math.Truncate(accumulated);
         remainder = accumulated - steps;
         return steps;
+    }
+
+    internal static int ConsumePinchSteps(ref double remainder, double magnification)
+    {
+        if (!double.IsFinite(magnification) || magnification <= -1) return 0;
+        // Native deltas are incremental scale factors. Logarithms make spreading and
+        // reversing the same movement cancel before applying the shared zoom steps.
+        return ConsumeWheelSteps(ref remainder, Math.Log(1 + magnification) / PinchStep);
     }
 
     internal static double ApplyWheelSteps(double currentScale, int steps, double minimumScale)

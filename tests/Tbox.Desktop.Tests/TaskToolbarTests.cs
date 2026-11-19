@@ -324,8 +324,10 @@ public sealed class TaskToolbarTests
         Assert.Equal(0, tall.Top, precision: 8);
     }
 
-    [AvaloniaFact]
-    public async Task PinWheelDoesNotResizeOnFractionalInputOrDriftAfterReversing()
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PinZoomAccumulatesFractionalInputAndReversesWithoutDrift(bool pinch)
     {
         using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
@@ -341,12 +343,17 @@ public sealed class TaskToolbarTests
             var surface = pin.GetVisualDescendants().OfType<PinSurface>().Single();
             var pointer = new Pointer(1, PointerType.Mouse, true);
             var anchor = new Point(original.Left + 27, original.Top + 49);
-            void Wheel(double delta)
+            void Zoom(double steps)
             {
                 var current = platform.WindowPlacementOverride!;
                 var point = new Point(anchor.X - current.Left, anchor.Y - current.Top);
-                surface.RaiseEvent(new PointerWheelEventArgs(surface, pointer, pin, point, 0,
-                    new PointerPointProperties(), KeyModifiers.None, new Vector(0, delta)));
+                var properties = new PointerPointProperties();
+                if (pinch)
+                    surface.RaiseEvent(new PointerDeltaEventArgs(Gestures.PointerTouchPadGestureMagnifyEvent, surface,
+                        pointer, pin, point, 0, properties, KeyModifiers.None, new Vector(0, Math.Pow(1.05, steps) - 1)));
+                else
+                    surface.RaiseEvent(new PointerWheelEventArgs(surface, pointer, pin, point, 0,
+                        properties, KeyModifiers.None, new Vector(0, steps)));
             }
             var calls = 0;
             platform.WindowPlaced = (placement, _) =>
@@ -354,7 +361,7 @@ public sealed class TaskToolbarTests
                 calls++;
                 platform.WindowPlacementOverride = placement;
             };
-            Wheel(-0.5);
+            Zoom(-0.5);
             await Task.Delay(50);
             Assert.Equal(0, calls);
 
@@ -366,7 +373,7 @@ public sealed class TaskToolbarTests
                     platform.WindowPlacementOverride = placement;
                     resized.TrySetResult(placement);
                 };
-                Wheel(i == 0 ? -0.5 : i % 2 == 0 ? -1 : 1);
+                Zoom(i == 0 ? -0.5 : i % 2 == 0 ? -1 : 1);
                 var bounds = await resized.Task.WaitAsync(TimeSpan.FromSeconds(2));
                 if (i % 2 == 0)
                     Assert.Equal(new DesktopPlacement(-179, 122, 50, 244), bounds);

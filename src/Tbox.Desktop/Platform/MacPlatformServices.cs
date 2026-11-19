@@ -16,14 +16,37 @@ public sealed class MacPlatformServices : IPlatformServices
     public bool RequestScreenPermission() => NativeRequestPermission() != 0;
     public void OpenScreenPermissionSettings() => NativeOpenPermissionSettings();
 
-    public async Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
+    public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken) =>
+        Task.Run(() => CapturePixels(null, cancellationToken), cancellationToken);
+
+    private static IReadOnlyList<CapturedDisplay> CapturePixels(DesktopPlacement? region, CancellationToken token)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var result = await Task.Run(() => ReadJson<CaptureResponse>(NativeCapture()), cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        return result.Displays.Select(display => new CapturedDisplay(
-            display.Id, display.Left, display.Top, display.Width, display.Height,
-            Convert.FromBase64String(display.Png))).ToArray();
+        var frames = new List<CapturedDisplay>();
+        Exception? readError = null;
+        int Receive(uint id, double left, double top, double width, double height, int pixelWidth, int pixelHeight, nint data)
+        {
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                var pixels = GC.AllocateUninitializedArray<byte>(checked(pixelWidth * pixelHeight * 4));
+                Marshal.Copy(data, pixels, 0, pixels.Length);
+                frames.Add(new CapturedDisplay(id, left, top, width, height, [])
+                    { PixelWidth = pixelWidth, PixelHeight = pixelHeight, BgraPixels = pixels });
+                return 1;
+            }
+            catch (Exception ex) { readError = ex; return 0; }
+        }
+
+        var error = NativeCapturePixels(region is null ? 0 : 1, region?.Left ?? 0, region?.Top ?? 0,
+            region?.Width ?? 0, region?.Height ?? 0, Receive);
+        try
+        {
+            token.ThrowIfCancellationRequested();
+            if (readError is not null) throw new InvalidOperationException("无法读取截图。", readError);
+            if (error != 0) throw new InvalidOperationException(Marshal.PtrToStringUTF8(error));
+            return frames;
+        }
+        finally { if (error != 0) NativeFree(error); }
     }
 
     public async Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken)
@@ -40,13 +63,11 @@ public sealed class MacPlatformServices : IPlatformServices
         finally { _recognitionLock.Release(); }
     }
 
-    public async Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken)
+    public Task<CapturedPixels> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => Task.Run(() =>
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var response = await Task.Run(() => ReadJson<CaptureResponse>(NativeCaptureRegion(region.Left, region.Top, region.Width, region.Height)), cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        return Convert.FromBase64String(response.Displays.Single().Png);
-    }
+        var frame = CapturePixels(region, cancellationToken).Single();
+        return new CapturedPixels(frame.BgraPixels!, frame.PixelWidth, frame.PixelHeight);
+    }, cancellationToken);
 
     public bool RegisterHotkey(HotkeyBinding binding, Action<HotkeyAction> onPressed)
     {
@@ -111,8 +132,9 @@ public sealed class MacPlatformServices : IPlatformServices
         finally { NativeFree(pointer); }
     }
 
-    private sealed record NativeDisplay(uint Id, double Left, double Top, double Width, double Height, string Png);
-    private sealed record CaptureResponse(NativeDisplay[] Displays);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int CaptureFrameCallback(uint id, double left, double top, double width, double height,
+        int pixelWidth, int pixelHeight, nint pixels);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void HotkeyCallback(int id);
@@ -124,8 +146,8 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_permission")] private static extern int NativePermission();
     [DllImport(Library, EntryPoint = "tbox_request_permission")] private static extern int NativeRequestPermission();
     [DllImport(Library, EntryPoint = "tbox_open_permission_settings")] private static extern void NativeOpenPermissionSettings();
-    [DllImport(Library, EntryPoint = "tbox_capture")] private static extern nint NativeCapture();
-    [DllImport(Library, EntryPoint = "tbox_capture_region")] private static extern nint NativeCaptureRegion(double left, double top, double width, double height);
+    [DllImport(Library, EntryPoint = "tbox_capture_pixels")] private static extern nint NativeCapturePixels(
+        int regionOnly, double left, double top, double width, double height, CaptureFrameCallback receive);
     [DllImport(Library, EntryPoint = "tbox_capture_overlay")] private static extern void NativeCaptureOverlay(nint handle, int clickThrough);
     [DllImport(Library, EntryPoint = "tbox_recognize")] private static extern nint NativeRecognize(byte[] data, int length);
     [DllImport(Library, EntryPoint = "tbox_register_hotkey")] private static extern int NativeRegisterHotkey(HotkeyCallback callback, int id, int keyCode, int modifiers);

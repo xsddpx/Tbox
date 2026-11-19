@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Tbox.Core.ModelServices;
@@ -15,6 +16,7 @@ internal sealed class ModelConfigurationStore(string path)
     private sealed record StoredConnection(Guid Id, string Name, string BaseUrl, string[] Models)
     {
         public string Protocol { get; init; } = "openai-chat";
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? VerifiedConfiguration { get; init; }
         public string? ApiKey { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Guid? CredentialId { get; init; }
     }
@@ -23,6 +25,16 @@ internal sealed class ModelConfigurationStore(string path)
         public StoredConnection[] Connections { get; init; } = [];
         public ModelReference[]? ModelOrder { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ModelReference? DefaultModel { get; init; }
+    }
+
+    internal static string Fingerprint(ModelConnection connection, string key) =>
+        Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
+            { connection.Id, connection.Name, connection.Protocol, connection.BaseUrl, connection.Models, Key = key })));
+
+    private static ModelConnection LoadConnection(StoredConnection stored)
+    {
+        var connection = new ModelConnection(stored.Id, stored.Name, stored.BaseUrl, stored.Models) { Protocol = stored.Protocol };
+        return connection with { IsVerified = stored.ApiKey is { } key && stored.VerifiedConfiguration == Fingerprint(connection, key) };
     }
 
     public async Task<ModelFileSnapshot> LoadAsync(CancellationToken ct)
@@ -38,7 +50,7 @@ internal sealed class ModelConfigurationStore(string path)
                 || file.Connections.Select(c => c.Id).Distinct().Count() != file.Connections.Length) throw new JsonException();
             var configuration = new ModelConfiguration
             {
-                Connections = file.Connections.Select(c => new ModelConnection(c.Id, c.Name, c.BaseUrl, c.Models) { Protocol = c.Protocol }).ToArray(),
+                Connections = file.Connections.Select(LoadConnection).ToArray(),
                 ModelOrder = file.ModelOrder ?? (file.DefaultModel is { } old ? [old] : [])
             };
             foreach (var connection in configuration.Connections) ModelPolicy.Validate(connection);
@@ -62,6 +74,7 @@ internal sealed class ModelConfigurationStore(string path)
         {
             Connections = configuration.Connections.Select(c => new StoredConnection(c.Id, c.Name, c.BaseUrl, c.Models)
             {
+                VerifiedConfiguration = c.IsVerified && keys.TryGetValue(c.Id, out var key) ? Fingerprint(c, key) : null,
                 Protocol = c.Protocol, ApiKey = keys.GetValueOrDefault(c.Id), CredentialId = legacy.TryGetValue(c.Id, out var old) ? old : null
             }).ToArray(),
             ModelOrder = configuration.ModelOrder

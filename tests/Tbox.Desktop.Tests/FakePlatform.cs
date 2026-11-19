@@ -18,8 +18,11 @@ internal sealed class FakePlatform : IPlatformServices
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
     { CaptureRequests++; CaptureStarting?.Invoke(); return PendingCapture ?? Task.FromResult(Displays); }
     public Func<CancellationToken, Task<byte[]>>? CaptureRegion { get; set; }
-    public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) =>
-        CaptureRegion?.Invoke(cancellationToken) ?? throw new NotSupportedException();
+    public async Task<CapturedPixels> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken)
+    {
+        using var frame = new Models.Picture(await (CaptureRegion?.Invoke(cancellationToken) ?? throw new NotSupportedException()));
+        return new CapturedPixels(frame.GetPixels(), frame.Bitmap.PixelSize.Width, frame.Bitmap.PixelSize.Height);
+    }
     public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) =>
         Task.FromResult(OcrResult ?? throw new NotSupportedException());
     // Shortcuts listed here behave as if another application holds them.

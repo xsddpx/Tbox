@@ -56,9 +56,9 @@ internal static class ToolbarSmokeTest
         }
         finally { session.Cancel(); }
 
-        // Use a small image here so the 100% test also fits the hosted runner's work area.
-        using var pinFixture = DesktopController.RenderText("Tbox toolbar verification");
-        var pin = new PinnedWindow(controller, pinFixture.Crop(new PixelRegion(0, 0, 400, pinFixture.Bitmap.PixelSize.Height)));
+        // At 105%, 132 pixels requires rounding 69.3 Retina desktop points directly.
+        using var pinFixture = DesktopController.RenderText("Tbox toolbar verification\nPin zoom");
+        var pin = new PinnedWindow(controller, pinFixture.Crop(new PixelRegion(0, 0, 400, 132)));
         object pinZoom;
         try
         {
@@ -115,8 +115,11 @@ internal static class ToolbarSmokeTest
         var samples = new List<double>();
         var unitsPerDip = platform.DesktopUnitsPerDip(handle);
         var anchor = new Point(original.Left + point.X * unitsPerDip, original.Top + point.Y * unitsPerDip);
-        for (var i = 0; i < 20; i++)
+        const int wheelSamples = 20;
+        var pinchSamples = OperatingSystem.IsMacOS() ? 4 : 0;
+        for (var i = 0; i < wheelSamples + pinchSamples; i++)
         {
+            var pinch = i >= wheelSamples;
             var bounds = platform.GetWindowPlacement(handle);
             var position = new Point((anchor.X - bounds.Left) / unitsPerDip, (anchor.Y - bounds.Top) / unitsPerDip);
             var watch = Stopwatch.StartNew();
@@ -126,24 +129,34 @@ internal static class ToolbarSmokeTest
             try
             {
                 var delta = i % 4 is 0 or 3 ? -0.5 : 0.5;
-                void WheelHalfStep() =>
-                    surface.RaiseEvent(new PointerWheelEventArgs(surface, pointer, pin, position, 0,
-                        new PointerPointProperties(), KeyModifiers.None, new Vector(0, delta)));
-                WheelHalfStep();
-                if (i == 0)
+                var properties = new PointerPointProperties();
+                void SendHalfStep()
+                {
+                    if (pinch)
+                        surface.RaiseEvent(new PointerDeltaEventArgs(Gestures.PointerTouchPadGestureMagnifyEvent, surface,
+                            pointer, pin, position, 0, properties, KeyModifiers.None, new Vector(0, Math.Pow(1.05, delta) - 1)));
+                    else
+                        surface.RaiseEvent(new PointerWheelEventArgs(surface, pointer, pin, position, 0,
+                            properties, KeyModifiers.None, new Vector(0, delta)));
+                }
+                SendHalfStep();
+                if (i == 0 || i == wheelSamples)
                 {
                     await Task.Delay(50);
-                    if (resized.Task.IsCompleted || platform.GetWindowPlacement(handle) != original)
-                        throw new InvalidOperationException("滚轮增量未满一格时调整了贴图窗口。");
+                    if (resized.Task.IsCompleted || platform.GetWindowPlacement(handle) != bounds)
+                        throw new InvalidOperationException("缩放增量未满一格时调整了贴图窗口。");
                     watch.Restart();
                 }
-                WheelHalfStep();
-                samples.Add(await resized.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+                SendHalfStep();
+                var elapsed = await resized.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                if (!pinch) samples.Add(elapsed);
                 var expected = (i % 4) switch { 0 => 0.95, 2 => 1.05, _ => 1 };
                 var stepBounds = platform.GetWindowPlacement(handle);
                 if (Math.Abs(stepBounds.Width * pixelsPerUnit - pin.Region.Width * expected) > 1 ||
                     Math.Abs(stepBounds.Height * pixelsPerUnit - pin.Region.Height * expected) > 1)
-                    throw new InvalidOperationException("贴图窗口未缩放到预期的 5% 档位。");
+                    throw new InvalidOperationException(
+                        $"贴图缩放 {expected:P0} 尺寸偏差：预期 {pin.Region.Width * expected:F1}×{pin.Region.Height * expected:F1}，" +
+                        $"实际 {stepBounds.Width * pixelsPerUnit:F1}×{stepBounds.Height * pixelsPerUnit:F1} 像素。");
             }
             finally { pin.SizeChanged -= OnSizeChanged; }
         }
@@ -154,7 +167,7 @@ internal static class ToolbarSmokeTest
         await Task.Delay(1100);
         if (badge.IsEffectivelyVisible) throw new InvalidOperationException("缩放比例提示未自动隐藏。");
         samples.Sort();
-        return new { samples = samples.Count, stepVerified = true, partialInputIgnored = true,
+        return new { samples = samples.Count, pinchSamples, stepVerified = true, partialInputIgnored = true,
             medianMs = (samples[9] + samples[10]) / 2, p95Ms = samples[18] };
     }
 

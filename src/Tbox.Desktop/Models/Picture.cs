@@ -53,23 +53,24 @@ public sealed class Picture : IDisposable
             (long)region.Left + region.Width > Bitmap.PixelSize.Width ||
             (long)region.Top + region.Height > Bitmap.PixelSize.Height)
             throw new ArgumentOutOfRangeException(nameof(region));
-        // Decode to a known format before copying. The original capture is never resampled.
-        using var decoded = new WriteableBitmap(Bitmap.PixelSize, new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
-        using var source = decoded.Lock();
-        Bitmap.CopyPixels(source, AlphaFormat.Premul);
-        var target = new WriteableBitmap(new PixelSize(region.Width, region.Height), new Vector(96, 96), source.Format, AlphaFormat.Premul);
+        if (Bitmap.Format is { } format && (format == PixelFormat.Bgra8888 || format == PixelFormat.Rgba8888) &&
+            Bitmap.AlphaFormat is { } alpha)
+        {
+            try { return CopyRegion(Bitmap, region, format, alpha); }
+            catch (NotSupportedException) { /* A transcoded bitmap may only support full-frame conversion. */ }
+        }
+        using var converted = CopyBitmap(Bitmap);
+        return CopyRegion(converted, region, PixelFormat.Bgra8888, AlphaFormat.Premul);
+    }
+
+    private static Picture CopyRegion(Bitmap bitmap, PixelRegion region, PixelFormat format, AlphaFormat alpha)
+    {
+        var target = new WriteableBitmap(new PixelSize(region.Width, region.Height), new Vector(96, 96), format, alpha);
         try
         {
-            using (var destination = target.Lock())
-            {
-                var bytesPerPixel = source.Format.BitsPerPixel / 8;
-                var row = new byte[checked(region.Width * bytesPerPixel)];
-                for (var y = 0; y < region.Height; y++)
-                {
-                    Marshal.Copy(source.Address + (region.Top + y) * source.RowBytes + region.Left * bytesPerPixel, row, 0, row.Length);
-                    Marshal.Copy(row, 0, destination.Address + y * destination.RowBytes, row.Length);
-                }
-            }
+            using (var frame = target.Lock())
+                bitmap.CopyPixels(new PixelRect(region.Left, region.Top, region.Width, region.Height),
+                    frame.Address, checked(frame.RowBytes * region.Height), frame.RowBytes);
             return new Picture(target);
         }
         catch { target.Dispose(); throw; }
