@@ -53,6 +53,9 @@ public interface IPlatformServices : IDisposable
     Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken);
     Task<CapturedPixels> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
     Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken);
+    // Take a snapshot of the input before yielding; the OCR window can close or replace its bitmap.
+    Task<RecognitionResult> RecognizeAsync(Models.Picture picture, CancellationToken cancellationToken) =>
+        RecognizeAsync(picture.Png, cancellationToken);
     // Global hotkeys, one per action. Registering an action replaces its previous shortcut;
     // false means the system or another application already holds the combination.
     bool RegisterHotkey(Tbox.Core.HotkeyBinding binding, Action<Tbox.Core.HotkeyAction> onPressed);

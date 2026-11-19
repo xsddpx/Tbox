@@ -125,7 +125,7 @@ internal sealed class ImageResultWindow : Window
         _status.Text = "已复制，可直接粘贴。";
     }
 
-    private Picture Current => _picture ?? throw new InvalidOperationException("图片预览尚未加载图片。");
+    internal Picture Current => _picture ?? throw new InvalidOperationException("图片预览尚未加载图片。");
 
     // Read-only state for tests and diagnostics: the browsable history and where the preview currently sits in it.
     internal int RecentCount => _paths.Count;

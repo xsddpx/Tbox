@@ -23,6 +23,59 @@ namespace Tbox.Desktop.Tests;
 // Task toolbars (spec ⑤): one dark style, icon-only groups split by dividers, the mode colour on the selection.
 public sealed class TaskToolbarTests
 {
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MosaicPointerPreviewMatchesTheCommittedStrokeAndUndoInEachWindow(bool onPin)
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var capture = scope.Window;
+        PinnedWindow? pin = null;
+        try
+        {
+            Window window = capture;
+            Control surface = capture.Surface;
+            var editor = capture.Editor;
+            var start = new Point(320, 195);
+            var end = new Point(390, 228);
+            if (onPin)
+            {
+                pin = new PinnedWindow(scope.Controller, scope.Frame.Clone());
+                pin.Show(); pin.Activate(); Layout(pin);
+                pin.MouseDown(new Point(12, 12), MouseButton.Left, RawInputModifiers.None);
+                pin.MouseUp(new Point(12, 12), MouseButton.Left, RawInputModifiers.None);
+                pin.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.Space, null);
+                Assert.True(pin.CanAnnotate);
+                window = pin;
+                surface = pin.GetVisualDescendants().OfType<PinSurface>().Single();
+                editor = pin.Editor;
+                start = new Point(160, 97); end = new Point(195, 114);
+            }
+            editor.Select(AnnotationTool.Mosaic);
+            byte[] SurfacePixels()
+            {
+                using var target = new RenderTargetBitmap(new PixelSize((int)surface.Bounds.Width, (int)surface.Bounds.Height));
+                using (var context = target.CreateDrawingContext()) surface.Render(context);
+                using var copy = Picture.FromBitmap(target);
+                return copy.GetPixels();
+            }
+            var before = SurfacePixels();
+            window.MouseDown(start, MouseButton.Left, RawInputModifiers.None);
+            window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+            Assert.True(editor.IsDrawing);
+            var live = SurfacePixels();
+            Assert.False(before.AsSpan().SequenceEqual(live));
+            window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
+            Assert.IsType<MosaicAnnotationCommand>(Assert.Single(editor.Document.Commands));
+            Assert.True(live.AsSpan().SequenceEqual(SurfacePixels()));
+            editor.Undo();
+            Assert.True(before.AsSpan().SequenceEqual(SurfacePixels()));
+            editor.Redo();
+            Assert.True(live.AsSpan().SequenceEqual(SurfacePixels()));
+        }
+        finally { pin?.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task ScreenshotCopyButtonHasTheSameIdleBackgroundAsSave()
     {

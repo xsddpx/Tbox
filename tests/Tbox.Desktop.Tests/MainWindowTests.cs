@@ -135,6 +135,23 @@ public sealed class MainWindowTests
             await WaitForViewportAsync(preview, 20);
             Assert.Same(bitmap, preview.Picture);
             Assert.Equal(new PixelSize(width, height + 40), preview.SourceSize);
+
+            var toolbar = Assert.Single(scope.Lifetime.Windows, w => w.Title == "Tbox 长截图工具条");
+            var openPreview = Assert.Single(toolbar.GetVisualDescendants().OfType<Button>(),
+                b => AutomationProperties.GetName(b) == "全屏预览");
+            openPreview.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var timeout = Environment.TickCount64 + 3000;
+            while (!scope.Lifetime.Windows.OfType<ImageResultWindow>().Any() && Environment.TickCount64 < timeout)
+                await Task.Delay(10);
+            var result = Assert.Single(scope.Lifetime.Windows.OfType<ImageResultWindow>());
+            try
+            {
+                Assert.False(result.Current.HasEncodedPng);
+                Assert.Equal(document, result.Current.GetPixels());
+                using var exported = new Picture(result.Current.Png);
+                Assert.Equal(document, exported.GetPixels());
+            }
+            finally { result.Close(); }
         }
         finally { session.Stop(); }
     }
@@ -423,6 +440,60 @@ public sealed class MainWindowTests
             Assert.Single(scope.Lifetime.Windows.OfType<ImageResultWindow>()).Close();
         }
         finally { Directory.Delete(directory, true); }
+    }
+
+    [AvaloniaFact]
+    public void RecentCapturesReuseOnlyUnchangedThumbnailsAndRecoverFromUnreadableFiles()
+    {
+        var directory = Directory.CreateTempSubdirectory("tbox-recent-");
+        try
+        {
+            using var scope = new Scope(new FakePlatform(), directory.FullName);
+            var main = scope.Controller.Main;
+            var now = DateTime.UtcNow.AddHours(-1);
+            var paths = Enumerable.Range(0, 5).Select(i => Path.Combine(directory.FullName, $"capture-{i}.png")).ToArray();
+            void Write(int index, int minute, byte red)
+            {
+                using var picture = Picture.FromPixels([0, 0, red, 255], 1, 1);
+                File.WriteAllBytes(paths[index], picture.Png);
+                File.SetLastWriteTimeUtc(paths[index], now.AddMinutes(minute));
+            }
+            Bitmap[] Refresh()
+            {
+                main.Refresh();
+                Layout(main);
+                return main.CurrentPageView.GetVisualDescendants().OfType<Image>()
+                    .Where(image => image.IsEffectivelyVisible && image.Width is double.NaN)
+                    .Select(image => Assert.IsType<Bitmap>(image.Source)).ToArray();
+            }
+
+            for (var i = 0; i < 4; i++) Write(i, i, (byte)i);
+            scope.Controller.ShowMain();
+            var initial = Refresh();
+            Assert.Equal(4, initial.Length);
+            Write(4, 4, 4);
+            var shifted = Refresh();
+            Assert.Equal(paths.Skip(1).Reverse(), main.RecentPaths);
+            Assert.Equal(initial.Take(3), shifted.Skip(1));
+
+            Write(4, 5, 99);
+            var replaced = Refresh();
+            Assert.NotSame(shifted[0], replaced[0]);
+            Assert.Equal(shifted.Skip(1), replaced.Skip(1));
+            using (var replacement = Picture.FromBitmap(replaced[0]))
+                Assert.Equal((byte)99, replacement.GetPixels()[2]);
+
+            File.WriteAllBytes(paths[4], [1, 2, 3]);
+            Assert.Equal(replaced.Skip(1), Refresh());
+            Write(4, 6, 42);
+            Assert.Equal(4, Refresh().Length);
+            File.Delete(paths[4]);
+            var afterDelete = Refresh();
+            Assert.Equal(paths.Take(4).Reverse(), main.RecentPaths);
+            Assert.Equal(initial.Take(3), afterDelete.Take(3));
+            Assert.NotSame(initial[3], afterDelete[3]);
+        }
+        finally { directory.Delete(true); }
     }
 
     [AvaloniaFact]

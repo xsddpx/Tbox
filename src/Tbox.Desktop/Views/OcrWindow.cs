@@ -95,7 +95,7 @@ public sealed class OcrWindow : Window
             await (Clipboard ?? throw new InvalidOperationException("系统剪贴板不可用。")).SetTextAsync(_editor.Text ?? "");
             SetStatus($"{LineCount(_editor.Text)} 行 · 已复制当前全文", DesignTokens.Ready);
         }));
-        _recognizeAgain = Ui.Button("离线识别", () => { if (_picture is { } picture) Recognize(new Picture(picture.Png) { CachePath = picture.CachePath }); });
+        _recognizeAgain = Ui.Button("离线识别", () => { if (_picture is { } picture) Recognize(picture); });
         _recognizeAgain.IsEnabled = false;
         _ai = Ui.Button("AI 识别", () => _ = RecognizeWithAiAsync());
         _ai.IsEnabled = false;
@@ -180,15 +180,20 @@ public sealed class OcrWindow : Window
     public async void Recognize(Picture picture)
     {
         var operation = _requests.Begin();
-        _original.Source = null; _picture?.Dispose(); _picture = picture;
-        _original.Source = picture.Bitmap;
+        if (!ReferenceEquals(_picture, picture))
+        {
+            _original.Source = null;
+            _picture?.Dispose();
+            _picture = picture;
+            _original.Source = picture.Bitmap;
+        }
         _sourceLabel.Text = $"原图 · {picture.Bitmap.PixelSize.Width} × {picture.Bitmap.PixelSize.Height}";
         SetMode(Mode.Offline);
         ApplyWorkspaceLayout(ClientSize.Width);
         _editor.Text = ""; SetStatus("识别中…", null);
         try
         {
-            var result = await _controller.Platform.RecognizeAsync(picture.Png, operation.Token);
+            var result = await _controller.Platform.RecognizeAsync(picture, operation.Token);
             if (!_requests.IsCurrent(operation)) return;
             await ShowResultAsync(result.Text, "本机离线识别", operation);
         }

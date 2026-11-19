@@ -95,25 +95,44 @@ public func capturePixels(_ regionOnly: Int32, _ left: Double, _ top: Double,
 public func recognize(_ bytes: UnsafeRawPointer?, _ length: Int32) -> UnsafeMutablePointer<CChar>? {
     guard let bytes = bytes, length > 0 else { return response(["error": "识别图像为空。"]) }
     return autoreleasepool {
-        do {
-            let data = Data(bytes: bytes, count: Int(length))
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            let supported = try request.supportedRecognitionLanguages()
-            // Chinese + English is supported as one offline recognition request.
-            request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"].filter { supported.contains($0) }
-            let handler = VNImageRequestHandler(data: data, options: [:])
-            try handler.perform([request])
-            let lines: [[String: Any]] = (request.results ?? []).compactMap { observation in
-                guard let candidate = observation.topCandidates(1).first else { return nil }
-                let box = observation.boundingBox
-                return ["text": candidate.string, "left": box.minX, "top": 1 - box.maxY,
-                        "width": box.width, "height": box.height]
-            }
-            return response(["text": lines.compactMap { $0["text"] as? String }.joined(separator: "\n"), "lines": lines])
-        } catch { return response(["error": "文字识别失败：\(error.localizedDescription)"]) }
+        recognizeText(VNImageRequestHandler(data: Data(bytes: bytes, count: Int(length)), options: [:]))
     }
+}
+
+@_cdecl("tbox_recognize_pixels")
+public func recognizePixels(_ bytes: UnsafeRawPointer?, _ length: Int32, _ width: Int32, _ height: Int32) -> UnsafeMutablePointer<CChar>? {
+    guard let bytes, width > 0, height > 0, length > 0, length % 4 == 0,
+          Int64(width) * Int64(height) == Int64(length) / 4 else { return response(["error": "识别图像尺寸无效。"]) }
+    return autoreleasepool {
+        let data = Data(bytes: bytes, count: Int(length)) as CFData
+        // The managed boundary supplies top-down, opaque BGRA in sRGB. B is the low byte in little-endian xRGB.
+        let layout = CGBitmapInfo.byteOrder32Little.union(CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue))
+        guard let provider = CGDataProvider(data: data), let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let image = CGImage(width: Int(width), height: Int(height), bitsPerComponent: 8, bitsPerPixel: 32,
+                  bytesPerRow: Int(width) * 4, space: space, bitmapInfo: layout, provider: provider,
+                  decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
+            return response(["error": "无法读取识别图像。"])
+        }
+        return recognizeText(VNImageRequestHandler(cgImage: image, options: [:]))
+    }
+}
+
+private func recognizeText(_ handler: VNImageRequestHandler) -> UnsafeMutablePointer<CChar>? {
+    do {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        let supported = try request.supportedRecognitionLanguages()
+        request.recognitionLanguages = ["zh-Hans", "zh-Hant", "en-US"].filter { supported.contains($0) }
+        try handler.perform([request])
+        let lines: [[String: Any]] = (request.results ?? []).compactMap { observation in
+            guard let candidate = observation.topCandidates(1).first else { return nil }
+            let box = observation.boundingBox
+            return ["text": candidate.string, "left": box.minX, "top": 1 - box.maxY,
+                    "width": box.width, "height": box.height]
+        }
+        return response(["text": lines.compactMap { $0["text"] as? String }.joined(separator: "\n"), "lines": lines])
+    } catch { return response(["error": "文字识别失败：\(error.localizedDescription)"]) }
 }
 
 private var hotkeyCallback: (@convention(c) (Int32) -> Void)?
