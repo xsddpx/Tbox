@@ -60,6 +60,7 @@ public interface IPlatformServices : IDisposable
     bool TryStartSystemScreenshotShortcutTakeover(Action onPressed, bool requestPermission) => false;
     void StopSystemScreenshotShortcutTakeover() { }
     void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay);
+    void MoveWindow(nint handle, DesktopPlacement placement) => PlaceWindow(handle, placement, overlay: false);
     void MoveToPointer(nint handle);
     DesktopPlacement GetWindowPlacement(nint handle);
     DesktopPlacement GetWorkArea(nint handle);

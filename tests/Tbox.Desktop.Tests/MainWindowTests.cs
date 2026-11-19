@@ -13,6 +13,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tbox.Core;
 using Tbox.Desktop.Models;
+using Tbox.Desktop.Platform;
 using Tbox.Desktop.Views;
 using Xunit;
 
@@ -21,6 +22,94 @@ namespace Tbox.Desktop.Tests;
 // The single main window (spec ③): sidebar pages, capture tools, recent captures and status dots.
 public sealed class MainWindowTests
 {
+    [AvaloniaFact]
+    public async Task FolderBarCoalescesMovesAndRestoresItsSearchUntilTheTargetCloses()
+    {
+        var platform = new FakePlatform();
+        using var scope = new Scope(platform);
+        using var navigation = new ObservedDialog();
+        using var session = new FolderJumpBarSession(scope.Controller, navigation, CancellationToken.None);
+        var placements = new List<(DesktopPlacement Placement, bool MoveOnly)>();
+        platform.WindowPlaced = (placement, moveOnly) => placements.Add((placement, moveOnly));
+        session.Sync();
+        await session.CheckAsync();
+        var bar = Assert.Single(scope.Lifetime.Windows.OfType<FolderJumpBarWindow>());
+        Assert.True(bar.IsVisible);
+        Assert.False(bar.IsActive);
+        Assert.Single(placements);
+        var search = Assert.Single(bar.GetVisualDescendants().OfType<TextBox>());
+        search.Text = "复现目录";
+
+        var notify = Assert.IsType<Action<FolderDialogChange>>(navigation.Notify);
+        var original = navigation.Target!;
+        for (var x = 220; x <= 260; x += 10)
+        {
+            navigation.Target = original with { Bounds = original.Bounds with { Left = x } };
+            notify(FolderDialogChange.Position);
+        }
+        Assert.Empty(placements.Skip(1));
+        await Task.Delay(70);
+        Assert.Equal(1, navigation.GeometryReads);
+        Assert.True(placements[^1].MoveOnly);
+        Assert.Equal(386, placements[^1].Placement.Left);
+
+        navigation.Target = original with { Bounds = new(0, 40, 840, 730), WorkArea = new(0, 0, 1200, 800) };
+        notify(FolderDialogChange.Settled);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(bar.IsVisible);
+
+        navigation.Target = original with { Scale = 1.25 };
+        notify(FolderDialogChange.Settled);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(bar.IsVisible);
+        Assert.False(placements[^1].MoveOnly);
+        Assert.Equal("复现目录", search.Text);
+
+        navigation.Target = null;
+        notify(FolderDialogChange.Position);
+        notify(FolderDialogChange.Closed);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(navigation.Notify);
+        Assert.DoesNotContain(bar, scope.Lifetime.Windows);
+        var reads = navigation.GeometryReads;
+        notify(FolderDialogChange.Position);
+        await Task.Delay(40);
+        Assert.Equal(reads, navigation.GeometryReads);
+    }
+
+    private sealed class ObservedDialog : IFolderNavigation
+    {
+        public FolderDialogTarget? Target { get; set; } = new(1, new(200, 80, 840, 500), new(0, 0, 1600, 1000), 1);
+        public Action<FolderDialogChange>? Notify { get; private set; }
+        public int GeometryReads { get; private set; }
+        public bool HasPermission => true;
+        public string CurrentDirectory => "";
+        public bool RequestPermission() => true;
+        public void Start() { }
+        public void Stop() { }
+        public Task<FolderDialogTarget?> FindDialogAsync(long? retainedTarget, nint activeBar, CancellationToken token) =>
+            Task.FromResult(Target);
+        public IDisposable WatchDialog(long target, Action<FolderDialogChange> changed)
+        {
+            Notify = changed;
+            return this;
+        }
+        public FolderDialogTarget? ReadTrackedDialog(long target, nint activeBar)
+        {
+            GeometryReads++;
+            return Target;
+        }
+        public Task<IReadOnlyList<string>> GetOpenFoldersAsync(CancellationToken token) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<IReadOnlyList<string>> SearchFoldersAsync(string query, CancellationToken token) =>
+            Task.FromResult<IReadOnlyList<string>>([]);
+        public Task<bool> RestoreDialogAsync(long target, nint activeBar, CancellationToken token) => Task.FromResult(false);
+        public Task<FolderNavigationResult> JumpAsync(Shortcut shortcut, CancellationToken token) => throw new NotSupportedException();
+        public Task<FolderNavigationResult> JumpToAsync(long target, nint activeBar, string path, Shortcut? shortcut,
+            CancellationToken token) => throw new NotSupportedException();
+        public void Dispose() => Notify = null;
+    }
+
     [AvaloniaFact]
     public void CapturePageOffersEveryToolAndTheSidebarSwitchesPages()
     {

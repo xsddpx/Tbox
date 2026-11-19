@@ -148,6 +148,13 @@ public sealed class WindowsPlatformServices : IPlatformServices
             Math.Max(1, (int)Math.Round(p.Width)), Math.Max(1, (int)Math.Round(p.Height)), 0x10)) throw Error("无法定位窗口");
     }
 
+    public void MoveWindow(nint handle, DesktopPlacement placement)
+    {
+        const uint noSizeNoZOrderNoActivate = 0x0001 | 0x0004 | 0x0010;
+        if (!SetWindowPos(handle, 0, (int)Math.Round(placement.Left), (int)Math.Round(placement.Top),
+                0, 0, noSizeNoZOrderNoActivate)) throw Error("无法移动窗口");
+    }
+
     public void MoveToPointer(nint handle)
     {
         if (!GetCursorPos(out var point)) return;

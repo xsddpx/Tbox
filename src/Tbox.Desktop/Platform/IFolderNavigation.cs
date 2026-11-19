@@ -2,6 +2,7 @@ namespace Tbox.Desktop.Platform;
 
 public sealed record FolderNavigationResult(bool Success, string? Message = null);
 public sealed record FolderDialogTarget(long Id, DesktopPlacement Bounds, DesktopPlacement WorkArea, double Scale);
+public enum FolderDialogChange { Position, Settled, Closed, Foreground }
 
 public interface IFolderNavigation : IDisposable
 {
@@ -13,6 +14,8 @@ public interface IFolderNavigation : IDisposable
     // The shortcut that triggered the jump; its keys are released before the dialog is driven.
     Task<FolderNavigationResult> JumpAsync(Tbox.Core.Shortcut shortcut, CancellationToken cancellationToken);
     Task<FolderDialogTarget?> FindDialogAsync(long? retainedTarget, nint activeBar, CancellationToken cancellationToken);
+    IDisposable? WatchDialog(long target, Action<FolderDialogChange> changed) => null;
+    FolderDialogTarget? ReadTrackedDialog(long target, nint activeBar) => null;
     Task<IReadOnlyList<string>> GetOpenFoldersAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<string>> SearchFoldersAsync(string query, CancellationToken cancellationToken);
     Task<bool> RestoreDialogAsync(long target, nint activeBar, CancellationToken cancellationToken);

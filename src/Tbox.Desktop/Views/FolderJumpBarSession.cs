@@ -12,10 +12,14 @@ internal sealed class FolderJumpBarSession : IDisposable
     private readonly IFolderNavigation _navigation;
     private readonly CancellationToken _shutdown;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(300) };
+    private readonly DispatcherTimer _followTimer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(16) };
     private CancellationTokenSource? _observation;
+    private IDisposable? _dialogWatch;
+    private int _watchRevision;
     private FolderDialogTarget? _target;
     private FolderJumpBarWindow? _bar;
     private DesktopPlacement? _placement;
+    private double _placementScale;
     private bool _checking;
     private bool _refreshing;
     private bool _navigating;
@@ -27,6 +31,7 @@ internal sealed class FolderJumpBarSession : IDisposable
         _navigation = navigation;
         _shutdown = shutdown;
         _timer.Tick += (_, _) => _ = CheckAsync();
+        _followTimer.Tick += (_, _) => FlushTrackedPlacement();
     }
 
     public void Sync()
@@ -41,7 +46,7 @@ internal sealed class FolderJumpBarSession : IDisposable
         Dispose();
     }
 
-    private async Task CheckAsync()
+    internal async Task CheckAsync()
     {
         if (_checking || _navigating || _observation is not { } source) return;
         _checking = true;
@@ -52,30 +57,79 @@ internal sealed class FolderJumpBarSession : IDisposable
                 ? await _navigation.FindDialogAsync(_target?.Id, ActiveBar, token)
                 : null;
             if (token.IsCancellationRequested || _navigating) return;
-            if (_target?.Id != next?.Id) CloseBar();
-            _target = next;
-            if (next is null) return;
-            if (Placement(next, _bar?.DesiredBarHeight ?? FolderJumpBarWindow.CompactHeight) is null)
-            {
-                CloseBar();
-                return;
-            }
-            if (_bar is null)
-            {
-                _bar = new FolderJumpBarWindow(_controller, _navigation, SelectAsync, ReturnAsync, LayoutBar);
-                _refreshAfter = 0;
-            }
-            LayoutBar();
-            if (!_refreshing && ActiveBar == 0 && Environment.TickCount64 >= _refreshAfter)
-                _ = RefreshOpenedAsync(_bar, token);
+            SetTarget(next);
+            if (_bar is { IsVisible: true } bar && !_refreshing && ActiveBar == 0 && Environment.TickCount64 >= _refreshAfter)
+                _ = RefreshOpenedAsync(bar, token);
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch (Exception error)
         {
             AppLog.Write("Folder bar observation: " + error.GetType().Name);
-            CloseBar();
+            SetTarget(null);
         }
         finally { _checking = false; }
+    }
+
+    private void SetTarget(FolderDialogTarget? next)
+    {
+        var targetChanged = _target?.Id != next?.Id;
+        if (targetChanged)
+        {
+            StopWatching();
+            CloseBar();
+        }
+        _target = next;
+        if (next is null) return;
+        if (targetChanged)
+        {
+            var revision = _watchRevision;
+            _dialogWatch = _navigation.WatchDialog(next.Id, change => OnDialogChange(change, revision));
+        }
+        if (_bar is null && Placement(next, FolderJumpBarWindow.CompactHeight) is not null)
+        {
+            _bar = new FolderJumpBarWindow(_controller, _navigation, SelectAsync, ReturnAsync, LayoutBar);
+            _refreshAfter = 0;
+        }
+        LayoutBar();
+    }
+
+    private void OnDialogChange(FolderDialogChange change, int revision)
+    {
+        if (revision != _watchRevision) return;
+        if (change == FolderDialogChange.Position)
+        {
+            if (!_followTimer.IsEnabled) _followTimer.Start();
+            return;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (revision != _watchRevision) return;
+            if (change == FolderDialogChange.Closed) SetTarget(null);
+            else FlushTrackedPlacement();
+            if (_target is null) _ = CheckAsync();
+        }, DispatcherPriority.Input);
+    }
+
+    private void FlushTrackedPlacement()
+    {
+        _followTimer.Stop();
+        if (_observation is null || _dialogWatch is null || _target is not { } target) return;
+        try { SetTarget(_navigation.ReadTrackedDialog(target.Id, ActiveBar)); }
+        catch (Exception error)
+        {
+            AppLog.Write("Folder bar placement: " + error.GetType().Name);
+            SetTarget(null);
+        }
+    }
+
+    private void StopWatching()
+    {
+        _watchRevision++;
+        _followTimer.Stop();
+        var watch = _dialogWatch;
+        _dialogWatch = null;
+        watch?.Dispose();
     }
 
     private async Task RefreshOpenedAsync(FolderJumpBarWindow bar, CancellationToken token)
@@ -92,11 +146,11 @@ internal sealed class FolderJumpBarSession : IDisposable
         finally { _refreshAfter = Environment.TickCount64 + 2000; _refreshing = false; }
     }
 
-    private nint ActiveBar => _bar is { IsActive: true } ? _bar.TryGetPlatformHandle()?.Handle ?? 0 : 0;
+    private nint ActiveBar => _bar is { IsActive: true, IsVisible: true } ? _bar.TryGetPlatformHandle()?.Handle ?? 0 : 0;
 
     public async Task<bool> TryJumpAsync(Shortcut shortcut)
     {
-        if (_target is not { } target || _bar is not { } bar) return false;
+        if (_target is not { } target || _bar is not { IsVisible: true } bar) return false;
         var activeBar = ActiveBar;
         var current = await _navigation.FindDialogAsync(target.Id, activeBar, _shutdown);
         if (current?.Id != target.Id || _bar != bar) return false;
@@ -133,18 +187,33 @@ internal sealed class FolderJumpBarSession : IDisposable
 
     private void LayoutBar()
     {
-        if (_bar is not { } bar || _target is not { } target || Placement(target, bar.DesiredBarHeight) is not { } placement) return;
-        if (placement == _placement && bar.IsVisible) return;
-        bar.Width = placement.Width / target.Scale;
-        bar.Height = placement.Height / target.Scale;
+        if (_bar is not { } bar || _target is not { } target) return;
+        if (Placement(target, bar.DesiredBarHeight) is not { } placement)
+        {
+            _placement = null;
+            if (bar.IsVisible) bar.Hide();
+            return;
+        }
+        var sameSize = bar.IsVisible && _placementScale == target.Scale &&
+            placement.Width == _placement?.Width && placement.Height == _placement?.Height;
+        if (sameSize && placement == _placement) return;
+        if (!sameSize)
+        {
+            bar.Width = placement.Width / target.Scale;
+            bar.Height = placement.Height / target.Scale;
+        }
         if (!bar.IsVisible)
         {
             bar.Position = new PixelPoint((int)Math.Round(placement.Left), (int)Math.Round(placement.Top));
             bar.Show();
         }
         if (bar.TryGetPlatformHandle() is { } handle)
-            _controller.Platform.PlaceWindow(handle.Handle, placement, overlay: false);
+        {
+            if (sameSize) _controller.Platform.MoveWindow(handle.Handle, placement);
+            else _controller.Platform.PlaceWindow(handle.Handle, placement, overlay: false);
+        }
         _placement = placement;
+        _placementScale = target.Scale;
     }
 
     internal static DesktopPlacement? Placement(FolderDialogTarget target, double desiredHeight)
@@ -175,6 +244,7 @@ internal sealed class FolderJumpBarSession : IDisposable
     public void Dispose()
     {
         _timer.Stop();
+        StopWatching();
         _observation?.Cancel();
         _observation?.Dispose();
         _observation = null;
