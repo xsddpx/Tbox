@@ -72,3 +72,7 @@ Windows 本机 Release 测试，固定种子生成不含个人数据的随机不
 | 按预览窗尺寸 | 0.57 ms | 1.00 ms | 935,072 bytes |
 
 该实验量测从已拼接像素到预览位图的耗时，和实际滚动、取帧、拼接及合成器呈现需分别统计。设置 `TBOX_LONG_PREVIEW_BENCHMARK` 为输出 JSON 路径，再执行桌面测试的 `FullyQualifiedName~CompareFullAndBoundedLongCapturePreview` 筛选可重复。1.1.92 已经签名覆盖安装，持续实际滚动和 macOS 实机体验待验。
+
+### 1.1.92 常驻
+
+安装版从启动起每 30 秒取样一次，持续 10 分钟，21 次采样均未观察到可见主窗口。进程累计使用 10.25 秒 CPU 时间；跳过前 30 秒的启动段后，私有内存峰值 89.91 MiB，结束时 84.96 MiB。采集期间只有进程级采样，系统其余负载自由变化。该组结果作为后续版本的常驻基线，原始记录位于 `TEMP/interaction-1.1.92/resident-samples.jsonl`。
