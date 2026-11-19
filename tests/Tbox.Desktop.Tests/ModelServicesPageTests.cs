@@ -18,6 +18,56 @@ namespace Tbox.Desktop.Tests;
 public sealed class ModelServicesPageTests
 {
     [AvaloniaFact]
+    public async Task SuccessfulTestsSurviveRestartAndOnlyApplyToTheTestedConfiguration()
+    {
+        using var scope = new Scope();
+        await scope.Page.OpenAsync();
+        await scope.Page.BeginAddAsync();
+        scope.Page.Secret.Text = "fixture-key";
+        await scope.Page.TestAsync();
+        await scope.Page.SaveAsync();
+        var id = scope.Page.ConnectionId;
+
+        async Task<bool> ReloadVerified()
+        {
+            using var reopened = new ModelService(scope.ConfigPath);
+            await reopened.InitializeAsync();
+            return reopened.Configuration.Connections.Single().IsVerified;
+        }
+
+        using (var reopened = new Scope())
+        {
+            File.Copy(scope.ConfigPath, reopened.ConfigPath);
+            await reopened.Page.OpenAsync();
+            reopened.Window.UpdateLayout();
+            Assert.Contains(reopened.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "可用");
+            TaskToolbarTests.Preview(reopened.Window, "model-verified-after-restart");
+            await reopened.Page.BeginEditAsync(id);
+            Assert.Contains(reopened.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "连接正常");
+            Assert.Empty(reopened.Requests);
+        }
+        await scope.Page.BeginEditAsync(id);
+        scope.Page.Secret.Text = "other-fixture-key";
+        await scope.Page.SaveAsync();
+        Assert.False(await ReloadVerified());
+        await scope.Page.TestAsync();
+        Assert.True(await ReloadVerified());
+
+        scope.Page.BaseUrl.Text = "https://example.org/v1";
+        await scope.Page.SaveAsync();
+        Assert.False(await ReloadVerified());
+        await scope.Page.TestAsync();
+        scope.Page.AddModel("another-model");
+        await scope.Page.SaveAsync();
+        Assert.False(await ReloadVerified());
+        await scope.Page.TestAsync();
+        Assert.True(await ReloadVerified());
+        var config = await File.ReadAllTextAsync(scope.ConfigPath);
+        await File.WriteAllTextAsync(scope.ConfigPath, config.Replace("other-fixture-key", "edited-outside-the-app"));
+        Assert.False(await ReloadVerified());
+    }
+
+    [AvaloniaFact]
     public async Task EmptyStateShowsOnePrimaryAddAction()
     {
         using var scope = new Scope();

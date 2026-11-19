@@ -27,32 +27,28 @@ public func openPermissionSettings() {
 }
 
 private final class CaptureResult: @unchecked Sendable {
-    var value: [String: Any] = [:]
+    var frames: [(CGDirectDisplayID, CGRect, CGImage)] = []
+    var error: String?
     let complete = DispatchSemaphore(value: 0)
 }
 
-// Called from a .NET worker, never the Cocoa main thread. Full displays remain in memory only.
-@_cdecl("tbox_capture")
-public func capture() -> UnsafeMutablePointer<CChar>? {
-    return captureScreen(nil)
-}
+public typealias CaptureFrameCallback = @convention(c) (UInt32, Double, Double, Double, Double, Int32, Int32, UnsafeRawPointer) -> Int32
 
-@_cdecl("tbox_capture_region")
-public func captureRegion(_ left: Double, _ top: Double, _ width: Double, _ height: Double) -> UnsafeMutablePointer<CChar>? {
-    guard width > 0, height > 0 else { return response(["error": "捕获区域无效。"]) }
-    return captureScreen(CGRect(x: left, y: top, width: width, height: height))
-}
-
-private func captureScreen(_ region: CGRect?) -> UnsafeMutablePointer<CChar>? {
+// The callback only runs on the original worker after the asynchronous capture completes.
+// A timed-out ScreenCaptureKit request never retains or invokes a managed callback.
+@_cdecl("tbox_capture_pixels")
+public func capturePixels(_ regionOnly: Int32, _ left: Double, _ top: Double,
+                          _ width: Double, _ height: Double, _ receive: CaptureFrameCallback) -> UnsafeMutablePointer<CChar>? {
     guard CGPreflightScreenCaptureAccess() else {
-        return response(["error": "请在系统设置 → 隐私与安全性 → 屏幕与系统音频录制中允许 Tbox，然后重新打开应用。"])
+        return strdup("请在系统设置中允许 Tbox 录制屏幕，然后重新打开应用。")
     }
+    if regionOnly != 0 && (width <= 0 || height <= 0) { return strdup("捕获区域无效。") }
+    let region = regionOnly == 0 ? nil : CGRect(x: left, y: top, width: width, height: height)
     let result = CaptureResult()
     Task.detached {
         defer { result.complete.signal() }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            var displays: [[String: Any]] = []
             for display in content.displays {
                 let bounds = CGDisplayBounds(display.displayID)
                 if let region = region, !bounds.contains(region) { continue }
@@ -68,21 +64,31 @@ private func captureScreen(_ region: CGRect?) -> UnsafeMutablePointer<CChar>? {
                 let excluded = region == nil ? [] : content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
                 let filter = SCContentFilter(display: display, excludingApplications: excluded, exceptingWindows: [])
                 let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-                guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
-                    throw NSError(domain: "Tbox", code: 1, userInfo: [NSLocalizedDescriptionKey: "无法编码屏幕图像。"])
-                }
-                displays.append(["id": display.displayID, "left": target.minX, "top": target.minY,
-                                 "width": target.width, "height": target.height, "png": png.base64EncodedString()])
+                result.frames.append((display.displayID, target, image))
+                if region != nil { break }
             }
-            result.value = displays.isEmpty ? ["error": "没有找到可截图的显示器。"] : ["displays": displays]
         } catch {
-            result.value = ["error": "截图失败：\(error.localizedDescription)"]
+            result.error = "截图失败：\(error.localizedDescription)"
         }
     }
-    guard result.complete.wait(timeout: .now() + 30) == .success else {
-        return response(["error": "截图超时，请检查屏幕录制权限后重试。"])
+    guard result.complete.wait(timeout: .now() + 30) == .success else { return strdup("截图超时，请重试。") }
+    if let error = result.error { return strdup(error) }
+    guard !result.frames.isEmpty else { return strdup("没有找到可截图的显示器。") }
+    for (id, frame, image) in result.frames {
+        let format = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: image.width, height: image.height,
+                                      bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                      space: colorSpace, bitmapInfo: format),
+              let pixels = context.data else { return strdup("无法分配截图缓冲区。") }
+        let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        context.setFillColor(gray: 0, alpha: 1)
+        context.fill(rect)
+        context.draw(image, in: rect)
+        guard receive(id, frame.minX, frame.minY, frame.width, frame.height,
+                      Int32(image.width), Int32(image.height), pixels) != 0 else { return strdup("截图像素读取中断。") }
     }
-    return response(result.value)
+    return nil
 }
 
 @_cdecl("tbox_recognize")

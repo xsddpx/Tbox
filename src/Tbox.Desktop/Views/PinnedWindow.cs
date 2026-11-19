@@ -83,7 +83,7 @@ public sealed class PinnedWindow : Window
         {
             if (args.Property == IsVisibleProperty && !IsVisible)
             {
-                InvalidateZoom();
+                InvalidateZoom(forgetBounds: false);
                 HideZoomBadge();
                 _annotationToolbar?.ClosePopovers();
                 _toolbarWindow?.Hide();
@@ -102,6 +102,48 @@ public sealed class PinnedWindow : Window
             _toolbarWindow?.Close();
             Picture.Dispose();
         };
+    }
+
+    internal PinSessionImage SnapshotForUpgrade()
+    {
+        _text.Commit();
+        Editor.FinishPolyline();
+        var handle = this.TryGetPlatformHandle()!.Handle;
+        var bounds = ReadZoomGeometry(handle, _controller.Platform.DesktopUnitsPerDip(handle));
+        var state = new SavedPin(bounds, _pixelsPerUnit, _zoomScale, Region,
+            AnnotationSnapshotData.From(Editor.Document.Snapshot()), IsVisible, Picture.CachePath);
+        return new PinSessionImage(state, Picture.Png);
+    }
+
+    internal void RestoreForUpgrade(SavedPin state)
+    {
+        var region = state.Region;
+        var size = Picture.Bitmap.PixelSize;
+        if (region.Left < 0 || region.Top < 0 || region.Width <= 0 || region.Height <= 0 ||
+            (long)region.Left + region.Width > size.Width || (long)region.Top + region.Height > size.Height ||
+            state.Bounds is not { } bounds || !double.IsFinite(bounds.Left) || !double.IsFinite(bounds.Top) ||
+            !double.IsFinite(bounds.Width) || !double.IsFinite(bounds.Height) || bounds.Width <= 0 || bounds.Height <= 0 ||
+            !double.IsFinite(state.Zoom) || state.Zoom <= 0 || !double.IsFinite(state.PixelsPerUnit) || state.PixelsPerUnit <= 0)
+            throw new InvalidDataException("贴图会话的尺寸无效。");
+
+        Region = region;
+        Editor.Restore(state.Annotations.ToSnapshot());
+        var platform = _controller.Platform;
+        var handle = this.TryGetPlatformHandle()!.Handle;
+        platform.PlaceWindow(handle, bounds, false);
+        var work = platform.GetWorkArea(handle);
+        _pixelsPerUnit = RenderScaling / platform.DesktopUnitsPerDip(handle);
+        var ratio = state.PixelsPerUnit / _pixelsPerUnit;
+        var target = bounds with { Width = bounds.Width * ratio, Height = bounds.Height * ratio };
+        if (target.Left >= work.Left + work.Width || target.Left + target.Width <= work.Left ||
+            target.Top >= work.Top + work.Height || target.Top + target.Height <= work.Top)
+            target = target with { Left = work.Left, Top = work.Top };
+        var actual = platform.GetWindowPlacement(handle);
+        _zoomBounds = actual;
+        _zoomScale = state.Zoom;
+        _minimumZoom = Math.Min(0.05, _zoomScale);
+        ApplyZoom(handle, actual, target);
+        if (!state.Visible) Hide();
     }
 
     public Vector Scale => new(_surface.Bounds.Width / Region.Width, _surface.Bounds.Height / Region.Height);
@@ -359,11 +401,11 @@ public sealed class PinnedWindow : Window
             width, height);
     }
 
-    private void InvalidateZoom()
+    private void InvalidateZoom(bool forgetBounds = true)
     {
         _zoomRevision++;
         _zoomPending = false;
-        _zoomBounds = null;
+        if (forgetBounds) _zoomBounds = null;
         _wheelRemainder = 0;
         _pinchRemainder = 0;
         _pendingWheelSteps = 0;

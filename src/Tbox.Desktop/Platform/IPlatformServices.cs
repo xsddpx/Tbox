@@ -3,6 +3,8 @@ using Avalonia.Platform.Storage;
 
 namespace Tbox.Desktop.Platform;
 
+public sealed record CapturedPixels(byte[] Pixels, int Width, int Height);
+
 public sealed record CapturedDisplay(uint Id, double Left, double Top, double Width, double Height, byte[] Png)
 {
     private byte[] _png = Png;
@@ -21,7 +23,7 @@ public sealed record CapturedDisplay(uint Id, double Left, double Top, double Wi
         init => _png = value;
     }
     internal long HistoryBytes => BgraPixels?.LongLength ?? _png.LongLength;
-    // PNG captures (macOS) do not set PixelWidth/Height; read their IHDR without decoding.
+    // Legacy PNG captures do not set PixelWidth/Height; read their IHDR without decoding.
     internal (int Width, int Height) HistoryPixelSize
     {
         get
@@ -49,7 +51,7 @@ public interface IPlatformServices : IDisposable
     bool RequestScreenPermission();
     void OpenScreenPermissionSettings();
     Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken);
-    Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
+    Task<CapturedPixels> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
     Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken);
     // Global hotkeys, one per action. Registering an action replaces its previous shortcut;
     // false means the system or another application already holds the combination.

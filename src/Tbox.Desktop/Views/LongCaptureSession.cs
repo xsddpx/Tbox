@@ -106,12 +106,11 @@ internal sealed class LongCaptureSession
         {
             while (!_stop.IsCancellationRequested)
             {
-                var png = await _controller.Platform.CaptureRegionAsync(_region, _stop.Token);
-                using var frame = new Picture(png);
-                var buffer = _buffer ??= new LongCaptureBuffer(frame.Bitmap.PixelSize.Width, frame.Bitmap.PixelSize.Height);
-                if (frame.Bitmap.PixelSize.Width != buffer.Width || frame.Bitmap.PixelSize.Height != buffer.FrameHeight)
+                var frame = await _controller.Platform.CaptureRegionAsync(_region, _stop.Token);
+                var buffer = _buffer ??= new LongCaptureBuffer(frame.Width, frame.Height);
+                if (frame.Width != buffer.Width || frame.Height != buffer.FrameHeight)
                     throw new InvalidOperationException("捕获尺寸已变化，可保存当前结果后重新框选。");
-                var pixels = frame.GetPixels();
+                var pixels = frame.Pixels;
                 var (result, preview) = await Task.Run(() =>
                 {
                     var accepted = buffer.Add(pixels);

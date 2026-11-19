@@ -86,14 +86,13 @@ public sealed class WindowsPlatformServices : IPlatformServices
         return true;
     }
 
-    public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => Task.Run(() =>
+    public Task<CapturedPixels> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => Task.Run(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (region.Width < 1 || region.Height < 1) throw new ArgumentOutOfRangeException(nameof(region));
         var bounds = new NativeRect { Left = (int)Math.Round(region.Left), Top = (int)Math.Round(region.Top),
             Right = (int)Math.Round(region.Left + region.Width), Bottom = (int)Math.Round(region.Top + region.Height) };
-        using var picture = Models.Picture.FromPixels(CapturePixels(bounds), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
-        return picture.Png;
+        return new CapturedPixels(CapturePixels(bounds), bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
     }, cancellationToken);
 
     public void PrepareCaptureOverlay(nint handle, bool clickThrough)

@@ -23,6 +23,77 @@ namespace Tbox.Desktop.Tests;
 public sealed class MainWindowTests
 {
     [AvaloniaFact]
+    public async Task UpgradeRestoresOnlyOpenPinsWithEditableAnnotationsAndTheirWindowState()
+    {
+        var expected = new DesktopPlacement(100, 120, 160, 80);
+        var platform = new FakePlatform { WindowPlacementOverride = expected };
+        platform.WindowPlaced = (placement, _) => platform.WindowPlacementOverride = placement;
+        (bool Hidden, List<PinSessionImage> Pins) checkpoint;
+        PixelRegion region;
+        using (var previous = new Scope(platform))
+        {
+            await previous.InitializeAsync();
+            using var original = Picture.FromPixels(new byte[400 * 200 * 4], 400, 200);
+            await previous.Controller.PinPictureAsync(original);
+            await previous.Controller.PinPictureAsync(original);
+            var open = previous.Lifetime.Windows.OfType<PinnedWindow>().ToArray();
+            open[1].Close();
+            var pin = open[0];
+            pin.UpdateLayout();
+            pin.Crop(new Point(10, 10), new Point(110, 60));
+            region = pin.Region;
+            Assert.NotEqual(400, region.Width);
+            pin.Editor.Select(AnnotationTool.Number);
+            pin.Editor.Begin(new AnnotationPoint(25, 25), false, false);
+            platform.WindowPlacementOverride = expected;
+            previous.Controller.TogglePins();
+            await previous.Controller.SavePinsForUpgradeAsync();
+            Assert.Empty(previous.PinSessions.ReadForUpgrade(typeof(DesktopController).Assembly.GetName().Version!.ToString()).Pins);
+            checkpoint = previous.PinSessions.ReadForUpgrade("next version");
+        }
+        Assert.True(checkpoint.Hidden);
+        var saved = Assert.Single(checkpoint.Pins);
+        Assert.Equal(expected, saved.State.Bounds);
+        Assert.Equal(region, saved.State.Region);
+        var command = Assert.Single(saved.State.Annotations.ToSnapshot().Commands);
+        Assert.IsType<NumberAnnotationCommand>(command);
+        using var next = new Scope(platform);
+        next.PinSessions.Save("older version", checkpoint.Hidden, checkpoint.Pins);
+        await next.InitializeAsync();
+        Assert.True(next.Controller.PinsHidden);
+        next.Controller.TogglePins();
+        var restored = Assert.Single(next.Lifetime.Windows.OfType<PinnedWindow>());
+        Assert.True(restored.IsVisible);
+        Assert.Equal(region, restored.Region);
+        Assert.Equal(expected, platform.WindowPlacementOverride);
+        Assert.Equal(command.Id, Assert.Single(restored.Editor.Document.Commands).Id);
+        restored.Editor.Document.Undo();
+        Assert.Empty(restored.Editor.Document.Commands);
+        Assert.Equal(saved.State.Zoom, restored.SnapshotForUpgrade().State.Zoom, 8);
+        Assert.Empty(next.PinSessions.ReadForUpgrade("next version").Pins);
+    }
+
+    [AvaloniaFact]
+    public async Task SessionWriteFailureKeepsPinsOpenAndSkipsInstallerHandoff()
+    {
+        using var scope = new Scope(new FakePlatform());
+        await scope.InitializeAsync();
+        using var original = Picture.FromPixels([1, 2, 3, 255], 1, 1);
+        await scope.Controller.PinPictureAsync(original);
+        var archive = Path.Combine(Path.GetDirectoryName(scope.Controller.CacheDirectory)!, "update-pins.zip");
+        Directory.CreateDirectory(archive);
+        var launched = false;
+        var failure = await Record.ExceptionAsync(() => scope.Controller.InstallUpdateAsync(() => launched = true));
+        Assert.True(failure is IOException or UnauthorizedAccessException, failure?.Message);
+        Assert.False(launched);
+        Assert.False(scope.Controller.IsQuitting);
+        Assert.Equal(1, scope.Controller.PinCount);
+        Directory.Delete(archive);
+        await scope.Controller.SavePinsForUpgradeAsync();
+        Assert.Single(scope.PinSessions.ReadForUpgrade("next version").Pins);
+    }
+
+    [AvaloniaFact]
     public async Task LongCaptureReusesItsBoundedPreviewWhenTheViewportMovesInsideTheStitch()
     {
         const int width = 360;
@@ -625,6 +696,7 @@ public sealed class MainWindowTests
     {
         public ClassicDesktopStyleApplicationLifetime Lifetime { get; } = new() { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         public DesktopController Controller { get; }
+        internal PinSessionStore PinSessions => new(_settings);
         private readonly string _settings;
         public Scope(FakePlatform platform, string? directory = null)
         {

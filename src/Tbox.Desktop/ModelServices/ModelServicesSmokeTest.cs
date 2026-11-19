@@ -47,7 +47,18 @@ internal static class ModelServicesSmokeTest
             await page.SaveAsync();
             if (service.KeyOf(id) != "Tbox-replacement-smoke-value" || handler.Calls != 2)
                 throw new InvalidOperationException("编辑保存验证失败。");
-            return new { plaintextKey = true, maskedEcho = true, textGeneration = true, replacement = true, draftAddTest = true, draftEditTest = true, externalApiCalls = 0 };
+            async Task<bool> ReopenVerifiedAsync()
+            {
+                using var reopened = new ModelService(path);
+                await reopened.InitializeAsync();
+                return reopened.Configuration.Connections.Single().IsVerified;
+            }
+            if (!await ReopenVerifiedAsync()) throw new InvalidOperationException("重新打开后未保留测试成功状态。");
+            page.AddModel("fixture-model");
+            await page.SaveAsync();
+            if (await ReopenVerifiedAsync() || handler.Calls != 2) throw new InvalidOperationException("更改配置后未清除测试状态。");
+            return new { plaintextKey = true, maskedEcho = true, textGeneration = true, replacement = true, draftAddTest = true,
+                draftEditTest = true, verifiedAfterReopen = true, invalidatedAfterEdit = true, externalApiCalls = 0 };
         }
         finally
         {

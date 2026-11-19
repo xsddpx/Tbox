@@ -64,7 +64,10 @@ public sealed class ModelService : ITextModelService, IDisposable
     // The settings page shows the saved key masked and may reveal it on request; tools use GenerateAsync instead.
     internal string? KeyOf(Guid connectionId) => _keys.GetValueOrDefault(connectionId);
 
-    public async Task SaveConnectionAsync(ModelConnection draft, string key, CancellationToken ct = default)
+    public Task SaveConnectionAsync(ModelConnection draft, string key, CancellationToken ct = default) =>
+        SaveConnectionAsync(draft, key, null, ct);
+
+    internal async Task SaveConnectionAsync(ModelConnection draft, string key, bool? tested, CancellationToken ct)
     {
         await InitializeAsync(ct);
         await _changes.WaitAsync(ct);
@@ -74,6 +77,7 @@ public sealed class ModelService : ITextModelService, IDisposable
             var previous = _configuration.Connections.FirstOrDefault(c => c.Id == connection.Id);
             if (previous is null && _configuration.Connections.Length >= 20) throw new ModelServiceException(ModelFailure.Configuration, "最多保存 20 个模型连接。");
             key = ModelKey.Validate(key);
+            connection = connection with { IsVerified = tested ?? (previous?.IsVerified == true && MatchesSaved(connection, key, previous)) };
             var connections = previous is null
                 ? _configuration.Connections.Append(connection).ToArray()
                 : _configuration.Connections.Select(c => c.Id == connection.Id ? connection : c).ToArray();
@@ -85,6 +89,25 @@ public sealed class ModelService : ITextModelService, IDisposable
             await _store.SaveAsync(next, keys, legacy, ct);
             _configuration = Clone(next); _keys = keys; _legacy = legacy;
             if (retired is { } credential) await CleanupLegacyAsync(credential);
+        }
+        finally { _changes.Release(); }
+    }
+
+    private bool MatchesSaved(ModelConnection draft, string key, ModelConnection saved) =>
+        draft.Id == saved.Id && draft.Name == saved.Name && draft.Protocol == saved.Protocol &&
+        draft.BaseUrl == saved.BaseUrl && draft.Models.SequenceEqual(saved.Models) && KeyOf(saved.Id) == key;
+
+    internal async Task RecordSavedTestAsync(ModelConnection draft, string key, bool verified, CancellationToken ct)
+    {
+        await _changes.WaitAsync(ct);
+        try
+        {
+            var saved = _configuration.Connections.FirstOrDefault(c => c.Id == draft.Id);
+            if (saved is null || saved.IsVerified == verified || !MatchesSaved(ModelPolicy.Validate(draft), key.Trim(), saved)) return;
+            var next = _configuration with { Connections = _configuration.Connections
+                .Select(c => c.Id == saved.Id ? c with { IsVerified = verified } : c).ToArray() };
+            await _store.SaveAsync(next, _keys, _legacy, ct);
+            _configuration = next;
         }
         finally { _changes.Release(); }
     }
