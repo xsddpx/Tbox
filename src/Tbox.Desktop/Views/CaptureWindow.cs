@@ -317,8 +317,7 @@ internal sealed class CaptureSurface : Control
         using (context.PushClip(r))
         using (context.PushTransform(Matrix.CreateScale(_window.Scale.X, _window.Scale.Y)))
         {
-            AnnotationRenderer.Draw(context, _window.Picture, _window.Editor.Document.Commands);
-            if (_window.Editor.Draft is { } draft) AnnotationRenderer.Draw(context, _window.Picture, [draft]);
+            _window.Editor.Draw(context, _window.Picture);
         }
         context.FillRectangle(shade, new Rect(0, 0, Bounds.Width, r.Top));
         context.FillRectangle(shade, new Rect(0, r.Bottom, Bounds.Width, Math.Max(0, Bounds.Height - r.Bottom)));

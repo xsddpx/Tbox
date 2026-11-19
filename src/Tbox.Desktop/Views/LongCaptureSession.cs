@@ -159,17 +159,17 @@ internal sealed class LongCaptureSession
     {
         if (_finished || _buffer?.HasFrame != true) return;
         _finished = true; _stop.Cancel(); await _loop;
-        using var picture = Picture.FromPixels(_buffer.Complete(), _buffer.Width, _buffer.Height);
         var pinPlacement = action == CaptureAction.Pin
             ? LongCapturePinPlacement.Fit(_region, _controller.Platform.GetWorkArea(_border.TryGetPlatformHandle()!.Handle),
                 _buffer.Width, _buffer.Height)
             : null;
         CloseWindows();
+        var picture = Picture.FromPixels(_buffer.Complete(), _buffer.Width, _buffer.Height);
         if (action is { } requested) await _controller.CompleteCaptureAsync(picture, _region, requested, pinPlacement: pinPlacement);
         else
         {
             _controller.CaptureHistory.Remember(_region);
-            _controller.ShowImageResult(new Picture(picture.Png), true);
+            _controller.ShowImageResult(picture, true);
         }
     }
 

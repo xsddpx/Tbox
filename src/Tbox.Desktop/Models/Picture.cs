@@ -92,16 +92,17 @@ public sealed class Picture : IDisposable
         catch { bitmap.Dispose(); throw; }
     }
 
-    public byte[] GetPixels()
+    public byte[] GetPixels() => _pixels ??= CopyPixels();
+
+    internal byte[] CopyPixels()
     {
-        if (_pixels is not null) return _pixels;
         using var decoded = new WriteableBitmap(Bitmap.PixelSize, new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Unpremul);
         using var frame = decoded.Lock();
         Bitmap.CopyPixels(frame, AlphaFormat.Unpremul);
         var stride = checked(Bitmap.PixelSize.Width * 4);
-        _pixels = new byte[checked(stride * Bitmap.PixelSize.Height)];
+        var pixels = new byte[checked(stride * Bitmap.PixelSize.Height)];
         for (var y = 0; y < Bitmap.PixelSize.Height; y++)
-            Marshal.Copy(frame.Address + y * frame.RowBytes, _pixels, y * stride, stride);
-        return _pixels;
+            Marshal.Copy(frame.Address + y * frame.RowBytes, pixels, y * stride, stride);
+        return pixels;
     }
 }

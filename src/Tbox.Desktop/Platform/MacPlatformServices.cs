@@ -49,14 +49,36 @@ public sealed class MacPlatformServices : IPlatformServices
         finally { if (error != 0) NativeFree(error); }
     }
 
-    public async Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken)
+    public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) =>
+        RecognizeAsync(() => NativeRecognize(png, png.Length), cancellationToken);
+
+    public Task<RecognitionResult> RecognizeAsync(Models.Picture picture, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (OpaqueOcrPixels(picture) is not { } pixels) return RecognizeAsync(picture.Png, cancellationToken);
+        var size = picture.Bitmap.PixelSize;
+        return RecognizeAsync(() => NativeRecognizePixels(pixels, pixels.Length, size.Width, size.Height), cancellationToken);
+    }
+
+    internal static byte[]? OpaqueOcrPixels(Models.Picture picture)
+    {
+        // Preserve original encoded data (including imported formats/metadata) and transparent-image handling.
+        if (picture.HasEncodedPng) return null;
+        // Keep this full-size buffer only until the native request completes.
+        var pixels = picture.CopyPixels();
+        for (var alpha = 3; alpha < pixels.Length; alpha += 4)
+            if (pixels[alpha] != 255) return null;
+        return pixels;
+    }
+
+    private async Task<RecognitionResult> RecognizeAsync(Func<nint> recognize, CancellationToken cancellationToken)
     {
         // Serialise native Vision work; cancelling discards results, never publishes an older request.
         await _recognitionLock.WaitAsync(cancellationToken);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var result = await Task.Run(() => ReadJson<RecognitionResult>(NativeRecognize(png, png.Length)), cancellationToken);
+            var result = await Task.Run(() => ReadJson<RecognitionResult>(recognize()), cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             return result;
         }
@@ -149,6 +171,7 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_capture_pixels")] private static extern nint NativeCapturePixels(
         int regionOnly, double left, double top, double width, double height, CaptureFrameCallback receive);
     [DllImport(Library, EntryPoint = "tbox_capture_overlay")] private static extern void NativeCaptureOverlay(nint handle, int clickThrough);
+    [DllImport(Library, EntryPoint = "tbox_recognize_pixels")] private static extern nint NativeRecognizePixels(byte[] pixels, int length, int width, int height);
     [DllImport(Library, EntryPoint = "tbox_recognize")] private static extern nint NativeRecognize(byte[] data, int length);
     [DllImport(Library, EntryPoint = "tbox_register_hotkey")] private static extern int NativeRegisterHotkey(HotkeyCallback callback, int id, int keyCode, int modifiers);
     [DllImport(Library, EntryPoint = "tbox_unregister_hotkey")] private static extern void NativeUnregisterHotkey(int id);

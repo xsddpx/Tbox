@@ -28,7 +28,9 @@ public sealed class MainWindow : Window
     private readonly ContentControl _body = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly TextBlock _statusText = Ui.Description("");
     private readonly Border _status;
-    private readonly List<Bitmap> _thumbnails = [];
+    private readonly record struct RecentFile(string Path, DateTime ModifiedUtc, DateTime CreatedUtc, long Length);
+    private RecentFile[] _recentFiles = [];
+    private Dictionary<RecentFile, Bitmap> _thumbnails = [];
     private readonly Bitmap _brand;
     private bool _updating;
     private bool _initialSizeApplied;
@@ -66,7 +68,7 @@ public sealed class MainWindow : Window
     internal static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
     internal MainPage CurrentPage { get; private set; }
     internal ScrollViewer CurrentPageView => _pages[CurrentPage];
-    internal IReadOnlyList<string> RecentPaths { get; private set; } = [];
+    internal IReadOnlyList<string> RecentPaths => _recentFiles.Select(file => file.Path).ToArray();
 
     public MainWindow(DesktopController controller)
     {
@@ -496,31 +498,40 @@ public sealed class MainWindow : Window
 
     private void RefreshRecent()
     {
-        IReadOnlyList<FileInfo> files;
-        try { files = new CaptureCache(_controller.CacheDirectory).GetRecentFiles(RecentCount); }
+        RecentFile[] files;
+        try
+        {
+            files = new CaptureCache(_controller.CacheDirectory).GetRecentFiles(RecentCount)
+                .Where(file => file.Exists)
+                .Select(file => new RecentFile(file.FullName, file.LastWriteTimeUtc, file.CreationTimeUtc, file.Length)).ToArray();
+        }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { files = []; }
-        var paths = files.Select(file => file.FullName).ToArray();
-        if (paths.SequenceEqual(RecentPaths) && _recent.Children.Count == paths.Length) return;
-        _recent.Children.Clear(); ReleaseThumbnails();
-        RecentPaths = paths;
-        for (var index = 0; index < files.Count; index++)
+        if (files.AsSpan().SequenceEqual(_recentFiles) && _thumbnails.Count == files.Length) return;
+        _recentFiles = files;
+        _recent.Children.Clear();
+        var previous = _thumbnails;
+        _thumbnails = [];
+        for (var index = 0; index < files.Length; index++)
         {
             var file = files[index];
-            Bitmap? bitmap = null;
-            try { using var stream = File.OpenRead(file.FullName); bitmap = Bitmap.DecodeToWidth(stream, 240); }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException) { }
-            if (bitmap is null) continue;
-            _thumbnails.Add(bitmap);
+            if (!previous.Remove(file, out var bitmap))
+            {
+                try { using var stream = File.OpenRead(file.Path); bitmap = Bitmap.DecodeToWidth(stream, 240); }
+                // Avalonia.Skia 11.3 also throws NullReferenceException when it cannot identify the image format.
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or NullReferenceException) { continue; }
+            }
+            _thumbnails.Add(file, bitmap);
             _recent.Children.Add(Ui.Column(RecentThumbnail(file, bitmap), index));
         }
+        foreach (var bitmap in previous.Values) bitmap.Dispose();
         _recent.IsVisible = _recent.Children.Count > 0;
         _recentEmpty.IsVisible = !_recent.IsVisible;
     }
 
-    private Control RecentThumbnail(FileInfo file, Bitmap bitmap)
+    private Control RecentThumbnail(RecentFile file, Bitmap bitmap)
     {
-        var path = file.FullName;
-        var label = RecentCaptureLabel.Format(file.LastWriteTime, DateTime.Now);
+        var path = file.Path;
+        var label = RecentCaptureLabel.Format(file.ModifiedUtc.ToLocalTime(), DateTime.Now);
         var time = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(153, 12, 14, 24)), CornerRadius = new CornerRadius(4),
@@ -541,7 +552,7 @@ public sealed class MainWindow : Window
             Child = new Grid { Children = { new Image { Source = bitmap, Stretch = Stretch.UniformToFill }, time, actions } }
         };
         var card = new SurfaceButton($"打开截图 · {label}", () => _controller.Run(() => _controller.OpenCachedAsync(path))) { Content = frame, CornerRadius = new CornerRadius(10) };
-        ToolTip.SetTip(card, $"{label} · {file.Name}");
+        ToolTip.SetTip(card, $"{label} · {System.IO.Path.GetFileName(path)}");
         card.Resources["ButtonBackgroundPointerOver"] = Brushes.Transparent; card.Resources["ButtonBackgroundPressed"] = Brushes.Transparent;
         // Thumbnails keep 16:9 at any card width.
         card.SizeChanged += (_, e) => { var height = Math.Round(e.NewSize.Width * 9 / 16); if (double.IsNaN(card.Height) || Math.Abs(card.Height - height) > .5) card.Height = height; };
@@ -567,7 +578,7 @@ public sealed class MainWindow : Window
 
     private void ReleaseThumbnails()
     {
-        foreach (var bitmap in _thumbnails) bitmap.Dispose();
+        foreach (var bitmap in _thumbnails.Values) bitmap.Dispose();
         _thumbnails.Clear();
     }
 

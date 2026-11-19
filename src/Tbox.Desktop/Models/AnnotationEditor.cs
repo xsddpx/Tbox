@@ -1,4 +1,5 @@
-﻿using Tbox.Core;
+﻿using Avalonia.Media;
+using Tbox.Core;
 
 namespace Tbox.Desktop.Models;
 
@@ -13,7 +14,9 @@ public sealed class AnnotationEditor
     public double StrokeWidth { get; set; } = 3;
     public double FontSize { get; set; } = 20;
     public double NumberSize { get; set; } = AnnotationDefaults.NumberDiameter;
-    public AnnotationCommand? Draft { get; private set; }
+    private AnnotationCommand? _draft;
+    private MosaicStrokePreview? _mosaicPreview;
+    public AnnotationCommand? Draft => _draft ??= _mosaicPreview?.Freeze();
     public bool IsDrawing => _drawing;
     public event Action? Changed;
     public event Action<AnnotationPoint>? TextRequested;
@@ -53,10 +56,11 @@ public sealed class AnnotationEditor
             if (doubleClick) { FinishPolyline(); return true; }
             if (_points.Count > 0) point = AnnotationGeometry.ApplyShiftConstraint(Tool.Value, _points[^1], point, shift);
             _points.Add(point); _drawing = true;
-            Draft = new PolylineAnnotationCommand(_points, Style); Changed?.Invoke(); return true;
+            _draft = new PolylineAnnotationCommand(_points, Style); Changed?.Invoke(); return true;
         }
         _start = point; _points.Clear(); _points.Add(point); _drawing = true;
-        Draft = Create(point, shift); Changed?.Invoke(); return true;
+        _mosaicPreview = null;
+        UpdateDraft(point, shift); Changed?.Invoke(); return true;
     }
 
     public void Move(AnnotationPoint point, bool shift)
@@ -65,11 +69,11 @@ public sealed class AnnotationEditor
         if (Tool == AnnotationTool.Polyline)
         {
             point = AnnotationGeometry.ApplyShiftConstraint(Tool.Value, _points[^1], point, shift);
-            Draft = new PolylineAnnotationCommand(_points.Append(point), Style);
+            _draft = new PolylineAnnotationCommand(_points.Append(point), Style);
         }
         else
         {
-            _points.Add(point); Draft = Create(point, shift);
+            _points.Add(point); UpdateDraft(point, shift);
         }
         Changed?.Invoke();
     }
@@ -98,7 +102,7 @@ public sealed class AnnotationEditor
         CancelGesture();
     }
 
-    public void CancelGesture() { _drawing = false; _points.Clear(); Draft = null; Changed?.Invoke(); }
+    public void CancelGesture() { _drawing = false; _points.Clear(); _draft = null; _mosaicPreview = null; Changed?.Invoke(); }
     public void Reset() { CancelGesture(); Document.Reset(); Tool = null; Changed?.Invoke(); }
     public void Restore(AnnotationDocumentSnapshot snapshot)
     {
@@ -109,6 +113,25 @@ public sealed class AnnotationEditor
 
     private AnnotationStyle Style => new(Tool == AnnotationTool.Highlighter ? (Color & 0x00FFFFFF) | 0x60000000 : Color,
         Tool is AnnotationTool.Highlighter or AnnotationTool.Mosaic ? StrokeWidth * 6 : StrokeWidth, FontSize);
+
+    internal void Draw(DrawingContext context, Picture picture)
+    {
+        AnnotationRenderer.Draw(context, picture, Document.Commands);
+        if (_mosaicPreview is not null) _mosaicPreview.Draw(context, picture);
+        else if (_draft is not null) AnnotationRenderer.Draw(context, picture, [_draft]);
+    }
+
+    private void UpdateDraft(AnnotationPoint point, bool shift)
+    {
+        if (Tool == AnnotationTool.Mosaic)
+        {
+            _draft = null;
+            var blockSize = Math.Max(6, StrokeWidth * 2);
+            if (_mosaicPreview is null || _mosaicPreview.Style != Style || _mosaicPreview.BlockSize != blockSize)
+                _mosaicPreview = new MosaicStrokePreview(_points, Style, blockSize);
+        }
+        else _draft = Create(point, shift);
+    }
 
     private AnnotationCommand? Create(AnnotationPoint proposed, bool shift)
     {
@@ -121,7 +144,6 @@ public sealed class AnnotationEditor
             AnnotationTool.Arrow => new ArrowAnnotationCommand(_start, end, Style),
             AnnotationTool.Pen => new FreePathAnnotationCommand(_points, Style),
             AnnotationTool.Highlighter => new HighlighterAnnotationCommand(_points, Style),
-            AnnotationTool.Mosaic => new MosaicAnnotationCommand(_points, Style, Math.Max(6, StrokeWidth * 2)),
             _ => null
         };
     }

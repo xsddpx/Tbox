@@ -234,7 +234,7 @@ public sealed class PinnedWindow : Window
 
     public void Recognize()
     {
-        using var original = Picture.Crop(Region); _controller.ShowOcr(original, true);
+        _controller.ShowOcr(Picture.Crop(Region), true, takeOwnership: true);
     }
 
     public void Crop(Point start, Point end)
@@ -444,8 +444,7 @@ internal sealed class PinSurface : Control
         context.DrawImage(_window.Picture.Bitmap, new Rect(r.Left, r.Top, r.Width, r.Height), new Rect(Bounds.Size));
         using (context.PushTransform(Matrix.CreateTranslation(-r.Left, -r.Top) * Matrix.CreateScale(_window.Scale.X, _window.Scale.Y)))
         {
-            AnnotationRenderer.Draw(context, _window.Picture, _window.Editor.Document.Commands);
-            if (_window.Editor.Draft is { } draft) AnnotationRenderer.Draw(context, _window.Picture, [draft]);
+            _window.Editor.Draw(context, _window.Picture);
         }
         if (_window.IsSelected) context.DrawRectangle(null, new Pen(new SolidColorBrush(Color.Parse(DesignTokens.Accent), .6), 1), new Rect(Bounds.Size).Deflate(.5));
         if (_cropStart is { } start) context.DrawRectangle(null, new Pen(Ui.Blue, 1), new Rect(start, _cropEnd).Normalize());

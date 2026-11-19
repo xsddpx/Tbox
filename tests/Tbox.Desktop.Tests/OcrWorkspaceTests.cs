@@ -19,6 +19,65 @@ namespace Tbox.Desktop.Tests;
 public sealed class OcrWorkspaceTests
 {
     [AvaloniaFact]
+    public void MacPixelInputPreservesOpaqueBgraAndFallsBackForEncodedAndTransparentPictures()
+    {
+        byte[] colors = [9, 19, 200, 255, 180, 7, 31, 255];
+        using var opaque = Models.Picture.FromPixels(colors, 2, 1);
+        Assert.Equal(colors, MacPlatformServices.OpaqueOcrPixels(opaque));
+        Assert.False(opaque.HasEncodedPng);
+
+        using var translucent = Models.Picture.FromPixels([22, 31, 48, 255, 60, 70, 90, 254], 2, 1);
+        Assert.Null(MacPlatformServices.OpaqueOcrPixels(translucent));
+        var imported = opaque.Png;
+        using var encoded = new Models.Picture(imported);
+        Assert.Null(MacPlatformServices.OpaqueOcrPixels(encoded));
+        Assert.Same(imported, encoded.Png);
+    }
+
+    [AvaloniaFact]
+    public void ControllerHandsOverOwnedImagesAndProtectsBorrowedOnesWhenReplacingRecognition()
+    {
+        var seen = new List<(Models.Picture Picture, CancellationToken Token)>();
+        var pending = new TaskCompletionSource<RecognitionResult>();
+        var platform = new FakePlatform
+        {
+            OcrPicture = (image, token) => { seen.Add((image, token)); return pending.Task; }
+        };
+        var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
+        var owned = Models.Picture.FromPixels([11, 2, 24, 255], 1, 1);
+        using var borrowed = Models.Picture.FromPixels([19, 42, 27, 255], 1, 1);
+        controller.ShowOcr(owned, false, takeOwnership: true);
+        Assert.Same(owned, Assert.Single(seen).Picture);
+        Assert.False(owned.HasEncodedPng);
+        controller.ShowOcr(borrowed, false);
+        Assert.Equal(2, seen.Count);
+        Assert.NotSame(borrowed, seen[1].Picture);
+        Assert.True(seen[0].Token.IsCancellationRequested);
+        controller.Dispose();
+        Assert.True(seen[1].Token.IsCancellationRequested);
+        pending.SetResult(new RecognitionResult("过时结果", []));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(new byte[] { 19, 42, 27, 255 }, borrowed.GetPixels());
+    }
+
+    [AvaloniaFact]
+    public void RepeatOfflineRecognitionKeepsTheOriginalBitmapAlive()
+    {
+        using var scope = new AiScope((_, _) => throw new InvalidOperationException());
+        var picture = Models.Picture.FromPixels([3, 17, 45, 255], 1, 1);
+        scope.Show(picture);
+        var preview = Assert.Single(scope.Window.GetVisualDescendants().OfType<Image>(),
+            image => AutomationProperties.GetName(image) == "识别原图");
+        Assert.Same(picture.Bitmap, preview.Source);
+        scope.Editor.Text = "edited";
+        Click(scope.Window, "离线识别");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal("离线结果", scope.Editor.Text);
+        Assert.Same(picture.Bitmap, preview.Source);
+        Assert.Equal(new byte[] { 3, 17, 45, 255 }, picture.GetPixels());
+    }
+
+    [AvaloniaFact]
     public async Task ImageIsSentOnlyAfterChoosingAModelAndConfirming()
     {
         var calls = 0;

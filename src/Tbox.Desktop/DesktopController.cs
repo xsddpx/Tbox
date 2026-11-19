@@ -490,7 +490,12 @@ public sealed class DesktopController : IDisposable
         finally { _capturing = false; }
     }
 
-    public void ShowImageResult(Picture picture, bool fullScreen) => new ImageResultWindow(this, picture, fullScreen).Show();
+    public void ShowImageResult(Picture picture, bool fullScreen)
+    {
+        // The result window owns the picture until it closes, including when the caller was a capture session.
+        try { new ImageResultWindow(this, picture, fullScreen).Show(); }
+        catch { picture.Dispose(); throw; }
+    }
 
     internal async Task StartRecordingAsync(RecordingArea area)
     {
@@ -598,8 +603,8 @@ public sealed class DesktopController : IDisposable
     public async Task OcrClipboardAsync()
     {
         if (!_settings.ScreenPasteEnabled) return;
-        using var picture = await ReadClipboardAsync(allowText: false);
-        ShowOcr(picture, false);
+        var picture = await ReadClipboardAsync(allowText: false);
+        ShowOcr(picture, false, takeOwnership: true);
     }
 
     public async Task OpenImageForOcrAsync()
@@ -613,23 +618,33 @@ public sealed class DesktopController : IDisposable
         await using var input = await paths[0].OpenReadAsync();
         using var buffer = new MemoryStream();
         await input.CopyToAsync(buffer, _stop.Token);
-        using var picture = new Picture(buffer.ToArray());
-        ShowOcr(picture, false);
+        ShowOcr(new Picture(buffer.ToArray()), false, takeOwnership: true);
     }
 
-    public void ShowOcr(Picture picture, bool topmost)
+    public void ShowOcr(Picture picture, bool topmost) => ShowOcr(picture, topmost, takeOwnership: false);
+
+    internal void ShowOcr(Picture picture, bool topmost, bool takeOwnership)
     {
-        if (!_settings.ScreenPasteEnabled || IsQuitting || _installingUpdate) return;
-        if (_ocr is null)
+        try
         {
-            _ocr = new OcrWindow(this);
-            _ocr.Closed += (_, _) => _ocr = null;
+            if (!_settings.ScreenPasteEnabled || IsQuitting || _installingUpdate) return;
+            if (_ocr is null)
+            {
+                _ocr = new OcrWindow(this);
+                _ocr.Closed += (_, _) => _ocr = null;
+            }
+            _ocr.Topmost = topmost;
+            _ocr.Show();
+            if (_ocr.WindowState == WindowState.Minimized) _ocr.WindowState = WindowState.Normal;
+            _ocr.Activate();
+            _ocr.Recognize(takeOwnership ? picture : new Picture(picture.Png));
+            takeOwnership = false;
         }
-        _ocr.Topmost = topmost;
-        _ocr.Show();
-        if (_ocr.WindowState == WindowState.Minimized) _ocr.WindowState = WindowState.Normal;
-        _ocr.Activate();
-        _ocr.Recognize(new Picture(picture.Png));
+        finally
+        {
+            // A quit or disabled module may reject an image the clipboard/pin caller already handed over.
+            if (takeOwnership) picture.Dispose();
+        }
     }
 
     public async Task CopyAsync(Picture picture)

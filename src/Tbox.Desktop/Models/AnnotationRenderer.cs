@@ -93,17 +93,24 @@ public static class AnnotationRenderer
         for (var x = startX; x < Math.Min(width, bounds.Right); x += step)
         {
             if (!AnnotationGeometry.HitTestPath(mosaic.Points, new AnnotationPoint(x + step / 2d, y + step / 2d), radius + step / 2d)) continue;
-            long blue = 0, green = 0, red = 0, alpha = 0, count = 0;
-            for (var yy = y; yy < Math.Min(y + step, height); yy++)
-            for (var xx = x; xx < Math.Min(x + step, width); xx++)
-            {
-                var i = (yy * width + xx) * 4;
-                blue += bytes[i]; green += bytes[i + 1]; red += bytes[i + 2]; alpha += bytes[i + 3]; count++;
-            }
-            if (count == 0) continue;
-            context.FillRectangle(new SolidColorBrush(Color.FromArgb((byte)(alpha / count), (byte)(red / count),
-                (byte)(green / count), (byte)(blue / count))), new Rect(x, y, Math.Min(step, width - x), Math.Min(step, height - y)));
+            var brush = new SolidColorBrush(SampleMosaicColor(bytes, width, height, x, y, step));
+            context.FillRectangle(brush, new Rect(x, y, Math.Min(step, width - x), Math.Min(step, height - y)));
         }
+    }
+
+    internal static Color SampleMosaicColor(byte[] bytes, int width, int height, int x, int y, int step)
+    {
+        var right = Math.Min(x + step, width);
+        var bottom = Math.Min(y + step, height);
+        long blue = 0, green = 0, red = 0, alpha = 0;
+        for (var yy = y; yy < bottom; yy++)
+        for (var xx = x; xx < right; xx++)
+        {
+            var i = (yy * width + xx) * 4;
+            blue += bytes[i]; green += bytes[i + 1]; red += bytes[i + 2]; alpha += bytes[i + 3];
+        }
+        var count = (long)(right - x) * (bottom - y);
+        return Color.FromArgb((byte)(alpha / count), (byte)(red / count), (byte)(green / count), (byte)(blue / count));
     }
 
     private static Point P(AnnotationPoint p) => new(p.X, p.Y);
