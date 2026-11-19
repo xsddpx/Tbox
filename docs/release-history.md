@@ -120,6 +120,7 @@
 | 1.1.86 | macOS osx-arm64 | 2026-11-16 22:53:39 +0800 | `56aaff5a63dee47fcef62a3f92b042b3b66cd912cadbdc294da0e80ca6be7646` |
 | 1.1.87 | macOS osx-arm64 | 2026-11-16 23:15:30 +0800 | `5f315e90c789536a47e5c547adddecd1ea1f9d93eb82cec58e1dcfb095b40eb3` |
 | 1.1.88 | macOS osx-arm64 | 2026-11-16 23:16:20 +0800 | `c46301fa31cb3f8e6e94bb21f8bde21d86da52a0b5de26c3c07ffb46c67b5106` |
+| 1.1.96 | macOS osx-arm64 | 2026-11-19 22:55:31 +0800 | `51cf6eb24173d1568d5a4485e3d2aa308658cab98b22edb4cb09dd42ddfc98f4` |
 
 ## Windows 共用桌面开发包
 

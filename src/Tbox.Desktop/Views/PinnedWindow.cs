@@ -34,6 +34,7 @@ public sealed class PinnedWindow : Window
     private double _pixelsPerUnit;
     private Point _zoomAnchor;
     private double _wheelRemainder;
+    private double _pinchRemainder;
     private int _pendingWheelSteps;
     private bool _zoomPending;
     private int _zoomRevision;
@@ -75,6 +76,7 @@ public sealed class PinnedWindow : Window
         Add("图片另存为…", () => controller.Run(SaveAsync));
         _menu.Items.Add(new Separator()); Add("关闭贴图", Close);
         PointerWheelChanged += OnWheel;
+        Gestures.AddPointerTouchPadGestureMagnifyHandler(this, OnMagnify);
         PositionChanged += (_, _) => ScheduleToolbarPlacement();
         SizeChanged += (_, _) => ScheduleToolbarPlacement();
         PropertyChanged += (_, args) =>
@@ -247,7 +249,18 @@ public sealed class PinnedWindow : Window
     {
         if (_text.IsEditing || !double.IsFinite(e.Delta.Y) || e.Delta.Y == 0) return;
         e.Handled = true;
-        var steps = PinWindowScalePolicy.ConsumeWheelSteps(ref _wheelRemainder, e.Delta.Y);
+        QueueZoom(PinWindowScalePolicy.ConsumeWheelSteps(ref _wheelRemainder, e.Delta.Y), e);
+    }
+
+    private void OnMagnify(object? sender, PointerDeltaEventArgs e)
+    {
+        if (_text.IsEditing) return;
+        e.Handled = true;
+        QueueZoom(PinWindowScalePolicy.ConsumePinchSteps(ref _pinchRemainder, e.Delta.Y), e);
+    }
+
+    private void QueueZoom(int steps, PointerEventArgs e)
+    {
         if (steps == 0) return;
         _pendingWheelSteps += steps;
         _zoomAnchor = e.GetPosition(_surface);
@@ -313,10 +326,10 @@ public sealed class PinnedWindow : Window
 
     private void ApplyZoom(nint handle, DesktopPlacement current, DesktopPlacement desired)
     {
-        double Snap(double value) => Math.Round(value * _pixelsPerUnit) / _pixelsPerUnit;
-        var pixel = 1 / _pixelsPerUnit;
-        var snapped = new DesktopPlacement(Snap(desired.Left), Snap(desired.Top),
-            Math.Max(pixel, Snap(desired.Width)), Math.Max(pixel, Snap(desired.Height)));
+        // Window frames use whole desktop units: points on macOS and pixels on Windows.
+        // Rounding to backing pixels first lets AppKit round the same dimension twice.
+        var snapped = new DesktopPlacement(Math.Round(desired.Left), Math.Round(desired.Top),
+            Math.Max(1, Math.Round(desired.Width)), Math.Max(1, Math.Round(desired.Height)));
         // Keep subpixel bounds for the next zoom instead of feeding the compositor's rounding back into the anchor.
         _preciseZoomBounds = desired;
         if (snapped == current) return;
@@ -352,6 +365,7 @@ public sealed class PinnedWindow : Window
         _zoomPending = false;
         _zoomBounds = null;
         _wheelRemainder = 0;
+        _pinchRemainder = 0;
         _pendingWheelSteps = 0;
     }
 
