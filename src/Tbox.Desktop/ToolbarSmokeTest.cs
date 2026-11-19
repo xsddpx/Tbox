@@ -56,7 +56,9 @@ internal static class ToolbarSmokeTest
         }
         finally { session.Cancel(); }
 
-        var pin = new PinnedWindow(controller, DesktopController.RenderText("Tbox toolbar verification"));
+        // Use a small image here so the 100% test also fits the hosted runner's work area.
+        using var pinFixture = DesktopController.RenderText("Tbox toolbar verification");
+        var pin = new PinnedWindow(controller, pinFixture.Crop(new PixelRegion(0, 0, 400, pinFixture.Bitmap.PixelSize.Height)));
         object pinZoom;
         try
         {
@@ -99,7 +101,13 @@ internal static class ToolbarSmokeTest
         var pixelsPerUnit = pin.RenderScaling / platform.DesktopUnitsPerDip(handle);
         if (Math.Abs(original.Width * pixelsPerUnit - pin.Region.Width) > 1 ||
             Math.Abs(original.Height * pixelsPerUnit - pin.Region.Height) > 1)
-            throw new InvalidOperationException("中键未以原始像素尺寸恢复贴图。");
+        {
+            var work = platform.GetWorkArea(handle);
+            throw new InvalidOperationException(
+                $"中键未以原始像素尺寸恢复贴图。预期 {pin.Region.Width}×{pin.Region.Height} 像素，" +
+                $"实际 {original.Width * pixelsPerUnit:F1}×{original.Height * pixelsPerUnit:F1} 像素，" +
+                $"工作区 {work.Width * pixelsPerUnit:F1}×{work.Height * pixelsPerUnit:F1} 像素。");
+        }
         var badge = pin.GetVisualDescendants().OfType<TextBlock>().Single(label => label.Text == "100%");
         if (!badge.IsEffectivelyVisible) throw new InvalidOperationException("恢复尺寸后没有显示缩放比例。");
         Render(pin, Path.Combine(directory, "pin-zoom-badge.png"));
