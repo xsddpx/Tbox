@@ -274,6 +274,110 @@ public sealed class TaskToolbarTests
     }
 
     [AvaloniaFact]
+    public async Task PinMiddleClickRestoresCroppedPixelsAndShowsATemporaryBadge()
+    {
+        using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
+            .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
+        var platform = new FakePlatform();
+        using var controller = new DesktopController(platform, lifetime);
+        var pin = new PinnedWindow(controller, Picture.FromPixels(new byte[400 * 240 * 4], 400, 240));
+        pin.Show();
+        Layout(pin);
+        try
+        {
+            platform.WindowPlacementOverride = new(100, 200, 200, 120);
+            platform.WindowPlaced = (placement, _) => platform.WindowPlacementOverride = placement;
+            pin.Crop(new Point(20, 20), new Point(120, 90));
+            var region = pin.Region;
+            Assert.NotEqual(400, region.Width);
+
+            var point = new Point(25, 25);
+            pin.MouseDown(point, MouseButton.Middle, RawInputModifiers.None);
+            pin.MouseUp(point, MouseButton.Middle, RawInputModifiers.None);
+            Assert.Equal(region, pin.Region);
+            Assert.Equal(region.Width, platform.WindowPlacementOverride.Width);
+            Assert.Equal(region.Height, platform.WindowPlacementOverride.Height);
+            var label = Assert.Single(pin.GetVisualDescendants().OfType<TextBlock>(), item => item.Text == "100%");
+            Assert.True(label.IsEffectivelyVisible);
+            Assert.False(Assert.IsType<Border>(label.Parent).IsHitTestVisible);
+
+            await Task.Delay(TimeSpan.FromMilliseconds(1100));
+            Assert.False(label.IsEffectivelyVisible);
+        }
+        finally { pin.Close(); }
+    }
+
+    [Fact]
+    public void PinZoomKeepsAnchorAndFitsOriginalPixelsInTheCurrentWorkArea()
+    {
+        var bounds = new DesktopPlacement(-800, 50, 200, 100);
+        var work = new DesktopPlacement(-900, 0, 900, 700);
+        var zoomed = PinnedWindow.ZoomAround(bounds, new Point(-750, 125), 400, 200);
+        Assert.Equal(-750, zoomed.Left + 0.25 * zoomed.Width);
+        Assert.Equal(125, zoomed.Top + 0.75 * zoomed.Height);
+        var retina = PinnedWindow.OriginalSize(bounds, work, new PixelRegion(25, 10, 600, 200), 2);
+        Assert.Equal(new DesktopPlacement(-850, 50, 300, 100), retina);
+        var tall = PinnedWindow.OriginalSize(bounds, work, new PixelRegion(0, 0, 1000, 50_000), 1);
+        Assert.Equal(14, tall.Width, precision: 8);
+        Assert.Equal(700, tall.Height, precision: 8);
+        Assert.Equal(0, tall.Top, precision: 8);
+    }
+
+    [AvaloniaFact]
+    public async Task PinWheelDoesNotResizeOnFractionalInputOrDriftAfterReversing()
+    {
+        using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
+            .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
+        var original = new DesktopPlacement(-180, 120, 53, 257);
+        var platform = new FakePlatform { WindowPlacementOverride = original };
+        using var controller = new DesktopController(platform, lifetime);
+        var pin = new PinnedWindow(controller, Picture.FromPixels(new byte[53 * 257 * 4], 53, 257));
+        pin.Show();
+        Layout(pin);
+        try
+        {
+            var surface = pin.GetVisualDescendants().OfType<PinSurface>().Single();
+            var pointer = new Pointer(1, PointerType.Mouse, true);
+            var anchor = new Point(original.Left + 27, original.Top + 49);
+            void Wheel(double delta)
+            {
+                var current = platform.WindowPlacementOverride!;
+                var point = new Point(anchor.X - current.Left, anchor.Y - current.Top);
+                surface.RaiseEvent(new PointerWheelEventArgs(surface, pointer, pin, point, 0,
+                    new PointerPointProperties(), KeyModifiers.None, new Vector(0, delta)));
+            }
+            var calls = 0;
+            platform.WindowPlaced = (placement, _) =>
+            {
+                calls++;
+                platform.WindowPlacementOverride = placement;
+            };
+            Wheel(-0.5);
+            await Task.Delay(50);
+            Assert.Equal(0, calls);
+
+            for (var i = 0; i < 8; i++)
+            {
+                var resized = new TaskCompletionSource<DesktopPlacement>(TaskCreationOptions.RunContinuationsAsynchronously);
+                platform.WindowPlaced = (placement, _) =>
+                {
+                    platform.WindowPlacementOverride = placement;
+                    resized.TrySetResult(placement);
+                };
+                Wheel(i == 0 ? -0.5 : i % 2 == 0 ? -1 : 1);
+                var bounds = await resized.Task.WaitAsync(TimeSpan.FromSeconds(2));
+                if (i % 2 == 0)
+                    Assert.Equal(new DesktopPlacement(-179, 122, 50, 244), bounds);
+                else
+                    Assert.Equal(original, bounds);
+            }
+        }
+        finally { pin.Close(); }
+    }
+
+    [AvaloniaFact]
     public void PinToolbarRequiresSelectionAndSpaceAndShowsTheFullEditingSet()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());

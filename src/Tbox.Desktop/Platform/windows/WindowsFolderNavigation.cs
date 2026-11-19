@@ -16,13 +16,28 @@ internal sealed class WindowsFolderNavigation(WindowsFolderPicker picker, Window
     {
         var foreground = NativeMethods.GetForegroundWindow();
         var target = foreground != 0 && foreground == activeBar ? (nint)(retainedTarget ?? 0) : foreground;
-        if (!IsDialog(target)) return Task.FromResult<FolderDialogTarget?>(null);
+        return Task.FromResult(IsDialog(target) ? ReadPlacement(target) : null);
+    }
+
+    public IDisposable? WatchDialog(long target, Action<FolderDialogChange> changed) =>
+        WindowsDialogObservation.TryStart((nint)target, changed);
+
+    public FolderDialogTarget? ReadTrackedDialog(long target, nint activeBar)
+    {
+        var window = (nint)target;
+        var foreground = NativeMethods.GetForegroundWindow();
+        return (foreground == window || activeBar != 0 && foreground == activeBar) &&
+            NativeMethods.IsWindowVisible(window) ? ReadPlacement(window) : null;
+    }
+
+    private FolderDialogTarget? ReadPlacement(nint target)
+    {
         try
         {
-            return Task.FromResult<FolderDialogTarget?>(new(target, platform.GetWindowPlacement(target),
-                platform.GetWorkArea(target), platform.DesktopUnitsPerDip(target)));
+            return new(target, platform.GetWindowPlacement(target), platform.GetWorkArea(target),
+                platform.DesktopUnitsPerDip(target));
         }
-        catch (System.ComponentModel.Win32Exception) { return Task.FromResult<FolderDialogTarget?>(null); }
+        catch (System.ComponentModel.Win32Exception) { return null; }
     }
 
     public Task<IReadOnlyList<string>> GetOpenFoldersAsync(CancellationToken cancellationToken) => Task.Run(() =>

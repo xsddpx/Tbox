@@ -426,12 +426,41 @@ public sealed class SettingsTests
     }
 
     [Fact]
-    public void PinWheelScaleUsesTenPercentStepsAndHonorsLimits()
+    public void PinWheelScaleUsesFivePercentagePointsAndHonorsLimits()
     {
-        Assert.Equal(1.1, PinWindowScalePolicy.ApplyWheelDelta(1, 120, 0.25, 4), precision: 10);
-        Assert.Equal(1, PinWindowScalePolicy.ApplyWheelDelta(1.1, -120, 0.25, 4), precision: 10);
-        Assert.Equal(4, PinWindowScalePolicy.ApplyWheelDelta(4, 120, 0.25, 4));
-        Assert.Equal(0.25, PinWindowScalePolicy.ApplyWheelDelta(0.25, -120, 0.25, 4));
+        Assert.Equal(0.95, PinWindowScalePolicy.ApplyWheelSteps(1, -1, 0.05), precision: 10);
+        Assert.Equal(0.9, PinWindowScalePolicy.ApplyWheelSteps(0.95, -1, 0.05), precision: 10);
+        Assert.Equal(1, PinWindowScalePolicy.ApplyWheelSteps(0.95, 1, 0.05), precision: 10);
+        Assert.Equal(1.1, PinWindowScalePolicy.ApplyWheelSteps(1, 2, 0.05), precision: 10);
+        Assert.Equal(0.5, PinWindowScalePolicy.ApplyWheelSteps(0.48, 1, 0.05), precision: 10);
+        Assert.Equal(0.45, PinWindowScalePolicy.ApplyWheelSteps(0.48, -1, 0.05), precision: 10);
+        Assert.Equal(8, PinWindowScalePolicy.ApplyWheelSteps(8, 1, 0.05));
+        Assert.Equal(0.05, PinWindowScalePolicy.ApplyWheelSteps(0.05, -1, 0.05));
+    }
+
+    [Fact]
+    public void PinWheelAccumulatesFractionalInputBeforeApplyingAnyStep()
+    {
+        var remainder = 0d;
+        Assert.Equal(0, PinWindowScalePolicy.ConsumeWheelSteps(ref remainder, 0.75));
+        Assert.Equal(0, PinWindowScalePolicy.ConsumeWheelSteps(ref remainder, -0.75));
+        for (var i = 0; i < 9; i++)
+            Assert.Equal(0, PinWindowScalePolicy.ConsumeWheelSteps(ref remainder, -0.1));
+        Assert.Equal(-1, PinWindowScalePolicy.ConsumeWheelSteps(ref remainder, -0.1));
+        Assert.Equal(0, remainder);
+        Assert.Equal(2, PinWindowScalePolicy.ConsumeWheelSteps(ref remainder, 2.25));
+        Assert.Equal(0.25, remainder);
+    }
+
+    [Fact]
+    public void PinWheelKeepsSmallerStepsForAHighlyReducedLongImage()
+    {
+        const double fit = 0.023;
+        Assert.Equal(0.03, PinWindowScalePolicy.ApplyWheelSteps(fit, 1, fit), precision: 10);
+        Assert.Equal(0.05, PinWindowScalePolicy.ApplyWheelSteps(fit, 3, fit), precision: 10);
+        Assert.Equal(0.1, PinWindowScalePolicy.ApplyWheelSteps(fit, 4, fit), precision: 10);
+        Assert.Equal(0.04, PinWindowScalePolicy.ApplyWheelSteps(0.05, -1, fit), precision: 10);
+        Assert.Equal(fit, PinWindowScalePolicy.ApplyWheelSteps(0.05, -10, fit));
     }
 
     [Fact]
