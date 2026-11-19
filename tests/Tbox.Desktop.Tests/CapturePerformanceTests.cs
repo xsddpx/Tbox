@@ -39,6 +39,34 @@ public sealed class CapturePerformanceTests
         File.WriteAllText(reportPath, JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
     }
 
+    [AvaloniaFact]
+    public void CompareFullAndBoundedLongCapturePreviewWhenRequested()
+    {
+        var reportPath = Environment.GetEnvironmentVariable("TBOX_LONG_PREVIEW_BENCHMARK");
+        if (string.IsNullOrEmpty(reportPath)) return;
+        const int width = 2000;
+        const int height = 10_000;
+        var buffer = new LongCaptureBuffer(width, height);
+        var pixels = new byte[width * height * 4];
+        new Random(42).NextBytes(pixels);
+        buffer.Add(pixels);
+        Action full = () =>
+        {
+            using var preview = Picture.FromPixels(buffer.Complete(), width, height);
+            Assert.Equal(height, preview.Bitmap.PixelSize.Height);
+        };
+        Action bounded = () =>
+        {
+            var previewPixels = buffer.CreatePreview(270, 1080);
+            using var preview = Picture.FromPixels(previewPixels.Pixels, previewPixels.Width, previewPixels.Height);
+            Assert.Equal(1080, preview.Bitmap.PixelSize.Height);
+        };
+        full(); bounded();
+        var result = new { width, height, full = Measure(full), bounded = Measure(bounded) };
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+        File.WriteAllText(reportPath, JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true }));
+    }
+
     private static object Measure(Action action)
     {
         var times = new List<double>();

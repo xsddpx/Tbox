@@ -23,6 +23,59 @@ namespace Tbox.Desktop.Tests;
 public sealed class MainWindowTests
 {
     [AvaloniaFact]
+    public async Task LongCaptureReusesItsBoundedPreviewWhenTheViewportMovesInsideTheStitch()
+    {
+        const int width = 360;
+        const int height = 120;
+        var document = new byte[width * (height + 40) * 4];
+        new Random(408).NextBytes(document);
+        for (var i = 3; i < document.Length; i += 4) document[i] = 255;
+        byte[] PngAt(int top)
+        {
+            using var frame = Picture.FromPixels(document.AsSpan(top * width * 4, width * height * 4).ToArray(), width, height);
+            return frame.Png;
+        }
+        var initial = PngAt(0);
+        var appended = PngAt(40);
+        var inside = PngAt(20);
+        var frames = new Queue<byte[]>([initial, appended, appended]);
+        var move = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var platform = new FakePlatform
+        {
+            CaptureRegion = async token =>
+            {
+                if (frames.TryDequeue(out var next)) return next;
+                await move.Task.WaitAsync(token);
+                return inside;
+            }
+        };
+        using var scope = new Scope(platform);
+        var session = new LongCaptureSession(scope.Controller, new DesktopPlacement(100, 100, width, height), () => { });
+        session.Start();
+        try
+        {
+            var window = Assert.Single(scope.Lifetime.Windows, w => w.Title == "Tbox 长截图实时预览");
+            var preview = Assert.Single(window.GetVisualDescendants().OfType<LongPreview>());
+            await WaitForViewportAsync(preview, 40);
+            var bitmap = Assert.IsType<Picture>(preview.Picture);
+            Assert.Equal(new PixelSize(width, height + 40), preview.SourceSize);
+            Assert.Equal(new PixelSize(180, 80), bitmap.Bitmap.PixelSize);
+            move.SetResult();
+            await WaitForViewportAsync(preview, 20);
+            Assert.Same(bitmap, preview.Picture);
+            Assert.Equal(new PixelSize(width, height + 40), preview.SourceSize);
+        }
+        finally { session.Stop(); }
+    }
+
+    private static async Task WaitForViewportAsync(LongPreview preview, int expected)
+    {
+        var deadline = Environment.TickCount64 + 3000;
+        while (preview.ViewportTop != expected && Environment.TickCount64 < deadline) await Task.Delay(20);
+        Assert.Equal(expected, preview.ViewportTop);
+    }
+
+    [AvaloniaFact]
     public async Task FolderBarCoalescesMovesAndRestoresItsSearchUntilTheTargetCloses()
     {
         var platform = new FakePlatform();

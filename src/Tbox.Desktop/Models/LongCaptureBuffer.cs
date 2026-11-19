@@ -25,4 +25,7 @@ public sealed class LongCaptureBuffer
     }
 
     public byte[] Complete() => _stitcher.Complete();
+
+    internal (byte[] Pixels, int Width, int Height) CreatePreview(int width, int height) =>
+        _stitcher.CreatePreview(width, height);
 }

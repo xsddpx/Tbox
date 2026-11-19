@@ -29,6 +29,7 @@ internal sealed class LongCaptureSession
     private Task _loop = Task.CompletedTask;
     private LongCaptureBuffer? _buffer;
     private Picture? _previewPicture;
+    private PixelSize _previewLimit;
     private bool _finished;
 
     public LongCaptureSession(DesktopController controller, DesktopPlacement region, Action closed)
@@ -93,6 +94,9 @@ internal sealed class LongCaptureSession
         var top = Math.Clamp(_region.Top, work.Top, work.Top + work.Height - height);
         platform.PlaceWindow(_preview.TryGetPlatformHandle()!.Handle, new DesktopPlacement(left, top, width, height), false);
         platform.PrepareCaptureOverlay(_preview.TryGetPlatformHandle()!.Handle, false);
+        var pixelScale = _preview.RenderScaling / platform.DesktopUnitsPerDip(_preview.TryGetPlatformHandle()!.Handle);
+        _previewLimit = new PixelSize(Math.Max(1, (int)Math.Ceiling(width * pixelScale)),
+            Math.Max(1, (int)Math.Ceiling(height * pixelScale)));
         _loop = CaptureLoopAsync();
     }
 
@@ -104,19 +108,34 @@ internal sealed class LongCaptureSession
             {
                 var png = await _controller.Platform.CaptureRegionAsync(_region, _stop.Token);
                 using var frame = new Picture(png);
-                _buffer ??= new LongCaptureBuffer(frame.Bitmap.PixelSize.Width, frame.Bitmap.PixelSize.Height);
-                if (frame.Bitmap.PixelSize.Width != _buffer.Width || frame.Bitmap.PixelSize.Height != _buffer.FrameHeight)
+                var buffer = _buffer ??= new LongCaptureBuffer(frame.Bitmap.PixelSize.Width, frame.Bitmap.PixelSize.Height);
+                if (frame.Bitmap.PixelSize.Width != buffer.Width || frame.Bitmap.PixelSize.Height != buffer.FrameHeight)
                     throw new InvalidOperationException("捕获尺寸已变化，可保存当前结果后重新框选。");
                 var pixels = frame.GetPixels();
-                var result = await Task.Run(() => _buffer.Add(pixels), _stop.Token);
+                var (result, preview) = await Task.Run(() =>
+                {
+                    var accepted = buffer.Add(pixels);
+                    var thumbnail = accepted is { AddedRows: > 0 }
+                        ? buffer.CreatePreview(_previewLimit.Width, _previewLimit.Height)
+                        : ((byte[] Pixels, int Width, int Height)?)null;
+                    return (accepted, thumbnail);
+                }, _stop.Token);
                 if (_finished) return;
                 if (result is { Decision: ScrollCaptureFrameDecision.Started or ScrollCaptureFrameDecision.Appended or ScrollCaptureFrameDecision.Moved or ScrollCaptureFrameDecision.LimitReached })
                 {
-                    var next = Picture.FromPixels(_buffer.Complete(), _buffer.Width, _buffer.Height);
-                    var old = _previewPicture; _previewPicture = next;
-                    _surface.Picture = next; _surface.ViewportTop = _buffer.ViewportTop; _surface.ViewportHeight = _buffer.FrameHeight;
-                    _surface.InvalidateVisual(); old?.Dispose();
-                    _size.Text = $"{_buffer.Width} × {_buffer.Height}";
+                    if (preview is { } thumbnail)
+                    {
+                        var next = Picture.FromPixels(thumbnail.Pixels, thumbnail.Width, thumbnail.Height);
+                        var old = _previewPicture;
+                        _previewPicture = next;
+                        _surface.Picture = next;
+                        old?.Dispose();
+                    }
+                    _surface.SourceSize = new PixelSize(buffer.Width, buffer.Height);
+                    _surface.ViewportTop = buffer.ViewportTop;
+                    _surface.ViewportHeight = buffer.FrameHeight;
+                    _surface.InvalidateVisual();
+                    _size.Text = $"{buffer.Width} × {buffer.Height}";
                     if (result is { Decision: ScrollCaptureFrameDecision.Started or ScrollCaptureFrameDecision.Appended }) _frames++;
                     _progress.Text = result is { Decision: ScrollCaptureFrameDecision.LimitReached } ? $"已拼接 {_frames} 屏 · 已达上限" : $"已拼接 {_frames} 屏 · 继续滚动";
                     foreach (var button in _actions) button.IsEnabled = true;
@@ -188,14 +207,15 @@ internal sealed class LongCaptureSession
 internal sealed class LongPreview : Control
 {
     public Picture? Picture { get; set; }
+    public PixelSize SourceSize { get; set; }
     public int ViewportTop { get; set; }
     public int ViewportHeight { get; set; }
     public override void Render(DrawingContext context)
     {
         base.Render(context);
         if (Picture is not { } picture) return;
-        var ratio = Math.Min(Bounds.Width / picture.Bitmap.PixelSize.Width, Bounds.Height / picture.Bitmap.PixelSize.Height);
-        var size = new Size(picture.Bitmap.PixelSize.Width * ratio, picture.Bitmap.PixelSize.Height * ratio);
+        var ratio = Math.Min(Bounds.Width / SourceSize.Width, Bounds.Height / SourceSize.Height);
+        var size = new Size(SourceSize.Width * ratio, SourceSize.Height * ratio);
         var left = (Bounds.Width - size.Width) / 2;
         context.DrawImage(picture.Bitmap, new Rect(left, 0, size.Width, size.Height));
         context.DrawRectangle(null, new Pen(Ui.LongYellow, 2),

@@ -88,6 +88,32 @@ public sealed class ScrollCaptureStitcherTests
     }
 
     [Fact]
+    public void PreviewSamplesTheStitchedSegmentsInOrderAndPreservesTheFullOutput()
+    {
+        const int width = 48;
+        const int frameHeight = 80;
+        var document = CreateDocument(width, 240);
+        var stitcher = new ScrollCaptureStitcher(width, frameHeight);
+        stitcher.AddFrame(CropRows(document, width, 80, frameHeight));
+        stitcher.AddFrame(CropRows(document, width, 110, frameHeight));
+        stitcher.AddFrame(CropRows(document, width, 60, frameHeight));
+
+        var (preview, previewWidth, previewHeight) = stitcher.CreatePreview(24, 65);
+        Assert.Equal(24, previewWidth);
+        Assert.Equal(65, previewHeight);
+        for (var y = 0; y < previewHeight; y++)
+        {
+            for (var x = 0; x < previewWidth; x++)
+            {
+                var source = ((60 + y * 2 + 1) * width + x * 2 + 1) * 4;
+                var target = (y * previewWidth + x) * 4;
+                Assert.True(document.AsSpan(source, 4).SequenceEqual(preview.AsSpan(target, 4)));
+            }
+        }
+        Assert.Equal(CropRows(document, width, 60, 130), stitcher.Complete());
+    }
+
+    [Fact]
     public void IdenticalFrameDoesNotGrowOutput()
     {
         var frame = CreateDocument(40, 60);

@@ -159,6 +159,44 @@ public sealed class ScrollCaptureStitcher
         return output;
     }
 
+    internal (byte[] Pixels, int Width, int Height) CreatePreview(int maximumWidth, int maximumHeight)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumWidth);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumHeight);
+        if (!HasFrame) throw new InvalidOperationException("还没有可预览的滚动截图。");
+        var scale = Math.Min(1, Math.Min(maximumWidth / (double)_width, maximumHeight / (double)Height));
+        var width = Math.Max(1, (int)Math.Floor(_width * scale));
+        var height = Math.Max(1, (int)Math.Floor(Height * scale));
+        if (width == _width && height == Height) return (Complete(), width, height);
+
+        var preview = new byte[checked(width * height * 4)];
+        var columns = new int[width];
+        for (var x = 0; x < width; x++)
+            columns[x] = 4 * SampleCoordinate(x, _width, width);
+        var sourceStride = _width * 4;
+        var firstRow = 0;
+        var targetRow = 0;
+        foreach (var segment in _segments)
+        {
+            var end = firstRow + segment.Length / sourceStride;
+            while (targetRow < height)
+            {
+                var row = SampleCoordinate(targetRow, Height, height);
+                if (row >= end) break;
+                var source = segment.AsSpan((row - firstRow) * sourceStride, sourceStride);
+                var target = preview.AsSpan(targetRow * width * 4, width * 4);
+                for (var x = 0; x < width; x++)
+                    source.Slice(columns[x], 4).CopyTo(target.Slice(x * 4, 4));
+                targetRow++;
+            }
+            firstRow = end;
+        }
+        return (preview, width, height);
+    }
+
+    private static int SampleCoordinate(int coordinate, int sourceSize, int targetSize) =>
+        (int)((2L * coordinate + 1) * sourceSize / (2L * targetSize));
+
     public static double CalculateFrameError(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second)
         => CalculateFrameDifference(first, second).MeanError;
 

@@ -17,7 +17,9 @@ internal sealed class FakePlatform : IPlatformServices
     public void OpenScreenPermissionSettings() { PermissionSettingsOpens++; }
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken)
     { CaptureRequests++; CaptureStarting?.Invoke(); return PendingCapture ?? Task.FromResult(Displays); }
-    public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) => throw new NotSupportedException();
+    public Func<CancellationToken, Task<byte[]>>? CaptureRegion { get; set; }
+    public Task<byte[]> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken) =>
+        CaptureRegion?.Invoke(cancellationToken) ?? throw new NotSupportedException();
     public Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken) =>
         Task.FromResult(OcrResult ?? throw new NotSupportedException());
     // Shortcuts listed here behave as if another application holds them.
