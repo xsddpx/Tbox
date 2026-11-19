@@ -172,7 +172,7 @@ public sealed class MainWindowTests
             notify(FolderDialogChange.Position);
         }
         Assert.Empty(placements.Skip(1));
-        await Task.Delay(70);
+        await navigation.FirstGeometryRead.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, navigation.GeometryReads);
         Assert.True(placements[^1].MoveOnly);
         Assert.Equal(386, placements[^1].Placement.Left);
@@ -206,6 +206,7 @@ public sealed class MainWindowTests
         public FolderDialogTarget? Target { get; set; } = new(1, new(200, 80, 840, 500), new(0, 0, 1600, 1000), 1);
         public Action<FolderDialogChange>? Notify { get; private set; }
         public int GeometryReads { get; private set; }
+        public TaskCompletionSource FirstGeometryRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool HasPermission => true;
         public string CurrentDirectory => "";
         public bool RequestPermission() => true;
@@ -221,6 +222,7 @@ public sealed class MainWindowTests
         public FolderDialogTarget? ReadTrackedDialog(long target, nint activeBar)
         {
             GeometryReads++;
+            FirstGeometryRead.TrySetResult();
             return Target;
         }
         public Task<IReadOnlyList<string>> GetOpenFoldersAsync(CancellationToken token) =>
