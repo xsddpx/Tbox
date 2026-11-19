@@ -426,12 +426,23 @@ public sealed class SettingsTests
     }
 
     [Fact]
-    public void PinWheelScaleUsesTenPercentStepsAndHonorsLimits()
+    public void PinWheelScaleUsesFivePercentStepsAndHonorsLimits()
     {
-        Assert.Equal(1.1, PinWindowScalePolicy.ApplyWheelDelta(1, 120, 0.25, 4), precision: 10);
-        Assert.Equal(1, PinWindowScalePolicy.ApplyWheelDelta(1.1, -120, 0.25, 4), precision: 10);
+        Assert.Equal(1.05, PinWindowScalePolicy.ApplyWheelDelta(1, 120, 0.25, 4), precision: 10);
+        Assert.Equal(1, PinWindowScalePolicy.ApplyWheelDelta(1.05, -120, 0.25, 4), precision: 10);
         Assert.Equal(4, PinWindowScalePolicy.ApplyWheelDelta(4, 120, 0.25, 4));
         Assert.Equal(0.25, PinWindowScalePolicy.ApplyWheelDelta(0.25, -120, 0.25, 4));
+    }
+
+    [Fact]
+    public void PinWheelScaleRetainsFractionalInputAndReversesWithoutDrift()
+    {
+        var scale = 0.032;
+        for (var i = 0; i < 100; i++) scale = PinWindowScalePolicy.ApplyWheelDelta(scale, 0.25, 0.032, 8);
+        Assert.True(scale > 0.032);
+        Assert.Equal(PinWindowScalePolicy.ApplyWheelDelta(0.032, 25, 0.032, 8), scale, precision: 12);
+        for (var i = 0; i < 100; i++) scale = PinWindowScalePolicy.ApplyWheelDelta(scale, -0.25, 0.032, 8);
+        Assert.Equal(0.032, scale, precision: 12);
     }
 
     [Fact]

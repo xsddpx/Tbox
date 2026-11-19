@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -56,6 +57,7 @@ internal static class ToolbarSmokeTest
         finally { session.Cancel(); }
 
         var pin = new PinnedWindow(controller, DesktopController.RenderText("Tbox toolbar verification"));
+        object pinZoom;
         try
         {
             pin.Show(); pin.Activate(); await Task.Delay(100);
@@ -78,9 +80,59 @@ internal static class ToolbarSmokeTest
             Render(toolbar.PropertiesSurface, Path.Combine(directory, "pin-toolbar-properties.png"));
             toolbar.DismissPopover(); pin.FinishEditing();
             if (pin.CanAnnotate || toolbar.PropertiesPopup.IsOpen) throw new InvalidOperationException("贴图结束编辑后仍有工具条残留。");
+            pinZoom = await VerifyPinZoomAsync(controller.Platform, pin, directory);
         }
         finally { pin.Close(); }
-        return new { success = true, capturePlacements = placements, nativePinProperties = true, contextualSize = true, layeredEscape = true, moreMenu = true };
+        return new { success = true, capturePlacements = placements, nativePinProperties = true, contextualSize = true, layeredEscape = true, moreMenu = true, pinZoom };
+    }
+
+    private static async Task<object> VerifyPinZoomAsync(IPlatformServices platform, PinnedWindow pin, string directory)
+    {
+        var handle = pin.TryGetPlatformHandle()!.Handle;
+        var surface = pin.GetVisualDescendants().OfType<PinSurface>().Single();
+        var pointer = new Pointer(1, PointerType.Mouse, true);
+        var point = new Point(16, 12);
+        surface.RaiseEvent(new PointerPressedEventArgs(surface, pointer, pin, point, 0,
+            new PointerPointProperties(RawInputModifiers.MiddleMouseButton, PointerUpdateKind.MiddleButtonPressed), KeyModifiers.None, 1));
+        await Task.Delay(50);
+        var original = platform.GetWindowPlacement(handle);
+        var pixelsPerUnit = pin.RenderScaling / platform.DesktopUnitsPerDip(handle);
+        if (Math.Abs(original.Width * pixelsPerUnit - pin.Region.Width) > 1 ||
+            Math.Abs(original.Height * pixelsPerUnit - pin.Region.Height) > 1)
+            throw new InvalidOperationException("中键未以原始像素尺寸恢复贴图。");
+        var badge = pin.GetVisualDescendants().OfType<TextBlock>().Single(label => label.Text == "100%");
+        if (!badge.IsEffectivelyVisible) throw new InvalidOperationException("恢复尺寸后没有显示缩放比例。");
+        Render(pin, Path.Combine(directory, "pin-zoom-badge.png"));
+
+        var samples = new List<double>();
+        var unitsPerDip = platform.DesktopUnitsPerDip(handle);
+        var anchor = new Point(original.Left + point.X * unitsPerDip, original.Top + point.Y * unitsPerDip);
+        for (var i = 0; i < 20; i++)
+        {
+            var bounds = platform.GetWindowPlacement(handle);
+            var position = new Point((anchor.X - bounds.Left) / unitsPerDip, (anchor.Y - bounds.Top) / unitsPerDip);
+            var watch = Stopwatch.StartNew();
+            var resized = new TaskCompletionSource<double>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void OnSizeChanged(object? sender, SizeChangedEventArgs args) => resized.TrySetResult(watch.Elapsed.TotalMilliseconds);
+            pin.SizeChanged += OnSizeChanged;
+            try
+            {
+                var delta = i % 2 == 0 ? 0.5 : -0.5;
+                for (var portion = 0; portion < 2; portion++)
+                    surface.RaiseEvent(new PointerWheelEventArgs(surface, pointer, pin, position, 0,
+                        new PointerPointProperties(), KeyModifiers.None, new Vector(0, delta)));
+                samples.Add(await resized.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+            }
+            finally { pin.SizeChanged -= OnSizeChanged; }
+        }
+        var final = platform.GetWindowPlacement(handle);
+        if (Math.Abs(final.Width - original.Width) * pixelsPerUnit > 1 || Math.Abs(final.Left - original.Left) * pixelsPerUnit > 1 ||
+            Math.Abs(final.Height - original.Height) * pixelsPerUnit > 1 || Math.Abs(final.Top - original.Top) * pixelsPerUnit > 1)
+            throw new InvalidOperationException("贴图往返缩放后未回到原尺寸和位置。");
+        await Task.Delay(1100);
+        if (badge.IsEffectivelyVisible) throw new InvalidOperationException("缩放比例提示未自动隐藏。");
+        samples.Sort();
+        return new { samples = samples.Count, medianMs = (samples[9] + samples[10]) / 2, p95Ms = samples[18] };
     }
 
     private static void Render(Control control, string path)

@@ -44,9 +44,12 @@ internal sealed class FakePlatform : IPlatformServices
         return true;
     }
     public void StopSystemScreenshotShortcutTakeover() => SystemScreenshotShortcutHandler = null;
-    public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) { }
+    public Action<DesktopPlacement, bool>? WindowPlaced { get; set; }
+    public DesktopPlacement? WindowPlacementOverride { get; set; }
+    public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) => WindowPlaced?.Invoke(placement, false);
+    public void MoveWindow(nint handle, DesktopPlacement placement) => WindowPlaced?.Invoke(placement, true);
     public void MoveToPointer(nint handle) { }
-    public DesktopPlacement GetWindowPlacement(nint handle) => new(0, 0, 800, 600);
+    public DesktopPlacement GetWindowPlacement(nint handle) => WindowPlacementOverride ?? new(0, 0, 800, 600);
     public DesktopPlacement GetWorkArea(nint handle) => new(0, 0, 1600, 1000);
     public double DesktopUnitsPerDip(nint handle) => 1;
     public double DisplayTopSafeInset { get; set; }

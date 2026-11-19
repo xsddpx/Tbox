@@ -18,11 +18,11 @@ public static class WindowDpiScalePolicy
 
 public static class PinWindowScalePolicy
 {
-    private const double ScalePerWheelNotch = 1.1;
+    private const double ScalePerWheelNotch = 1.05;
 
     public static double ApplyWheelDelta(
         double currentScale,
-        int wheelDelta,
+        double wheelDelta,
         double minimumScale,
         double maximumScale)
     {
@@ -38,7 +38,7 @@ public static class PinWindowScalePolicy
         {
             throw new ArgumentOutOfRangeException(nameof(maximumScale));
         }
-        if (wheelDelta == 0) return currentScale;
+        if (!double.IsFinite(wheelDelta) || wheelDelta == 0) return currentScale;
 
         var wheelNotches = wheelDelta / 120d;
         var nextScale = currentScale * Math.Pow(ScalePerWheelNotch, wheelNotches);
