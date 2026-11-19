@@ -117,11 +117,25 @@ internal static class ToolbarSmokeTest
             pin.SizeChanged += OnSizeChanged;
             try
             {
-                var delta = i % 2 == 0 ? 0.5 : -0.5;
-                for (var portion = 0; portion < 2; portion++)
+                var delta = i % 4 is 0 or 3 ? -0.5 : 0.5;
+                void WheelHalfStep() =>
                     surface.RaiseEvent(new PointerWheelEventArgs(surface, pointer, pin, position, 0,
                         new PointerPointProperties(), KeyModifiers.None, new Vector(0, delta)));
+                WheelHalfStep();
+                if (i == 0)
+                {
+                    await Task.Delay(50);
+                    if (resized.Task.IsCompleted || platform.GetWindowPlacement(handle) != original)
+                        throw new InvalidOperationException("滚轮增量未满一格时调整了贴图窗口。");
+                    watch.Restart();
+                }
+                WheelHalfStep();
                 samples.Add(await resized.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+                var expected = (i % 4) switch { 0 => 0.95, 2 => 1.05, _ => 1 };
+                var stepBounds = platform.GetWindowPlacement(handle);
+                if (Math.Abs(stepBounds.Width * pixelsPerUnit - pin.Region.Width * expected) > 1 ||
+                    Math.Abs(stepBounds.Height * pixelsPerUnit - pin.Region.Height * expected) > 1)
+                    throw new InvalidOperationException("贴图窗口未缩放到预期的 5% 档位。");
             }
             finally { pin.SizeChanged -= OnSizeChanged; }
         }
@@ -132,7 +146,8 @@ internal static class ToolbarSmokeTest
         await Task.Delay(1100);
         if (badge.IsEffectivelyVisible) throw new InvalidOperationException("缩放比例提示未自动隐藏。");
         samples.Sort();
-        return new { samples = samples.Count, medianMs = (samples[9] + samples[10]) / 2, p95Ms = samples[18] };
+        return new { samples = samples.Count, stepVerified = true, partialInputIgnored = true,
+            medianMs = (samples[9] + samples[10]) / 2, p95Ms = samples[18] };
     }
 
     private static void Render(Control control, string path)

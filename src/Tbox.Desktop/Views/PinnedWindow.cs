@@ -28,10 +28,13 @@ public sealed class PinnedWindow : Window
     private bool _toolbarPlacementPending;
     private bool _closing;
     private DesktopPlacement? _zoomBounds;
+    private DesktopPlacement? _preciseZoomBounds;
     private double _zoomScale;
     private double _minimumZoom;
     private double _pixelsPerUnit;
     private Point _zoomAnchor;
+    private double _wheelRemainder;
+    private int _pendingWheelSteps;
     private bool _zoomPending;
     private int _zoomRevision;
     public Picture Picture { get; }
@@ -156,7 +159,11 @@ public sealed class PinnedWindow : Window
             (int)Math.Ceiling(toolbar.Width * scale), (int)Math.Ceiling(toolbar.Height * scale));
         if (placed == _toolbarPlacement) return;
         _annotationToolbar?.ClosePopovers();
-        _controller.Platform.PlaceWindow(toolbar.TryGetPlatformHandle()!.Handle, ToPlacement(placed), false);
+        var toolbarHandle = toolbar.TryGetPlatformHandle()!.Handle;
+        if (_toolbarPlacement is { } previous && placed.Width == previous.Width && placed.Height == previous.Height)
+            _controller.Platform.MoveWindow(toolbarHandle, ToPlacement(placed));
+        else
+            _controller.Platform.PlaceWindow(toolbarHandle, ToPlacement(placed), false);
         _toolbarPlacement = placed;
     }
 
@@ -238,13 +245,12 @@ public sealed class PinnedWindow : Window
 
     private void OnWheel(object? sender, PointerWheelEventArgs e)
     {
-        if (_text.IsEditing || !double.IsFinite(e.Delta.Y) || e.Delta.Y == 0 ||
-            this.TryGetPlatformHandle() is not { } handle) return;
-        if (!_zoomPending) ReadZoomGeometry(handle.Handle);
-        _zoomAnchor = e.GetPosition(_surface);
-        _zoomScale = PinWindowScalePolicy.ApplyWheelDelta(_zoomScale, e.Delta.Y * 120, _minimumZoom, 8);
-        ShowZoomBadge();
+        if (_text.IsEditing || !double.IsFinite(e.Delta.Y) || e.Delta.Y == 0) return;
         e.Handled = true;
+        var steps = PinWindowScalePolicy.ConsumeWheelSteps(ref _wheelRemainder, e.Delta.Y);
+        if (steps == 0) return;
+        _pendingWheelSteps += steps;
+        _zoomAnchor = e.GetPosition(_surface);
         if (_zoomPending) return;
 
         _zoomPending = true;
@@ -253,13 +259,19 @@ public sealed class PinnedWindow : Window
         {
             if (revision != _zoomRevision) return;
             _zoomPending = false;
-            if (!IsVisible || _closing || this.TryGetPlatformHandle() is not { } currentHandle) return;
-            var current = ReadZoomGeometry(currentHandle.Handle);
-            var unitsPerDip = _controller.Platform.DesktopUnitsPerDip(currentHandle.Handle);
+            var pending = _pendingWheelSteps;
+            _pendingWheelSteps = 0;
+            if (pending == 0 || !IsVisible || _closing || this.TryGetPlatformHandle() is not { } handle) return;
+            var unitsPerDip = _controller.Platform.DesktopUnitsPerDip(handle.Handle);
+            var current = ReadZoomGeometry(handle.Handle, unitsPerDip);
+            var next = PinWindowScalePolicy.ApplyWheelSteps(_zoomScale, pending, _minimumZoom);
+            if (next == _zoomScale) { ShowZoomBadge(); return; }
+            _zoomScale = next;
             var anchor = new Point(current.Left + _zoomAnchor.X * unitsPerDip, current.Top + _zoomAnchor.Y * unitsPerDip);
             var width = Region.Width * _zoomScale / _pixelsPerUnit;
             var height = Region.Height * _zoomScale / _pixelsPerUnit;
-            ApplyZoom(currentHandle.Handle, current, ZoomAround(current, anchor, width, height));
+            ApplyZoom(handle.Handle, current, ZoomAround(_preciseZoomBounds!, anchor, width, height));
+            ShowZoomBadge();
         });
     }
 
@@ -267,7 +279,7 @@ public sealed class PinnedWindow : Window
     {
         if (_text.IsEditing || _closing || !IsVisible || this.TryGetPlatformHandle() is not { } handle) return;
         InvalidateZoom();
-        var current = ReadZoomGeometry(handle.Handle);
+        var current = ReadZoomGeometry(handle.Handle, _controller.Platform.DesktopUnitsPerDip(handle.Handle));
         var work = _controller.Platform.GetWorkArea(handle.Handle);
         var desired = OriginalSize(current, work, Region, _pixelsPerUnit);
         _zoomScale = desired.Width * _pixelsPerUnit / Region.Width;
@@ -276,17 +288,25 @@ public sealed class PinnedWindow : Window
         ShowZoomBadge();
     }
 
-    private DesktopPlacement ReadZoomGeometry(nint handle)
+    private DesktopPlacement ReadZoomGeometry(nint handle, double unitsPerDip)
     {
         var platform = _controller.Platform;
         var bounds = platform.GetWindowPlacement(handle);
-        var pixelsPerUnit = RenderScaling / platform.DesktopUnitsPerDip(handle);
-        if (pixelsPerUnit != _pixelsPerUnit || bounds.Width != _zoomBounds?.Width || bounds.Height != _zoomBounds?.Height)
+        var pixelsPerUnit = RenderScaling / unitsPerDip;
+        if (pixelsPerUnit != _pixelsPerUnit || _zoomBounds is not { } previous ||
+            bounds.Width != previous.Width || bounds.Height != previous.Height)
         {
             _pixelsPerUnit = pixelsPerUnit;
             _zoomScale = Math.Min(bounds.Width * pixelsPerUnit / Region.Width, bounds.Height * pixelsPerUnit / Region.Height);
             _minimumZoom = Math.Min(0.05, _zoomScale);
+            _preciseZoomBounds = bounds;
         }
+        else if (bounds != previous && _preciseZoomBounds is { } precise)
+            _preciseZoomBounds = precise with
+            {
+                Left = precise.Left + bounds.Left - previous.Left,
+                Top = precise.Top + bounds.Top - previous.Top
+            };
         _zoomBounds = bounds;
         return bounds;
     }
@@ -297,9 +317,11 @@ public sealed class PinnedWindow : Window
         var pixel = 1 / _pixelsPerUnit;
         var snapped = new DesktopPlacement(Snap(desired.Left), Snap(desired.Top),
             Math.Max(pixel, Snap(desired.Width)), Math.Max(pixel, Snap(desired.Height)));
+        // Keep subpixel bounds for the next zoom instead of feeding the compositor's rounding back into the anchor.
+        _preciseZoomBounds = desired;
         if (snapped == current) return;
-        _controller.Platform.PlaceWindow(handle, snapped, false);
-        _zoomBounds = _controller.Platform.GetWindowPlacement(handle);
+        _controller.Platform.ResizeWindow(handle, snapped);
+        _zoomBounds = snapped;
         ScheduleToolbarPlacement();
     }
 
@@ -329,6 +351,8 @@ public sealed class PinnedWindow : Window
         _zoomRevision++;
         _zoomPending = false;
         _zoomBounds = null;
+        _wheelRemainder = 0;
+        _pendingWheelSteps = 0;
     }
 
     private void ShowZoomBadge()

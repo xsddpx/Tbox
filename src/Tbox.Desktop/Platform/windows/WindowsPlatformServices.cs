@@ -155,6 +155,14 @@ public sealed class WindowsPlatformServices : IPlatformServices
                 0, 0, noSizeNoZOrderNoActivate)) throw Error("无法移动窗口");
     }
 
+    public void ResizeWindow(nint handle, DesktopPlacement placement)
+    {
+        const uint noZOrderNoActivate = 0x0004 | 0x0010;
+        if (!SetWindowPos(handle, 0, (int)Math.Round(placement.Left), (int)Math.Round(placement.Top),
+                Math.Max(1, (int)Math.Round(placement.Width)), Math.Max(1, (int)Math.Round(placement.Height)),
+                noZOrderNoActivate)) throw Error("无法调整窗口大小");
+    }
+
     public void MoveToPointer(nint handle)
     {
         if (!GetCursorPos(out var point)) return;

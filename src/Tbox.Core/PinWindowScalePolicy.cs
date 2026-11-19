@@ -18,32 +18,38 @@ public static class WindowDpiScalePolicy
 
 public static class PinWindowScalePolicy
 {
-    private const double ScalePerWheelNotch = 1.05;
+    private const double StandardStep = 0.05;
+    private const double SmallStep = 0.01;
+    private const double MaximumScale = 8;
 
-    public static double ApplyWheelDelta(
-        double currentScale,
-        double wheelDelta,
-        double minimumScale,
-        double maximumScale)
+    internal static int ConsumeWheelSteps(ref double remainder, double delta)
     {
-        if (!double.IsFinite(currentScale) || currentScale <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(currentScale));
-        }
-        if (!double.IsFinite(minimumScale) || minimumScale <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(minimumScale));
-        }
-        if (!double.IsFinite(maximumScale) || maximumScale < minimumScale)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maximumScale));
-        }
-        if (!double.IsFinite(wheelDelta) || wheelDelta == 0) return currentScale;
-
-        var wheelNotches = wheelDelta / 120d;
-        var nextScale = currentScale * Math.Pow(ScalePerWheelNotch, wheelNotches);
-        return Math.Clamp(nextScale, minimumScale, maximumScale);
+        if (!double.IsFinite(delta)) return 0;
+        var accumulated = RoundNearInteger(Math.Clamp(remainder + delta, -800, 800));
+        var steps = (int)Math.Truncate(accumulated);
+        remainder = accumulated - steps;
+        return steps;
     }
+
+    internal static double ApplyWheelSteps(double currentScale, int steps, double minimumScale)
+    {
+        if (steps == 0) return currentScale;
+
+        // Fitted long images can open below 5%. Use one-percentage-point steps in that range.
+        var smallSteps = minimumScale < StandardStep;
+        var index = smallSteps && currentScale < StandardStep
+            ? 1 + (currentScale - StandardStep) / SmallStep
+            : currentScale / StandardStep;
+        index = RoundNearInteger(index);
+        var targetIndex = (steps > 0 ? Math.Floor(index) : Math.Ceiling(index)) + steps;
+        var scale = smallSteps && targetIndex < 1
+            ? StandardStep + (targetIndex - 1) * SmallStep
+            : targetIndex * StandardStep;
+        return Math.Clamp(scale, minimumScale, MaximumScale);
+    }
+
+    private static double RoundNearInteger(double value) =>
+        Math.Abs(value - Math.Round(value)) < 1e-9 ? Math.Round(value) : value;
 
     public static PinWindowBounds ResizeAroundPoint(
         PinWindowBounds current,

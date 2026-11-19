@@ -61,6 +61,7 @@ public interface IPlatformServices : IDisposable
     void StopSystemScreenshotShortcutTakeover() { }
     void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay);
     void MoveWindow(nint handle, DesktopPlacement placement) => PlaceWindow(handle, placement, overlay: false);
+    void ResizeWindow(nint handle, DesktopPlacement placement) => PlaceWindow(handle, placement, overlay: false);
     void MoveToPointer(nint handle);
     DesktopPlacement GetWindowPlacement(nint handle);
     DesktopPlacement GetWorkArea(nint handle);
