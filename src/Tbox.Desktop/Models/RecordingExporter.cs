@@ -118,7 +118,7 @@ public static class RecordingExporter
         return encoded.ToArray();
     }
 
-    private static async Task<byte[]> ReadFrameAsync(string source, TimeSpan time, VideoSize size, CancellationToken cancellationToken)
+    internal static async Task<byte[]> ReadFrameAsync(string source, TimeSpan time, VideoSize size, CancellationToken cancellationToken)
     {
         // The writer's final timestamp can land a frame short of the measured duration; step back to the last decodable frame.
         for (var attempt = 0; attempt < 4; attempt++)

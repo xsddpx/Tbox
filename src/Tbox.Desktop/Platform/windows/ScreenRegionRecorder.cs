@@ -12,7 +12,7 @@ internal sealed class ScreenRegionRecorder : IDisposable
     private readonly TaskCompletionSource<string> _completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _disposed;
 
-    internal ScreenRegionRecorder(RectInt32 region, bool includeSystemAudio, int framesPerSecond)
+    internal ScreenRegionRecorder(RectInt32 region, bool includeSystemAudio, bool includeCursor, int framesPerSecond)
     {
         framesPerSecond = RecordingFrameRatePolicy.Validate(framesPerSecond);
         var display = ScreenCaptureService.GetDisplayInfo(region);
@@ -68,7 +68,7 @@ internal sealed class ScreenRegionRecorder : IDisposable
             },
             MouseOptions = new MouseOptions
             {
-                IsMousePointerEnabled = true,
+                IsMousePointerEnabled = includeCursor,
                 IsMouseClicksDetected = false
             },
             LogOptions = new LogOptions { IsLogEnabled = false }

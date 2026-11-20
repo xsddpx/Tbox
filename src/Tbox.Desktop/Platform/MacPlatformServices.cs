@@ -124,12 +124,14 @@ public sealed class MacPlatformServices : IPlatformServices
     public void MoveToPointer(nint handle) => NativeMoveToPointer(handle);
     public DesktopPlacement GetWindowPlacement(nint handle) => ReadJson<DesktopPlacement>(NativeWindowPlacement(handle));
     public DesktopPlacement GetWorkArea(nint handle) => ReadJson<DesktopPlacement>(NativeWorkArea(handle));
+    public DesktopPlacement GetWorkAreaFor(DesktopPlacement region) =>
+        ReadJson<DesktopPlacement>(NativeWorkAreaFor(region.Left, region.Top, region.Width, region.Height));
     public double DesktopUnitsPerDip(nint handle) => 1;
     public double GetDisplayTopSafeInset(uint displayId) => NativeDisplayTopSafeInset(displayId);
     public DesktopPoint GetPointerPosition() => ReadJson<DesktopPoint>(NativePointerPosition());
     public ICaptureTargetSource CreateCaptureTargets() => new MacCaptureTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) => NativeCaptureOverlay(handle, clickThrough ? 1 : 0);
-    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new MacRegionRecorder(area, systemAudio, framesPerSecond);
+    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, bool cursor, int framesPerSecond) => new MacRegionRecorder(area, systemAudio, cursor, framesPerSecond);
     public IFolderNavigation CreateFolderNavigation() => new MacFolderNavigation();
     public IStartupRegistration CreateStartupRegistration() => new MacStartupRegistration();
     public IKeepAwake CreateKeepAwake(string stateDirectory) => new MacKeepAwake(stateDirectory);
@@ -181,6 +183,7 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_move_to_pointer")] private static extern void NativeMoveToPointer(nint handle);
     [DllImport(Library, EntryPoint = "tbox_window_placement")] private static extern nint NativeWindowPlacement(nint handle);
     [DllImport(Library, EntryPoint = "tbox_work_area")] private static extern nint NativeWorkArea(nint handle);
+    [DllImport(Library, EntryPoint = "tbox_work_area_for")] private static extern nint NativeWorkAreaFor(double left, double top, double width, double height);
     [DllImport(Library, EntryPoint = "tbox_display_top_safe_inset")] private static extern double NativeDisplayTopSafeInset(uint displayId);
     [DllImport(Library, EntryPoint = "tbox_pointer_position")] private static extern nint NativePointerPosition();
     [DllImport(Library, EntryPoint = "tbox_free")] private static extern void NativeFree(nint pointer);

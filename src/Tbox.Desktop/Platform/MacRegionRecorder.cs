@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace Tbox.Desktop.Platform;
 
-internal sealed class MacRegionRecorder(RecordingArea area, bool audio, int fps) : IRegionRecorder
+internal sealed class MacRegionRecorder(RecordingArea area, bool audio, bool cursor, int fps) : IRegionRecorder
 {
     private RecorderHandle? _handle;
     private bool _disposed;
@@ -11,7 +11,7 @@ internal sealed class MacRegionRecorder(RecordingArea area, bool audio, int fps)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var result = await Task.Run(() => MacPlatformServices.ReadJson<Started>(NativeStart(path,
-            area.Bounds.Left, area.Bounds.Top, area.Bounds.Width, area.Bounds.Height, area.PixelWidth, area.PixelHeight, fps, audio ? 1 : 0)));
+            area.Bounds.Left, area.Bounds.Top, area.Bounds.Width, area.Bounds.Height, area.PixelWidth, area.PixelHeight, fps, audio ? 1 : 0, cursor ? 1 : 0)));
         var owned = new RecorderHandle((nint)result.Handle);
         if (_disposed) { owned.Dispose(); throw new ObjectDisposedException(nameof(MacRegionRecorder)); }
         _handle = owned;
@@ -43,7 +43,7 @@ internal sealed class MacRegionRecorder(RecordingArea area, bool audio, int fps)
     }
     private sealed record Started(long Handle);
     private sealed record Status(string? Failure);
-    [DllImport("TboxNative", EntryPoint = "tbox_record_start")] private static extern nint NativeStart([MarshalAs(UnmanagedType.LPUTF8Str)] string path, double left, double top, double width, double height, int pixelWidth, int pixelHeight, int fps, int audio);
+    [DllImport("TboxNative", EntryPoint = "tbox_record_start")] private static extern nint NativeStart([MarshalAs(UnmanagedType.LPUTF8Str)] string path, double left, double top, double width, double height, int pixelWidth, int pixelHeight, int fps, int audio, int cursor);
     [DllImport("TboxNative", EntryPoint = "tbox_record_pause")] private static extern void NativePause(nint handle);
     [DllImport("TboxNative", EntryPoint = "tbox_record_resume")] private static extern void NativeResume(nint handle);
     [DllImport("TboxNative", EntryPoint = "tbox_record_status")] private static extern nint NativeStatus(nint handle);

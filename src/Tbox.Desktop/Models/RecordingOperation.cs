@@ -6,7 +6,7 @@ namespace Tbox.Desktop.Models;
 /// <summary>Owns the writer and temporary files until a completed master is transferred to review.</summary>
 public sealed class RecordingOperation : IAsyncDisposable
 {
-    private readonly Func<bool, int, IRegionRecorder> _createRecorder;
+    private readonly Func<bool, bool, int, IRegionRecorder> _createRecorder;
     private readonly SemaphoreSlim _gate = new(1);
     private readonly CancellationTokenSource _cancel = new();
     private IRegionRecorder? _recorder;
@@ -16,10 +16,10 @@ public sealed class RecordingOperation : IAsyncDisposable
     public string? Failure => _recorder?.Failure;
     public string? Notice { get; private set; }
 
-    public RecordingOperation(Func<bool, int, IRegionRecorder> createRecorder, RecordingWorkspace? workspace = null, RecordingTimeline? timeline = null)
+    public RecordingOperation(Func<bool, bool, int, IRegionRecorder> createRecorder, RecordingWorkspace? workspace = null, RecordingTimeline? timeline = null)
     { _createRecorder = createRecorder; Workspace = workspace ?? new(); Timeline = timeline ?? new(); }
 
-    public async Task StartAsync(bool audio, int fps)
+    public async Task StartAsync(bool audio, bool cursor, int fps)
     {
         RecordingFrameRatePolicy.Validate(fps);
         await _gate.WaitAsync(_cancel.Token);
@@ -27,11 +27,11 @@ public sealed class RecordingOperation : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (Timeline.State != RecordingSessionState.Ready) throw new InvalidOperationException("录屏已经开始。");
-            try { await StartRecorderAsync(audio, fps); }
+            try { await StartRecorderAsync(audio, cursor, fps); }
             catch (Exception) when (audio && !_cancel.IsCancellationRequested)
             {
                 await ReleaseRecorderAsync(); Workspace.ResetMaster();
-                await StartRecorderAsync(false, fps);
+                await StartRecorderAsync(false, cursor, fps);
                 Notice = "系统声音不可用，已改为静音录制。";
             }
             _cancel.Token.ThrowIfCancellationRequested(); Timeline.Start();
@@ -40,9 +40,9 @@ public sealed class RecordingOperation : IAsyncDisposable
         finally { _gate.Release(); }
     }
 
-    private async Task StartRecorderAsync(bool audio, int fps)
+    private async Task StartRecorderAsync(bool audio, bool cursor, int fps)
     {
-        _recorder = _createRecorder(audio, fps);
+        _recorder = _createRecorder(audio, cursor, fps);
         await _recorder.StartAsync(Workspace.MasterFilePath, _cancel.Token);
     }
 

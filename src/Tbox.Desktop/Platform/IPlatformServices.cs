@@ -70,12 +70,14 @@ public interface IPlatformServices : IDisposable
     void MoveToPointer(nint handle);
     DesktopPlacement GetWindowPlacement(nint handle);
     DesktopPlacement GetWorkArea(nint handle);
+    // Work area of the display holding most of a desktop rectangle, independent of where any window currently is.
+    DesktopPlacement GetWorkAreaFor(DesktopPlacement region);
     double DesktopUnitsPerDip(nint handle);
     double GetDisplayTopSafeInset(uint displayId) => 0;
     DesktopPoint GetPointerPosition();
     ICaptureTargetSource CreateCaptureTargets();
     void PrepareCaptureOverlay(nint handle, bool clickThrough);
-    IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond);
+    IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, bool cursor, int framesPerSecond);
     IFolderNavigation CreateFolderNavigation();
     IStartupRegistration CreateStartupRegistration();
     // stateDirectory holds the lid-setting backup that undoes a change left by an abnormal exit.

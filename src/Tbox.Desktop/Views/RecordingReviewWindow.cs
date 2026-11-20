@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
@@ -47,6 +49,16 @@ internal sealed class RecordingReviewWindow : Window
     private MediaPlayer? _player;
     private LibVLCSharp.Shared.Media? _media;
     private CancellationTokenSource? _exportCancellation;
+    // Contact-sheet sample thumbnails keyed by time; a new range cancels the batch still decoding.
+    private readonly Dictionary<TimeSpan, Picture> _thumbnails = [];
+    private CancellationTokenSource? _thumbnailLoad;
+    private IReadOnlyList<TimeSpan> _thumbnailTicks = [];
+    // Card above a contact-sheet node: the sample frame (grey until decoded) and "04 · 00:03.2".
+    private readonly Image _thumbnailImage = new() { Height = 72, Stretch = Stretch.Uniform };
+    private readonly Border _thumbnailFrame = new() { Height = 72, MinWidth = 96, CornerRadius = new CornerRadius(4), ClipToBounds = true, Background = Brush.Parse("#2A2B33") };
+    private readonly TextBlock _thumbnailLabel = new() { FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center };
+    internal Popup ThumbnailPopup { get; }
+    internal int LoadedThumbnails => _track.Ticks.Count(_thumbnails.ContainsKey);
     private Task _saveTask = Task.CompletedTask;
     private Task _initialization = Task.CompletedTask;
     private Task<bool>? _closeRequest;
@@ -106,6 +118,18 @@ internal sealed class RecordingReviewWindow : Window
         Size.SelectionChanged += (_, _) => { _customGroup.IsVisible = Size.SelectedIndex == _sizes.Count; UpdateCustomHeight(); };
         CustomWidth.TextChanged += (_, _) => UpdateCustomHeight();
         _track.RangeChanged += _ => UpdateRange();
+        _thumbnailFrame.Child = _thumbnailImage;
+        ThumbnailPopup = new Popup
+        {
+            // The overlay layer draws above the native video view.
+            PlacementTarget = _track, Placement = PlacementMode.Top, VerticalOffset = -2, ShouldUseOverlayLayer = true,
+            IsHitTestVisible = false, TakesFocusFromNativeControl = false,
+            PlacementConstraintAdjustment = PopupPositionerConstraintAdjustment.SlideX | PopupPositionerConstraintAdjustment.FlipY,
+            Child = new Border { Background = Brush.Parse("#1D1D24"), CornerRadius = new CornerRadius(8), Padding = new Thickness(4, 4, 4, 2), IsHitTestVisible = false,
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetY = 4, Blur = 12, Color = Color.FromArgb(64, 16, 18, 32) }),
+                Child = new StackPanel { Spacing = 3, Children = { _thumbnailFrame, _thumbnailLabel } } }
+        };
+        _track.HotTickChanged += _ => ShowThumbnail();
         _track.Seeked += time => { if (!_closing && _player is { } player) player.Time = (long)time.TotalMilliseconds; UpdateTime(time); };
         _status.FontSize = DesignTokens.Caption;
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { format, _frameRateGroup, sizeGroup, _progress, _status } };
@@ -119,6 +143,7 @@ internal sealed class RecordingReviewWindow : Window
         var canvas = new Border { Background = Brush.Parse("#111217"), CornerRadius = new CornerRadius(12), Margin = new Thickness(12, 0), ClipToBounds = true, Child = _video };
         DockPanel.SetDock(strip, Dock.Top); DockPanel.SetDock(header, Dock.Top); DockPanel.SetDock(bar, Dock.Bottom);
         DockPanel.SetDock(rangeRow, Dock.Bottom); DockPanel.SetDock(playback, Dock.Bottom);
+        playback.Children.Add(ThumbnailPopup);
         Content = new DockPanel { Children = { strip, header, bar, rangeRow, playback, canvas } };
         Closed += (_, _) => brand.Dispose();
         _play.IsEnabled = false;
@@ -210,7 +235,9 @@ internal sealed class RecordingReviewWindow : Window
         _range.Text = full ? $"导出全部 · {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)}　拖动两端红色手柄截取"
             : $"截取 {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)} · 共 {RecordingTrimBar.FormatPrecise(range.Length)}";
         _resetRange.IsVisible = !full;
-        _track.Ticks = Format == RecordingExportFormat.ContactSheet ? ContactSheetPolicy.SampleTimes(range, RecordingFrameRatePolicy.RecordingFrameRate) : [];
+        var ticks = Format == RecordingExportFormat.ContactSheet ? ContactSheetPolicy.SampleTimes(range, RecordingFrameRatePolicy.RecordingFrameRate) : [];
+        if (!ticks.SequenceEqual(_track.Ticks)) _track.Ticks = ticks;
+        LoadThumbnails(ticks);
         if (_player?.IsPlaying == true) return;
         // A paused playhead outside the handles jumps to the start handle.
         var now = _player is { } player ? TimeSpan.FromMilliseconds(Math.Max(0, player.Time)) : _track.Position;
@@ -220,6 +247,45 @@ internal sealed class RecordingReviewWindow : Window
             now = range.Start;
         }
         _track.Position = now; UpdateTime(now);
+    }
+
+    private void ShowThumbnail()
+    {
+        var index = _track.HotTick;
+        if (index < 0 || _closing) { ThumbnailPopup.IsOpen = false; return; }
+        var time = _track.Ticks[index];
+        _thumbnailImage.Source = _thumbnails.TryGetValue(time, out var picture) ? picture.Bitmap : null;
+        _thumbnailFrame.Width = _thumbnailImage.Source is null ? Math.Round(72 * _source.Width / (double)_source.Height) : double.NaN;
+        _thumbnailLabel.Text = $"{index + 1:00} · {RecordingTrimBar.FormatPrecise(time)}";
+        ThumbnailPopup.PlacementRect = _track.TickAnchor(index);
+        // Reopen so the popup re-anchors to the new tick.
+        ThumbnailPopup.IsOpen = false; ThumbnailPopup.IsOpen = true;
+    }
+
+    // Decodes the six sample frames at thumbnail size once the handles settle; the cache keeps frames shared by both ranges.
+    private void LoadThumbnails(IReadOnlyList<TimeSpan> ticks)
+    {
+        if (_track.IsDragging || (_thumbnailLoad is not null && ticks.SequenceEqual(_thumbnailTicks))) return;
+        _thumbnailLoad?.Cancel(); _thumbnailLoad = null;
+        if (_closing || ticks.All(_thumbnails.ContainsKey) || !File.Exists(RecordingExporter.FfmpegPath)) return;
+        var cancellation = _thumbnailLoad = new CancellationTokenSource(); _thumbnailTicks = ticks;
+        var size = RecordingSizePolicy.FitLongEdge(_source, 160, false);
+        _controller.Run(async () =>
+        {
+            try
+            {
+                foreach (var time in ticks.Where(t => !_thumbnails.ContainsKey(t)).Distinct().ToArray())
+                {
+                    var pixels = await RecordingExporter.ReadFrameAsync(_output.FilePath, time, size, cancellation.Token);
+                    if (cancellation.IsCancellationRequested || _closing) return;
+                    _thumbnails[time] = Picture.FromPixels(pixels, size.Width, size.Height);
+                    if (_track.HotTick >= 0 && _track.Ticks[_track.HotTick] == time) ShowThumbnail();
+                }
+            }
+            // A missing thumbnail only leaves the placeholder; saving still reports its own errors.
+            catch (Exception error) when (error is not OperationCanceledException) { AppLog.Write("六宫格缩略图：" + error.Message); }
+            finally { if (_thumbnailLoad == cancellation) _thumbnailLoad = null; cancellation.Dispose(); }
+        });
     }
 
     private async Task InitializePlaybackAsync()
@@ -360,7 +426,7 @@ internal sealed class RecordingReviewWindow : Window
             finally { _discardConfirmation = null; }
         }
         if (_closing) { await _released.Task; return true; }
-        _closing = true; _timer.Stop();
+        _closing = true; _timer.Stop(); _thumbnailLoad?.Cancel(); ThumbnailPopup.IsOpen = false;
         try
         {
             await _initialization;
@@ -374,6 +440,8 @@ internal sealed class RecordingReviewWindow : Window
             _allowClose = true; Close(); await _closed.Task;
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             await Task.Run(() => { _player?.Dispose(); _media?.Dispose(); _engine?.Dispose(); });
+            foreach (var picture in _thumbnails.Values) picture.Dispose();
+            _thumbnails.Clear();
             _workspace.Dispose();
         }
         // If native release fails, leave the session for startup cleanup rather than remove an in-use file.

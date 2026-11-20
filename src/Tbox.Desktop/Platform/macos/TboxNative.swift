@@ -287,6 +287,16 @@ public func workArea(_ pointer: UnsafeRawPointer?) -> UnsafeMutablePointer<CChar
     return response(["left": frame.minX, "top": primaryHeight() - frame.maxY, "width": frame.width, "height": frame.height])
 }
 
+// Work area of the screen that holds most of a top-left based desktop rectangle.
+@_cdecl("tbox_work_area_for")
+public func workAreaFor(_ left: Double, _ top: Double, _ width: Double, _ height: Double) -> UnsafeMutablePointer<CChar>? {
+    let region = NSRect(x: left, y: primaryHeight() - top - height, width: width, height: height)
+    func overlap(_ screen: NSScreen) -> CGFloat { let i = screen.frame.intersection(region); return i.isNull ? 0 : i.width * i.height }
+    guard let screen = NSScreen.screens.max(by: { overlap($0) < overlap($1) }) ?? NSScreen.main else { return response(["error": "显示器不可用。"]) }
+    let frame = screen.visibleFrame
+    return response(["left": frame.minX, "top": primaryHeight() - frame.maxY, "width": frame.width, "height": frame.height])
+}
+
 @_cdecl("tbox_display_top_safe_inset")
 public func displayTopSafeInset(_ displayID: UInt32) -> Double {
     let screenNumber = NSDeviceDescriptionKey("NSScreenNumber")

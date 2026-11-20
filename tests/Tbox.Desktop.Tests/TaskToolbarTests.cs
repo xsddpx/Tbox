@@ -653,27 +653,107 @@ public sealed class TaskToolbarTests
     public void RecordingToolbarSwitchesFromPrepareToTimerAndDashesTheOutline()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
-        var recorder = new FakeRecorder();
-        using var controller = new DesktopController(new FakePlatform { Recorder = recorder }, new ClassicDesktopStyleApplicationLifetime());
+        var recorder = new FakeRecorder(); var platform = new FakePlatform { Recorder = recorder };
+        using var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
         controller.Main = new MainWindow(controller);
         var control = new RecordingControlWindow(controller, new RecordingArea(new DesktopPlacement(100, 100, 640, 360), 640, 360));
         control.Show(); Layout(control);
         try
         {
             var bar = (Border)control.Content!;
-            Assert.Equal(["系统声音", "|", "开始录制", "取消"], Names(bar));
+            Assert.Equal(["系统声音", "录制鼠标", "|", "开始录制", "取消"], Names(bar));
+            var boxes = bar.GetVisualDescendants().OfType<CheckBox>().ToArray();
+            Assert.Equal([false, true], boxes.Select(b => b.IsChecked == true));
             var start = bar.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b)?.StartsWith("开始录制") == true);
             Assert.Equal(Color.Parse(DesignTokens.Recording), ((ISolidColorBrush)start.Resources["ButtonBackground"]!).Color);
             Preview(control, "task-record-ready");
+            boxes[1].IsChecked = false;
 
             control.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
             Dispatcher.UIThread.RunJobs(); Layout(control);
             Assert.True(recorder.Started);
+            Assert.False(platform.LastRecorderCursor);
             Assert.Equal(["00:00", "|", "暂停", "停止并预览", "|", "取消"], Names(bar));
             Assert.True(control.Outline.Dashed);
             Preview(control, "task-record-active");
         }
         finally { _ = control.CancelAsync(); Dispatcher.UIThread.RunJobs(); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void RecordingToolbarStaysOnTheSelectionsDisplay()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        // Display 2 sits to the right of the primary display; the bar must follow the selection there.
+        var second = new DesktopPlacement(1600, 0, 1920, 1040);
+        var platform = new FakePlatform { Recorder = new FakeRecorder(), SecondaryWorkArea = second };
+        var placements = new List<DesktopPlacement>();
+        platform.WindowPlaced = (placement, _) => placements.Add(placement);
+        using var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
+        controller.Main = new MainWindow(controller);
+        var area = new DesktopPlacement(2000, 200, 800, 450);
+        var control = new RecordingControlWindow(controller, new RecordingArea(area, 800, 450));
+        control.Show(); Layout(control);
+        try
+        {
+            var bar = placements.Last();
+            Assert.True(bar.Left >= second.Left && bar.Left + bar.Width <= second.Left + second.Width, $"控制条不在选区所在显示器：{bar}");
+            Assert.Equal(area.Top + area.Height + 12, bar.Top);
+        }
+        finally { _ = control.CancelAsync(); Dispatcher.UIThread.RunJobs(); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task ContactSheetPlayheadSnapsToSamplesAndShowsTheirFrames()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        // The real fixture and bundled FFmpeg decode the six sample thumbnails.
+        var fixture = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "assets", "media-test", "fixture.mp4");
+        Assert.True(File.Exists(fixture) && File.Exists(RecordingExporter.FfmpegPath));
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        controller.Main = new MainWindow(controller);
+        var workspace = new RecordingWorkspace(Path.Combine(Path.GetTempPath(), "tbox-sheet-" + Guid.NewGuid().ToString("N")));
+        File.Copy(fixture, workspace.MasterFilePath);
+        var review = new RecordingReviewWindow(controller, workspace, new RecordingArea(new DesktopPlacement(0, 0, 320, 240), 320, 240),
+            new RecordingOutput(workspace.MasterFilePath, false, 2), TimeSpan.FromSeconds(2));
+        review.Show(); Layout(review);
+        try
+        {
+            Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "六宫格")); Layout(review);
+            var track = review.Track; var ticks = track.Ticks;
+            Assert.Equal(6, ticks.Count);
+            for (var wait = 0; wait < 200 && review.LoadedThumbnails < 6; wait++) { await Task.Delay(50); Dispatcher.UIThread.RunJobs(); }
+            Assert.Equal(6, review.LoadedThumbnails);
+
+            // Dragging the playhead 5 px past node 04 lands exactly on its sample time.
+            Point At(int tick, double offset) => track.TranslatePoint(new Point(6 + (track.Bounds.Width - 12) * (ticks[tick] / track.Duration) + offset, track.Bounds.Height - 14), review)!.Value;
+            review.MouseDown(At(1, 30), MouseButton.Left, RawInputModifiers.None);
+            review.MouseMove(At(3, 5), RawInputModifiers.LeftMouseButton); Layout(review);
+            Assert.Equal(3, track.HotTick);
+            Assert.Equal(ticks[3], track.Position);
+            // The card above node 04 shows that frame and its label, centred over the tick.
+            Assert.True(review.ThumbnailPopup.IsOpen);
+            var card = (Border)review.ThumbnailPopup.Child!;
+            Assert.Equal("04 · " + RecordingTrimBar.FormatPrecise(ticks[3]), card.GetVisualDescendants().OfType<TextBlock>().Single().Text);
+            Assert.NotNull(card.GetVisualDescendants().OfType<Image>().Single().Source);
+            var tick = track.TranslatePoint(track.TickAnchor(3).Center, review)!.Value;
+            var centre = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height), review)!.Value;
+            Assert.InRange(centre.X - tick.X, -2, 2); Assert.True(centre.Y <= track.TranslatePoint(default, review)!.Value.Y);
+            Preview(review, "recording-review-contact-sheet-snap");
+            // Further away the playhead moves freely again.
+            review.MouseMove(At(3, 20), RawInputModifiers.LeftMouseButton);
+            Assert.Equal(-1, track.HotTick); Assert.False(review.ThumbnailPopup.IsOpen);
+            Assert.NotEqual(ticks[3], track.Position);
+            review.MouseUp(At(3, 20), MouseButton.Left, RawInputModifiers.None);
+
+            // Hovering a node shows its thumbnail without moving the playhead.
+            var position = track.Position;
+            review.MouseMove(At(5, -3), RawInputModifiers.None); Layout(review);
+            Assert.Equal(5, track.HotTick); Assert.Equal(position, track.Position); Assert.True(review.ThumbnailPopup.IsOpen);
+            Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "MP4")); Layout(review);
+            Assert.Empty(track.Ticks); Assert.Equal(-1, track.HotTick); Assert.False(review.ThumbnailPopup.IsOpen);
+        }
+        finally { await review.RequestCloseAsync(discardUnsaved: true); controller.Main.Close(); }
     }
 
     [AvaloniaFact]

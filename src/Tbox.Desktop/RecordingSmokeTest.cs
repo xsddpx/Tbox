@@ -46,7 +46,7 @@ internal static class RecordingSmokeTest
             platform.PlaceWindow(handle, area, overlay: false);
             await Task.Delay(500, cancellation);
             var source = Path.Combine(directory, "recording.mp4");
-            await using (var recorder = platform.CreateRecorder(new RecordingArea(area, 320, 240), false, RecordingFrameRatePolicy.RecordingFrameRate))
+            await using (var recorder = platform.CreateRecorder(new RecordingArea(area, 320, 240), false, false, RecordingFrameRatePolicy.RecordingFrameRate))
             {
                 await recorder.StartAsync(source, cancellation);
                 await Task.Delay(2000, cancellation);
