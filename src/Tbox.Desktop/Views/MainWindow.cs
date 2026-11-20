@@ -73,6 +73,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _awakeDisplayToggle = Switch("保持屏幕常亮");
     private readonly ToggleSwitch _awakeLidToggle = Switch("合上盖子时保持唤醒");
     private readonly SettingsLine _awakeLid = new("合上盖子时保持唤醒", "");
+    private readonly Button _awakeLidApproval = new() { Content = "前往系统设置", IsVisible = false };
     private readonly TextBlock _awakeTitle = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong };
     private readonly ContentControl _awakeStatus = new() { Margin = new Thickness(0, 4, 0, 0) };
     private readonly TextBlock _awakeHint = Ui.Description("");
@@ -175,7 +176,9 @@ public sealed class MainWindow : Window
             // A native modal dialog may activate its owner during a synchronous input call.
             if (_initialSizeApplied) Dispatcher.UIThread.Post(() =>
             {
-                if (IsActive && !controller.IsQuitting) controller.Run(controller.RefreshStartupAsync);
+                if (!IsActive || controller.IsQuitting) return;
+                controller.Run(controller.RefreshStartupAsync);
+                controller.Run(controller.RefreshKeepAwakeApprovalAsync);
             }, DispatcherPriority.Background);
         };
         Opened += (_, _) =>
@@ -286,13 +289,13 @@ public sealed class MainWindow : Window
         RefreshRecent();
     }
 
-    // Switches show the saved choice; a refusal switches the saved choice back off. A Mac lid change only shows as on
-    // once the password was accepted (UI spec §5: never pretend to be on).
+    // The Mac lid switch reports the applied state when the main switch is on.
     private void RefreshKeepAwake()
     {
         var settings = _controller.Settings;
         var applied = _controller.KeepAwake;
         var authorizing = _controller.KeepAwakeAuthorizing;
+        var needsApproval = _controller.KeepAwakeRequiresLidApproval;
         _updating = true;
         _awakeToggle.IsChecked = settings.KeepAwakeEnabled;
         _awakeDisplayToggle.IsChecked = settings.KeepAwakeDisplay;
@@ -300,12 +303,15 @@ public sealed class MainWindow : Window
             && (!_controller.KeepAwakeLidNeedsAuthorization || !settings.KeepAwakeEnabled || applied.Lid);
         _updating = false;
         _awakeLidToggle.IsEnabled = _controller.KeepAwakeHasLid && !authorizing;
+        _awakeLidApproval.IsVisible = _controller.KeepAwakeHasLid && needsApproval;
+        _awakeLidApproval.IsEnabled = !authorizing;
         _awakeLid.SetDescription(!_controller.KeepAwakeHasLid ? "这台电脑没有可合上的盖子"
-            : authorizing ? "请在系统窗口中输入管理员密码"
-            : _controller.KeepAwakeLidNeedsAuthorization ? "开启和关闭时需要输入 Mac 管理员密码。放进包里前请关闭，以免过热"
+            : needsApproval ? "首次使用需要在「登录项与扩展」中允许 Tbox 在后台运行"
+            : authorizing ? "正在应用合盖设置…"
             : "笔记本合盖后继续运行。放进包里前请关闭，以免过热");
         _awakeTitle.Text = applied.System ? "电脑保持唤醒中" : "电脑会按系统设置睡眠";
-        _awakeStatus.Content = authorizing ? Ui.Status("等待管理员授权合盖唤醒…", DesignTokens.AttentionDot)
+        _awakeStatus.Content = authorizing ? Ui.Status("正在应用合盖设置…", DesignTokens.AttentionDot)
+            : needsApproval ? Ui.Status("合盖唤醒待授权", DesignTokens.AttentionDot)
             : Ui.Status(applied.Summary, applied.System ? DesignTokens.Ready : DesignTokens.Hint);
         _awakeHint.Text = applied.System ? "关闭右上角开关即可恢复。" : "打开右上角开关后，电脑在你关闭之前一直保持唤醒。";
         _awakeScreen.Background = Brush.Parse(applied.System && applied.Display ? "#EEEAFE" : "#FFFFFF");
@@ -355,6 +361,7 @@ public sealed class MainWindow : Window
         On(_awakeToggle, _controller.SetKeepAwakeAsync);
         On(_awakeDisplayToggle, _controller.SetKeepAwakeDisplayAsync);
         On(_awakeLidToggle, _controller.SetKeepAwakeLidAsync);
+        _awakeLidApproval.Click += (_, _) => _controller.Run(_controller.RequestKeepAwakeApprovalAsync);
     }
 
     private Control Sidebar()
@@ -398,7 +405,7 @@ public sealed class MainWindow : Window
         if (_controller.SupportsQuickLook)
             AddPage(MainPage.QuickLook, PageHeader(IconKind.QuickLook, "速览", "在资源管理器中选中文件后按空格，快速查看内容", _quickLookToggle),
                 Spaced(_quickLookOff, 16), _quickLookSettings);
-        _awakeLid.Trailing = _awakeLidToggle;
+        _awakeLid.Trailing = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _awakeLidApproval, _awakeLidToggle } };
         AddPage(MainPage.KeepAwake, PageHeader(IconKind.Awake, "保持唤醒", "让电脑暂时不自动睡眠", _awakeToggle),
             KeepAwakeHero(),
             Ui.GroupHeader("行为"), Ui.Rows(new SettingsLine("保持屏幕常亮", "关闭后屏幕可按系统设置熄灭，电脑不睡眠", _awakeDisplayToggle), _awakeLid),

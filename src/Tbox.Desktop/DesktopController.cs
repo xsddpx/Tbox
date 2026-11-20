@@ -70,6 +70,7 @@ public sealed class DesktopController : IDisposable
     // What the system currently grants for keep awake; the settings hold what the user asked for.
     public KeepAwakeRequest KeepAwake { get; private set; } = KeepAwakeRequest.None;
     public bool KeepAwakeAuthorizing { get; private set; }
+    public bool KeepAwakeRequiresLidApproval { get; private set; }
     public bool KeepAwakeHasLid => _keepAwake.HasLid;
     public bool KeepAwakeLidNeedsAuthorization => _keepAwake.LidNeedsAuthorization;
     public bool HasHotkeyConflict => HasConflictIn(capture: true) || HasConflictIn(capture: false);
@@ -841,6 +842,15 @@ public sealed class DesktopController : IDisposable
     // Separate from _moduleChanges: a macOS password prompt can stay open while other settings change.
     private readonly SemaphoreSlim _keepAwakeChanges = new(1);
 
+    public Task RefreshKeepAwakeApprovalAsync() => KeepAwakeRequiresLidApproval ? ApplyKeepAwakeAsync() : Task.CompletedTask;
+
+    public async Task RequestKeepAwakeApprovalAsync()
+    {
+        if (!KeepAwakeRequiresLidApproval) return;
+        if (_keepAwake.RequestLidApproval() is { } error) Main.SetStatus(error);
+        else await ApplyKeepAwakeAsync();
+    }
+
     private async Task ApplyKeepAwakeAsync()
     {
         await _keepAwakeChanges.WaitAsync(_stop.Token);
@@ -854,10 +864,11 @@ public sealed class DesktopController : IDisposable
             try { result = await _keepAwake.ApplyAsync(request); }
             finally { KeepAwakeAuthorizing = false; }
             KeepAwake = result.Applied;
+            KeepAwakeRequiresLidApproval = result.RequiresLidApproval;
             if (result.Message is { } message) Main.SetStatus(message);
-            // A refused or cancelled request is switched back off and saved, so the switches never claim more than is in effect.
+            // Keep the saved preference while approval is pending. A denied system request still switches off.
             var refusedSystem = request.System && !result.Applied.System;
-            var refusedLid = request.System && result.Applied.System && request.Lid && !result.Applied.Lid;
+            var refusedLid = request.System && result.Applied.System && request.Lid && !result.Applied.Lid && !result.RequiresLidApproval;
             if ((refusedSystem || refusedLid) && SettingsLoadWarning is null)
                 await UpdateSettingsAsync(settings => settings with
                 {

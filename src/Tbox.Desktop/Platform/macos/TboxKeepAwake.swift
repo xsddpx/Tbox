@@ -1,7 +1,7 @@
 import Foundation
 import IOKit.pwr_mgt
 
-// Keep awake (AWAKE-001–003). Assertions end with the process; the lid setting (pmset disablesleep) is handled in C#.
+// Idle sleep and display assertions end with the process. The daemon manages lid sleep.
 private var systemAssertion: IOPMAssertionID = 0
 private var displayAssertion: IOPMAssertionID = 0
 

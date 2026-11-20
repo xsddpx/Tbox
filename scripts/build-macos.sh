@@ -38,8 +38,25 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 "$DOTNET" publish src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -r "$RID" --self-contained true \
   -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o "$APP/Contents/MacOS"
 rm -rf "$APP/Contents/MacOS/ThirdParty"
+NATIVE=src/Tbox.Desktop/Platform/macos
+LID_SERVICE=com.xsddpx.tbox.lid-sleep
+# Both ends authenticate the actual code signature, including the stable local signing certificate.
+CERT_SHA1="$(security find-certificate -c "$SIGN_IDENTITY" -p | openssl x509 -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')"
+[[ "$CERT_SHA1" =~ ^[a-fA-F0-9]{40}$ ]] || { echo "无法读取合盖唤醒组件的签名证书。"; exit 1; }
+REQUIREMENTS="$BUILD/LidSleepRequirements.swift"
+cat > "$REQUIREMENTS" <<EOF
+let lidSleepAppRequirement = #"identifier "com.xsddpx.tbox" and certificate leaf = H"$CERT_SHA1""#
+let lidSleepDaemonRequirement = #"identifier "$LID_SERVICE" and certificate leaf = H"$CERT_SHA1""#
+EOF
 swiftc -swift-version 5 -O -emit-library -target "$ARCH-apple-macosx14.0" \
-  src/Tbox.Desktop/Platform/macos/*.swift -o "$APP/Contents/MacOS/libTboxNative.dylib"
+  "$NATIVE"/*.swift "$NATIVE/lid/LidSleepClient.swift" "$NATIVE/lid/LidSleepService.swift" "$REQUIREMENTS" -o "$APP/Contents/MacOS/libTboxNative.dylib"
+LID_DAEMON="$APP/Contents/MacOS/TboxLidSleep"
+swiftc -swift-version 5 -O -target "$ARCH-apple-macosx14.0" \
+  "$NATIVE/lid/main.swift" "$NATIVE/lid/LidSleepService.swift" "$REQUIREMENTS" -o "$LID_DAEMON"
+codesign --force --sign "$SIGN_IDENTITY" --identifier "$LID_SERVICE" --options runtime --timestamp=none "$LID_DAEMON"
+mkdir -p "$APP/Contents/Library/LaunchDaemons"
+cp "$NATIVE/lid/$LID_SERVICE.plist" "$APP/Contents/Library/LaunchDaemons/"
+
 cp src/Tbox.Desktop/Platform/macos/Info.plist "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources/Licenses"
 cp src/Tbox.Desktop/ThirdParty/*.txt "$APP/Contents/Resources/Licenses/"
@@ -62,5 +79,7 @@ while IFS= read -r -d '' LIBRARY; do
 done < <(find "$APP/Contents/MacOS" -type f -name '*.dylib' -print0)
 codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin/ffmpeg"
 codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$APP"
+codesign --verify --strict -R "=identifier \"com.xsddpx.tbox\" and certificate leaf = H\"$CERT_SHA1\"" "$APP"
+codesign --verify --strict -R "=identifier \"$LID_SERVICE\" and certificate leaf = H\"$CERT_SHA1\"" "$LID_DAEMON"
 bash scripts/check-macos-identity.sh "$APP" > "$BUILD/designated-requirement.txt"
 echo "$APP"
