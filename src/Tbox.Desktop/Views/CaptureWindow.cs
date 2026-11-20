@@ -61,7 +61,10 @@ internal sealed class CaptureWindow : Window
         Surface = new CaptureSurface(session, this);
         var overlay = new Canvas();
         _text = new AnnotationTextEditor(overlay, Editor,
-            point => new Point(point.X * Scale.X, point.Y * Scale.Y), () => Scale);
+            point => new Point(point.X * Scale.X, point.Y * Scale.Y), () => Scale, contentBounds: () =>
+                session.State.ActiveDisplay == Display.Id && session.State.Selection is { } selection
+                    ? new Rect(selection.Left, selection.Top, selection.Width, selection.Height)
+                    : new Rect(Surface.Bounds.Size));
         _toolbar = CreateToolbar();
         _toolbar.IsVisible = false;
         overlay.Children.Add(_toolbar);
@@ -167,8 +170,7 @@ internal sealed class CaptureWindow : Window
             new PinWindowBounds((int)selection.Left, (int)selection.Top, (int)Math.Max(1, selection.Width), (int)Math.Max(1, selection.Height)),
             new PinWindowBounds(0, 0, (int)Math.Max(1, Surface.Bounds.Width), (int)Math.Max(1, Surface.Bounds.Height)),
             (int)Math.Ceiling(size.Width), (int)Math.Ceiling(size.Height));
-        // Left-aligned with the selection as in the spec, kept on screen.
-        Canvas.SetLeft(_toolbar, Math.Clamp(selection.Left, 0, Math.Max(0, Surface.Bounds.Width - size.Width)));
+        Canvas.SetLeft(_toolbar, placed.X);
         Canvas.SetTop(_toolbar, placed.Y);
     }
 
@@ -206,7 +208,7 @@ internal sealed class CaptureWindow : Window
 
     private void RequestMode(CaptureAction action)
     {
-        CommitEditing();
+        if (!CommitEditing()) return;
         if (Editor.Document.Commands.Count == 0) { _session.Finish(this, action); return; }
         _pendingMode = action;
         _modePrompt.Text = (action == CaptureAction.Record ? "录屏" : "长截图") + "使用原始画面，是否丢弃本次标注？";
@@ -273,7 +275,13 @@ internal sealed class CaptureWindow : Window
     }
 
     public Vector Scale => new(Surface.Bounds.Width / Picture.Bitmap.PixelSize.Width, Surface.Bounds.Height / Picture.Bitmap.PixelSize.Height);
-    public void CommitEditing() { _text.Commit(); Editor.FinishPolyline(); Editor.CancelGesture(); }
+    public bool CommitEditing()
+    {
+        if (!_text.Commit()) return false;
+        Editor.FinishPolyline();
+        Editor.CancelGesture();
+        return true;
+    }
     public void ClearEditing() { _text.Cancel(); Editor.Reset(); }
 }
 

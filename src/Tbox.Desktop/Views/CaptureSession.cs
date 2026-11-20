@@ -100,7 +100,11 @@ internal sealed class CaptureSession
 
     private void ShowHistory(CaptureWindow origin, int next)
     {
-        foreach (var window in _windows) window.CommitEditing();
+        if (_windows.Any(window => !window.CommitEditing()))
+        {
+            _historyTarget = _historyIndex;
+            return;
+        }
         _history[_historyIndex] = (Snapshot(), _history[_historyIndex].Entry);
         _historyIndex = _historyTarget = next;
         var state = _history[next].State!;
@@ -214,7 +218,7 @@ internal sealed class CaptureSession
 
     public void Finish(CaptureWindow window, CaptureAction action)
     {
-        window.CommitEditing();
+        if (!window.CommitEditing()) return;
         if (State.ActiveDisplay != window.Display.Id || State.Selection is not { } selection) return;
         var region = CaptureRegionPolicy.MapToPixels(window.Surface.Bounds.Width, window.Surface.Bounds.Height,
             selection.Left, selection.Top, selection.Width, selection.Height,

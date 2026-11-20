@@ -106,7 +106,7 @@ public sealed class PinnedWindow : Window
 
     internal PinSessionImage SnapshotForUpgrade()
     {
-        _text.Commit();
+        if (!_text.Commit()) throw new InvalidOperationException(AnnotationTextEditor.OverflowMessage);
         Editor.FinishPolyline();
         var handle = this.TryGetPlatformHandle()!.Handle;
         var bounds = ReadZoomGeometry(handle, _controller.Platform.DesktopUnitsPerDip(handle));
@@ -213,21 +213,24 @@ public sealed class PinnedWindow : Window
 
     public void FinishEditing()
     {
+        if (!_text.Commit()) return;
         _annotationToolbar?.ClosePopovers();
-        _text.Commit(); Editor.FinishPolyline(); Editor.CancelGesture(); Editor.Select(null);
+        Editor.FinishPolyline(); Editor.CancelGesture(); Editor.Select(null);
         _toolbarWanted = false; _toolbarWindow?.Hide(); _surface.InvalidateVisual();
     }
 
     public async Task CopyAsync()
     {
-        _text.Commit(); Editor.FinishPolyline();
+        if (!_text.Commit()) return;
+        Editor.FinishPolyline();
         using var output = AnnotationRenderer.Render(Picture, Region, Editor.Document.Commands);
         await _controller.CopyAsync(output);
     }
 
     public async Task SaveAsync()
     {
-        _text.Commit(); Editor.FinishPolyline();
+        if (!_text.Commit()) return;
+        Editor.FinishPolyline();
         using var output = AnnotationRenderer.Render(Picture, Region, Editor.Document.Commands);
         await _controller.SaveAsync(output, this);
     }
@@ -243,7 +246,8 @@ public sealed class PinnedWindow : Window
         var p = _controller.Platform.GetWindowPlacement(handle);
         if (!PinCropPolicy.TryCreate(Region, ToBounds(p), _surface.Bounds.Width, _surface.Bounds.Height,
             start.X, start.Y, end.X, end.Y, 8, out var crop)) return;
-        _text.Commit(); InvalidateZoom(); Region = crop.Region;
+        if (!_text.Commit()) return;
+        InvalidateZoom(); Region = crop.Region;
         _controller.Platform.PlaceWindow(handle, ToPlacement(crop.WindowBounds), false);
         _surface.InvalidateVisual(); ScheduleToolbarPlacement();
     }
