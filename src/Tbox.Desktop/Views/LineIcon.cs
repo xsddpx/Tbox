@@ -9,7 +9,8 @@ internal enum IconKind
 {
     Back, Settings, Folder, Capture, Pin, Ocr, Chevron, Record, Long, Eye, EyeOff, Jump, Gear, Copy, Model, Translate, Grip,
     Rectangle, Ellipse, Line, Polyline, Arrow, Number, Pen, Highlighter, Mosaic, Text, Eraser,
-    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute
+    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute,
+    Awake, Display, Laptop
 }
 
 // 24-unit line icons drawn with one stroke weight. Filled glyphs (record dot, play, stop) set Fill.
@@ -76,6 +77,10 @@ internal sealed class LineIcon : Control
             IconKind.Speaker => "M4 9.5 H8 L13 5 V19 L8 14.5 H4 Z M16.5 9 A4 4 0 0 1 16.5 15 M19 6.5 A7.5 7.5 0 0 1 19 17.5",
             IconKind.Mute => "M4 9.5 H8 L13 5 V19 L8 14.5 H4 Z M16.5 9.5 L21 14 M21 9.5 L16.5 14",
             IconKind.Image => "M4 5 H20 V19 H4 Z M4 16 L9 11 L13 15 L16 12 L20 16 M15.5 8.5 A1 1 0 1 1 15.49 8.5 Z",
+            // A cup with steam, as in PowerToys Awake.
+            IconKind.Awake => "M4 10 H16 V13 A6 6 0 0 1 4 13 Z M16 11 H17.5 A2.5 2.5 0 0 1 17.5 16 H15.5 M5 21 H15 M8 3.5 Q9 4.75 8 6 Q7 7.25 8 8.5 M12 3.5 Q13 4.75 12 6 Q11 7.25 12 8.5",
+            IconKind.Display => "M3 5 H21 V16 H3 Z M9 20 H15 M12 16 V20",
+            IconKind.Laptop => "M5 6 H19 V16 H5 Z M2.5 19 H21.5",
             _ => "M9 5 L16 12 L9 19"
         });
         ActualThemeVariantChanged += (_, _) => InvalidateVisual();

@@ -71,6 +71,8 @@ internal sealed class FakePlatform : IPlatformServices
     public IFolderNavigation CreateFolderNavigation() => new FakeFolders(this);
     public IStartupRegistration StartupRegistration { get; set; } = new EmptyStartup();
     public IStartupRegistration CreateStartupRegistration() => StartupRegistration;
+    public FakeKeepAwake KeepAwake { get; set; } = new();
+    public IKeepAwake CreateKeepAwake(string stateDirectory) => KeepAwake;
     public void Dispose() { }
     private sealed class EmptyStartup : IStartupRegistration
     {
@@ -98,6 +100,33 @@ internal sealed class FakePlatform : IPlatformServices
             CancellationToken cancellationToken) => Task.FromResult(platform.FolderJumpResult);
         public void Dispose() { }
     }
+}
+
+// A recorder that only tracks calls, for toolbar state tests.
+internal sealed class FakeKeepAwake : IKeepAwake
+{
+    public bool HasLid { get; set; } = true;
+    public bool LidNeedsAuthorization { get; set; }
+    public bool RefuseSystem { get; set; }
+    // Simulates cancelling the macOS password prompt.
+    public bool RefuseLid { get; set; }
+    // Lets a test observe the state while a password prompt is open.
+    public TaskCompletionSource? Authorization { get; set; }
+    public List<KeepAwakeRequest> Requests { get; } = [];
+    public KeepAwakeRequest Applied { get; private set; } = KeepAwakeRequest.None;
+    public bool Disposed { get; private set; }
+
+    public async Task<KeepAwakeResult> ApplyAsync(KeepAwakeRequest request)
+    {
+        Requests.Add(request);
+        if (request.Lid != Applied.Lid && Authorization is { } pending) await pending.Task;
+        if (request.System && RefuseSystem) return new KeepAwakeResult(Applied = KeepAwakeRequest.None, "系统拒绝保持唤醒。");
+        var lid = request.Lid && !RefuseLid;
+        Applied = request with { Lid = lid };
+        return new KeepAwakeResult(Applied, request.Lid && !lid ? "已取消授权，合上盖子时仍会睡眠。" : null);
+    }
+
+    public void Dispose() { Disposed = true; Applied = KeepAwakeRequest.None; }
 }
 
 // A recorder that only tracks calls, for toolbar state tests.

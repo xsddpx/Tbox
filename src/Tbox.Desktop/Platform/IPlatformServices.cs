@@ -78,6 +78,8 @@ public interface IPlatformServices : IDisposable
     IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond);
     IFolderNavigation CreateFolderNavigation();
     IStartupRegistration CreateStartupRegistration();
+    // stateDirectory holds the lid-setting backup that undoes a change left by an abnormal exit.
+    IKeepAwake CreateKeepAwake(string stateDirectory);
 
     async Task<string?> PickFolderAsync(Window owner, string title)
     {

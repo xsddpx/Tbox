@@ -132,6 +132,7 @@ public sealed class MacPlatformServices : IPlatformServices
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new MacRegionRecorder(area, systemAudio, framesPerSecond);
     public IFolderNavigation CreateFolderNavigation() => new MacFolderNavigation();
     public IStartupRegistration CreateStartupRegistration() => new MacStartupRegistration();
+    public IKeepAwake CreateKeepAwake(string stateDirectory) => new MacKeepAwake(stateDirectory);
 
     public void Dispose()
     {
