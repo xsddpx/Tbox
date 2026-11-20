@@ -189,7 +189,7 @@ private final class StartReply: @unchecked Sendable {
 public func recordStart(_ path: UnsafePointer<CChar>?, _ left: Double, _ top: Double, _ width: Double, _ height: Double,
                         _ pixelWidth: Int32, _ pixelHeight: Int32, _ fps: Int32, _ audio: Int32) -> UnsafeMutablePointer<CChar>? {
     guard let path = path, pixelWidth >= 16, pixelHeight >= 16, pixelWidth % 2 == 0, pixelHeight % 2 == 0,
-          [5, 10, 15, 25, 60].contains(Int(fps)) else { return response(["error": "录屏参数无效。"]) }
+          fps == 30 else { return response(["error": "录屏参数无效。"]) }
     let destination = String(cString: path)
     let reply = StartReply()
     Task.detached {

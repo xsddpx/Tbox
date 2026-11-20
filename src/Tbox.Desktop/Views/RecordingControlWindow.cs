@@ -26,9 +26,7 @@ internal sealed class RecordingControlWindow : Window
     private readonly Ellipse _dot = new() { Width = 9, Height = 9, Fill = Ui.RecordRed, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _clock = new() { Text = "00:00", FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Ui.ToolbarText, MinWidth = 40,
         VerticalAlignment = VerticalAlignment.Center };
-    private readonly Control _timerGroup, _fps;
-    private readonly Func<int> _fpsIndex;
-    private readonly Action<bool> _enableFps;
+    private readonly Control _timerGroup;
     private readonly CheckBox _audio = new() { Content = "系统声音", IsChecked = false, FontSize = 13, Foreground = Ui.ToolbarText, MinHeight = 0,
         Margin = new Thickness(8, 0), VerticalAlignment = VerticalAlignment.Center };
     private readonly Button _start, _pause, _stop;
@@ -46,17 +44,14 @@ internal sealed class RecordingControlWindow : Window
         _border = new Window { Title = "Tbox 录屏区域", Content = _outline, ShowActivated = false };
         ConfigureFloating(_border);
         foreach (var state in new[] { "", "PointerOver", "Pressed" }) _audio.Resources["CheckBoxForegroundUnchecked" + state] = _audio.Resources["CheckBoxForegroundChecked" + state] = Ui.ToolbarText;
-        var rates = RecordingFrameRatePolicy.AllowedFrameRates;
-        var fps = Ui.ToolbarSegmented(rates.Select(r => r.ToString()).ToArray(), Math.Max(0, rates.ToList().IndexOf(RecordingFrameRatePolicy.DefaultFrameRate)), out _fpsIndex, out _enableFps);
-        _fps = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Children = { Ui.ToolbarLabel("帧率", strong: false), fps } };
         _start = Ui.RecordButton("开始录制 · Enter", () => controller.Run(StartAsync));
         _pause = AnnotationToolbar.IconButton(IconKind.Pause, "暂停 · Space", TogglePause);
         _stop = AnnotationToolbar.IconButton(IconKind.Stop, "停止并预览 · Enter", () => controller.Run(StopAsync));
         var cancel = AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", () => controller.Run(CancelAsync));
         _timerGroup = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(8, 0), Children = { _dot, _clock } };
-        // Prepare: 帧率 | 系统声音 | 开始录制, close. Recording: timer | pause, stop | close (spec ⑤).
-        var prepareDivider = Ui.ToolbarDivider(); var recordDivider = Ui.ToolbarDivider(); var closeDivider = Ui.ToolbarDivider();
-        _prepare = [_fps, prepareDivider, _audio, recordDivider, _start];
+        // Prepare: 系统声音 | 开始录制, close. Output frame rate is chosen when saving. Recording: timer | pause, stop | close (spec ⑤).
+        var recordDivider = Ui.ToolbarDivider(); var closeDivider = Ui.ToolbarDivider();
+        _prepare = [_audio, recordDivider, _start];
         _recording = [_timerGroup, Ui.ToolbarDivider(), _pause, _stop, closeDivider];
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         foreach (var item in _prepare.Concat(_recording).Append(cancel)) { item.VerticalAlignment = VerticalAlignment.Center; row.Children.Add(item); }
@@ -107,7 +102,7 @@ internal sealed class RecordingControlWindow : Window
         var paused = state == RecordingSessionState.Paused;
         foreach (var item in _prepare) item.IsVisible = ready;
         foreach (var item in _recording) item.IsVisible = !ready;
-        _enableFps(!_busy); _audio.IsEnabled = _start.IsEnabled = !_busy;
+        _audio.IsEnabled = _start.IsEnabled = !_busy;
         _pause.IsEnabled = _stop.IsEnabled = !_busy;
         // Pause and resume share one button; its icon and tooltip follow the state.
         _pause.Content = new LineIcon(paused ? IconKind.Play : IconKind.Pause, brush: Ui.ToolbarText) { Width = 18, Height = 18 };
@@ -133,7 +128,7 @@ internal sealed class RecordingControlWindow : Window
         _busy = true; Refresh();
         try
         {
-            await _operation.StartAsync(_audio.IsChecked == true, RecordingFrameRatePolicy.AllowedFrameRates[_fpsIndex()]);
+            await _operation.StartAsync(_audio.IsChecked == true, RecordingFrameRatePolicy.RecordingFrameRate);
             if (!_closing) _timer.Start();
         }
         catch (OperationCanceledException) when (_closing) { }

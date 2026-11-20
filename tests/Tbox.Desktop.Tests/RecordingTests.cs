@@ -26,11 +26,11 @@ public sealed class RecordingTests
         var audio = new FakeRecorder { FailStart = true }; var silent = new FakeRecorder();
         await using var operation = new RecordingOperation((enabled, fps) =>
         {
-            Assert.Equal(25, fps);
+            Assert.Equal(30, fps);
             if (!enabled) Assert.True(audio.Disposed);
             return enabled ? audio : silent;
         }, new RecordingWorkspace(temporary.Path));
-        await operation.StartAsync(true, 25);
+        await operation.StartAsync(true, 30);
         Assert.NotNull(operation.Notice); Assert.True(silent.Started);
         var output = await operation.StopAsync(); Assert.False(output.HasSystemAudio);
         Assert.True(silent.Disposed);
@@ -46,7 +46,7 @@ public sealed class RecordingTests
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var recorder = new FakeRecorder { StartSignal = start.Task };
         var operation = new RecordingOperation((_, _) => recorder, new RecordingWorkspace(temporary.Path));
-        var pending = operation.StartAsync(false, 10);
+        var pending = operation.StartAsync(false, 30);
         var cancelled = operation.DisposeAsync().AsTask();
         Assert.False(cancelled.IsCompleted); Assert.True(Directory.Exists(operation.Workspace.SessionDirectory));
         start.SetResult();
@@ -61,7 +61,7 @@ public sealed class RecordingTests
         using var temporary = new TemporaryDirectory();
         var recorder = new FakeRecorder { FailStop = true };
         await using var operation = new RecordingOperation((_, _) => recorder, new RecordingWorkspace(temporary.Path));
-        await operation.StartAsync(false, 10);
+        await operation.StartAsync(false, 30);
         await Assert.ThrowsAsync<IOException>(() => operation.StopAsync());
         Assert.True(recorder.Disposed);
         Assert.Throws<InvalidOperationException>(() => operation.TransferWorkspace());
@@ -74,7 +74,7 @@ public sealed class RecordingTests
         var stop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var recorder = new FakeRecorder { StopSignal = stop.Task };
         var operation = new RecordingOperation((_, _) => recorder, new RecordingWorkspace(temporary.Path));
-        await operation.StartAsync(false, 10);
+        await operation.StartAsync(false, 30);
         var pending = operation.StopAsync(); var cancelled = operation.DisposeAsync().AsTask();
         Assert.False(cancelled.IsCompleted); stop.SetResult();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending); await cancelled;

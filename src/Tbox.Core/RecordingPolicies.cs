@@ -15,25 +15,18 @@ public enum RecordingExportFormat
 {
     Gif,
     WebP,
-    Mp4
+    Mp4,
+    ContactSheet
 }
 
 public static class RecordingFrameRatePolicy
 {
-    private static readonly int[] FrameRates = [5, 10, 15, 25, 60];
+    // Every master is recorded at one rate; output rates are chosen when saving.
+    public const int RecordingFrameRate = 30;
 
-    public const int DefaultFrameRate = 10;
-
-    public static IReadOnlyList<int> AllowedFrameRates => FrameRates;
-
-    public static bool IsAllowed(int framesPerSecond) => Array.BinarySearch(FrameRates, framesPerSecond) >= 0;
-
-    public static int Validate(int framesPerSecond) => IsAllowed(framesPerSecond)
+    public static int Validate(int framesPerSecond) => framesPerSecond == RecordingFrameRate
         ? framesPerSecond
-        : throw new ArgumentOutOfRangeException(
-            nameof(framesPerSecond),
-            framesPerSecond,
-            "录屏帧率必须为 5、10、15、25 或 60 FPS。");
+        : throw new ArgumentOutOfRangeException(nameof(framesPerSecond), framesPerSecond, "录屏帧率必须为 30 FPS。");
 }
 
 public readonly record struct RecordingExportProfile(
@@ -41,44 +34,129 @@ public readonly record struct RecordingExportProfile(
     string DisplayName,
     string Description,
     string Extension,
-    int FramesPerSecond,
-    int? MaximumLongEdge,
+    int DefaultFramesPerSecond,
+    int? DefaultMaximumLongEdge,
     int? Quality,
     bool SupportsAudio);
 
 public static class RecordingExportProfiles
 {
+    public static IReadOnlyList<int> FrameRates { get; } = [1, 5, 10, 15, 25, 30];
+
     public static RecordingExportProfile Get(RecordingExportFormat format) => format switch
     {
-        RecordingExportFormat.Gif => new(
-            format,
-            "GIF",
-            "图像，兼容性高，质量较低",
-            ".gif",
-            12,
-            1280,
-            null,
-            false),
-        RecordingExportFormat.WebP => new(
-            format,
-            "WEBP",
-            "图像，质量好，兼容性适中",
-            ".webp",
-            24,
-            1920,
-            80,
-            false),
-        RecordingExportFormat.Mp4 => new(
-            format,
-            "MP4",
-            "视频，体积小，质量好",
-            ".mp4",
-            RecordingFrameRatePolicy.DefaultFrameRate,
-            null,
-            null,
-            true),
+        RecordingExportFormat.Gif => new(format, "GIF", "图像，兼容性高，质量较低", ".gif", 10, 1280, null, false),
+        RecordingExportFormat.WebP => new(format, "WEBP", "图像，质量好，兼容性适中", ".webp", 25, null, 80, false),
+        RecordingExportFormat.Mp4 => new(format, "MP4", "视频，体积小，质量好", ".mp4", RecordingFrameRatePolicy.RecordingFrameRate, null, null, true),
+        RecordingExportFormat.ContactSheet => new(format, "六宫格", "图片，范围内均匀取 6 帧拼成 3×2", ".jpg", 0, null, 90, false),
         _ => throw new ArgumentOutOfRangeException(nameof(format))
     };
+}
+
+public readonly record struct VideoSize(int Width, int Height);
+
+public readonly record struct RecordingSizeChoice(string Label, VideoSize Size);
+
+public static class RecordingSizePolicy
+{
+    private static readonly int[] Percentages = [100, 75, 50, 25];
+
+    /// <summary>Output scaled to fit the requested width, never enlarged; videos need even edges.</summary>
+    public static VideoSize ScaleToWidth(VideoSize source, int width, bool even)
+    {
+        if (source.Width < 1 || source.Height < 1) throw new ArgumentOutOfRangeException(nameof(source));
+        width = Math.Clamp(width, 1, source.Width);
+        var height = Math.Max(1, (int)Math.Round(source.Height * (double)width / source.Width));
+        return even ? new(Math.Max(2, width - width % 2), Math.Max(2, height - height % 2)) : new(width, height);
+    }
+
+    public static VideoSize FitLongEdge(VideoSize source, int longEdge, bool even)
+    {
+        var scale = Math.Min(1, longEdge / (double)Math.Max(source.Width, source.Height));
+        return ScaleToWidth(source, Math.Max(1, (int)Math.Round(source.Width * scale)), even);
+    }
+
+    public static IReadOnlyList<RecordingSizeChoice> Choices(VideoSize source, bool even) => Percentages
+        .Select(p => new RecordingSizeChoice(p + "%", ScaleToWidth(source, Math.Max(1, (int)Math.Round(source.Width * p / 100.0)), even)))
+        .ToArray();
+
+    /// <summary>Index into <see cref="Choices"/> for a format's default size.</summary>
+    public static int DefaultChoice(VideoSize source, RecordingExportFormat format, bool even)
+    {
+        if (RecordingExportProfiles.Get(format).DefaultMaximumLongEdge is not { } limit) return 0;
+        var choices = Choices(source, even);
+        for (var i = 0; i < choices.Count; i++)
+            if (Math.Max(choices[i].Size.Width, choices[i].Size.Height) <= limit) return i;
+        return choices.Count - 1;
+    }
+}
+
+public readonly record struct RecordingTimeRange(TimeSpan Start, TimeSpan End)
+{
+    public static readonly TimeSpan MinimumLength = TimeSpan.FromMilliseconds(500);
+    public TimeSpan Length => End - Start;
+    public bool IsFull(TimeSpan duration) => Start <= TimeSpan.Zero && End >= duration;
+
+    /// <summary>Clamp into the recording and keep at least the minimum length (or the whole clip if it is shorter).</summary>
+    public static RecordingTimeRange Normalize(TimeSpan start, TimeSpan end, TimeSpan duration)
+    {
+        if (duration <= TimeSpan.Zero) return new(TimeSpan.Zero, TimeSpan.Zero);
+        var minimum = duration < MinimumLength ? duration : MinimumLength;
+        start = Clamp(start, TimeSpan.Zero, duration - minimum);
+        end = Clamp(end, start + minimum, duration);
+        return new(start, end);
+    }
+
+    private static TimeSpan Clamp(TimeSpan value, TimeSpan min, TimeSpan max) => value < min ? min : value > max ? max : value;
+}
+
+public readonly record struct RecordingExportOptions(
+    RecordingExportFormat Format,
+    int FramesPerSecond,
+    VideoSize Size,
+    RecordingTimeRange Range)
+{
+    /// <summary>An unchanged MP4 is copied from the master without re-encoding.</summary>
+    public bool CopiesMaster(VideoSize source, TimeSpan duration) =>
+        Format == RecordingExportFormat.Mp4 && FramesPerSecond == RecordingFrameRatePolicy.RecordingFrameRate &&
+        Size == source && Range.IsFull(duration);
+}
+
+public readonly record struct SheetCell(int X, int Y, int LabelX, int LabelY, string Label);
+
+/// <summary>3 × 2 contact sheet: 12 px margins and gaps, a 28 px label strip under each frame, numbers 01–06.</summary>
+public static class ContactSheetPolicy
+{
+    public const int Count = 6, Columns = 3, Rows = 2, Margin = 12, LabelStrip = 28, LabelSize = 12;
+    public static IReadOnlyList<int> LongEdges { get; } = [640, 480, 320, 200];
+    public const int DefaultLongEdge = 320;
+
+    /// <summary>Frame indices spaced evenly from the first to the last frame, inclusive.</summary>
+    public static IReadOnlyList<long> SampleFrames(long first, long last)
+    {
+        if (last < first) throw new ArgumentOutOfRangeException(nameof(last), "范围内没有可采样的帧。");
+        return Enumerable.Range(0, Count).Select(i => first + (long)Math.Round((last - first) * i / (double)(Count - 1), MidpointRounding.AwayFromZero)).ToArray();
+    }
+
+    /// <summary>Sample times for a range at the master frame rate.</summary>
+    public static IReadOnlyList<TimeSpan> SampleTimes(RecordingTimeRange range, int framesPerSecond)
+    {
+        var first = (long)Math.Ceiling(range.Start.TotalSeconds * framesPerSecond - 1e-5);
+        var last = Math.Max(first, (long)Math.Ceiling(range.End.TotalSeconds * framesPerSecond - 1e-5) - 1);
+        return SampleFrames(first, last).Select(f => TimeSpan.FromSeconds(f / (double)framesPerSecond)).ToArray();
+    }
+
+    public static bool HasRepeats(IReadOnlyList<TimeSpan> samples) => samples.Distinct().Count() < samples.Count;
+
+    public static VideoSize SheetSize(VideoSize cell) =>
+        new(Columns * cell.Width + (Columns + 1) * Margin, Rows * (cell.Height + LabelStrip) + (Rows + 1) * Margin);
+
+    public static IReadOnlyList<SheetCell> Layout(VideoSize cell) => Enumerable.Range(0, Count).Select(i =>
+    {
+        var x = Margin + i % Columns * (cell.Width + Margin);
+        var y = Margin + i / Columns * (cell.Height + LabelStrip + Margin);
+        return new SheetCell(x, y, x + 5, y + cell.Height + 8, (i + 1).ToString("00"));
+    }).ToArray();
 }
 
 public static class RecordingRegionPolicy
@@ -98,7 +176,7 @@ public static class RecordingRegionPolicy
     public static int CalculateVideoBitrate(
         int width,
         int height,
-        int framesPerSecond = RecordingFrameRatePolicy.DefaultFrameRate)
+        int framesPerSecond = RecordingFrameRatePolicy.RecordingFrameRate)
     {
         if (width < 1 || height < 1 || framesPerSecond < 1) throw new ArgumentOutOfRangeException();
         var calculated = checked((long)Math.Round(width * (double)height * framesPerSecond * 0.12));

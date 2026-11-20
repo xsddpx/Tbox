@@ -661,7 +661,7 @@ public sealed class TaskToolbarTests
         try
         {
             var bar = (Border)control.Content!;
-            Assert.Equal(["帧率", "5 帧每秒", "10 帧每秒", "15 帧每秒", "25 帧每秒", "60 帧每秒", "|", "系统声音", "|", "开始录制", "取消"], Names(bar));
+            Assert.Equal(["系统声音", "|", "开始录制", "取消"], Names(bar));
             var start = bar.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b)?.StartsWith("开始录制") == true);
             Assert.Equal(Color.Parse(DesignTokens.Recording), ((ISolidColorBrush)start.Resources["ButtonBackground"]!).Color);
             Preview(control, "task-record-ready");
@@ -674,6 +674,75 @@ public sealed class TaskToolbarTests
             Preview(control, "task-record-active");
         }
         finally { _ = control.CancelAsync(); Dispatcher.UIThread.RunJobs(); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task RecordingReviewChoosesFormatRateSizeAndRangeWhenSaving()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        var temp = Path.Combine(Path.GetTempPath(), "tbox-review-" + Guid.NewGuid().ToString("N"));
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        controller.Main = new MainWindow(controller);
+        var workspace = new RecordingWorkspace(temp);
+        File.WriteAllBytes(workspace.MasterFilePath, [1, 2, 3]);
+        var area = new RecordingArea(new DesktopPlacement(0, 0, 2560, 1440), 2560, 1440);
+        var review = new RecordingReviewWindow(controller, workspace, area, new RecordingOutput(workspace.MasterFilePath, false, 42), TimeSpan.FromSeconds(42));
+        review.Show(); Layout(review);
+        Button Chip(string name) => review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == name);
+        bool Shows(string text) => review.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == text);
+        try
+        {
+            Assert.True(Shows("2560 × 1440 · 00:42 · 30 FPS · 静音"));
+            Assert.True(Shows("导出全部 · 00:00.0 – 00:42.0　拖动两端红色手柄截取"));
+            Assert.Equal(["MP4", "GIF", "WebP", "六宫格"], RecordingReviewWindow.Formats.Select(f => AutomationProperties.GetName(Chip(f switch
+            {
+                RecordingExportFormat.Mp4 => "MP4", RecordingExportFormat.Gif => "GIF", RecordingExportFormat.WebP => "WebP", _ => "六宫格"
+            }))));
+            // Opening defaults: full range, master rate, full size; an unchanged MP4 copies the master.
+            var options = review.Options();
+            Assert.Equal(new RecordingExportOptions(RecordingExportFormat.Mp4, 30, new(2560, 1440), new(TimeSpan.Zero, TimeSpan.FromSeconds(42))), options);
+            Assert.True(options.CopiesMaster(new(2560, 1440), TimeSpan.FromSeconds(42)));
+            Assert.Equal(["100%   2560 × 1440", "75%   1920 × 1080", "50%   1280 × 720", "25%   640 × 360", "自定义"], (string[])review.Size.ItemsSource!);
+            Preview(review, "recording-review-mp4");
+
+            // Trimming moves into the exported options and shows the reset link.
+            review.Track.Range = new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8)); Layout(review);
+            Assert.True(Shows("截取 00:05.0 – 00:29.8 · 共 00:24.8"));
+            Assert.True(Chip("恢复全部").IsEffectivelyVisible);
+
+            // GIF: 10 FPS and the largest preset within 1280 px; a custom width keeps the aspect ratio and never enlarges.
+            Click(Chip("GIF")); Layout(review);
+            Assert.Equal(new RecordingExportOptions(RecordingExportFormat.Gif, 10, new(1280, 720), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
+            review.Size.SelectedIndex = 4; review.CustomWidth.Text = "640"; Layout(review);
+            Assert.True(review.CustomWidth.IsEffectivelyVisible);
+            Assert.True(Shows("× 360"));
+            Assert.Equal(new VideoSize(640, 360), review.Options().Size);
+            review.CustomWidth.Text = "99999";
+            Assert.Equal(new VideoSize(2560, 1440), review.Options().Size);
+            review.CustomWidth.Text = "640"; review.FrameRate.SelectedIndex = 0;
+            Assert.Equal(1, review.Options().FramesPerSecond);
+            Preview(review, "recording-review-gif-trimmed");
+
+            Click(Chip("WebP")); Layout(review);
+            Assert.Equal((25, new VideoSize(2560, 1440)), (review.Options().FramesPerSecond, review.Options().Size));
+            Assert.False(review.CustomWidth.IsEffectivelyVisible);
+
+            // 六宫格: no frame rate, per-cell long edge defaults to 320, six sample ticks inside the range.
+            Click(Chip("六宫格")); Layout(review);
+            Assert.False(review.FrameRate.IsEffectivelyVisible);
+            Assert.Equal(new RecordingExportOptions(RecordingExportFormat.ContactSheet, 0, new(320, 180), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
+            Assert.Equal(["原尺寸   7728 × 2972", "每格 ≤ 640 px   1968 × 812", "每格 ≤ 480 px   1488 × 632", "每格 ≤ 320 px   1008 × 452", "每格 ≤ 200 px   648 × 316", "自定义"],
+                (string[])review.Size.ItemsSource!);
+            Assert.Equal(6, review.Track.Ticks.Count);
+            Assert.Equal(TimeSpan.FromSeconds(5), review.Track.Ticks[0]);
+            Preview(review, "recording-review-contact-sheet");
+
+            Click(Chip("恢复全部")); Layout(review);
+            Assert.True(review.Options().Range.IsFull(TimeSpan.FromSeconds(42)));
+            Assert.False(Chip("恢复全部").IsEffectivelyVisible);
+        }
+        finally { await review.RequestCloseAsync(discardUnsaved: true); controller.Main.Close(); }
+        Assert.False(Directory.Exists(workspace.SessionDirectory));
     }
 
     [Fact]
