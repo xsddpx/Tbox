@@ -8,7 +8,7 @@
 
 ## 1. 唯一实现与设计边界
 
-所有交互、布局和内容方案优先参考 PixPin、Listary 已有的成熟设计，入口与使用原则见 [产品设计参考](product-references.md)。采用时保持本规范的统一视觉；如需改变已确认的产品行为，先按产品需求变更流程处理。
+截图、贴图相关设计优先参考 Snipaste、PixPin、CleanShot X 和 eSearch，文件夹跳转相关设计优先参考 Listary。官方入口与使用原则见 [产品设计参考](product-references.md)。采用时保持本规范的统一视觉。如需改变已确认的产品行为，先按产品需求变更流程处理。
 
 Windows 与 macOS 使用同一个 `Tbox.Desktop` 界面工程、布局、图标与状态规则。设计令牌集中在 `src/Tbox.Desktop/Views/DesignTokens.cs`，共用控件在 `Ui.cs`，平台适配层不能另写页面或替换产品配色。允许不同的只有系统字体度量、系统窗口按钮、文件选择器及系统快捷键修饰符。
 
