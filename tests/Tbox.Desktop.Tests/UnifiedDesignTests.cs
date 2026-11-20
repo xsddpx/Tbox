@@ -128,7 +128,7 @@ public sealed class UnifiedDesignTests
     public void TaskToolbarsUseLineIconsOnTheSharedDarkSurface()
     {
         var editor = new AnnotationEditor();
-        var toolbar = new AnnotationToolbar(editor, () => { });
+        var toolbar = new AnnotationToolbar(editor, () => true);
         var window = new Window { Content = toolbar, SizeToContent = SizeToContent.WidthAndHeight, RequestedThemeVariant = ThemeVariant.Dark };
         window.Show(); window.UpdateLayout();
         try

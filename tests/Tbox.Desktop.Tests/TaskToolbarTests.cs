@@ -89,6 +89,145 @@ public sealed class TaskToolbarTests
     }
 
     [AvaloniaFact]
+    public async Task CaptureToolbarRightAlignsWithASelectionAwayFromDisplayEdges()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var toolbar = Assert.Single(scope.Window.GetVisualDescendants().OfType<AnnotationToolbar>());
+        Assert.InRange(toolbar.Bounds.Right, 759, 761);
+        Assert.InRange(toolbar.Bounds.Top, 431, 433);
+        Preview(scope.Window, "capture-toolbar-right-aligned");
+    }
+
+    [AvaloniaTheory]
+    [InlineData(CaptureAction.Pin, false)]
+    [InlineData(CaptureAction.Long, false)]
+    [InlineData(CaptureAction.Record, false)]
+    [InlineData(CaptureAction.Pin, true)]
+    [InlineData(CaptureAction.Long, true)]
+    [InlineData(CaptureAction.Record, true)]
+    public async Task FloatingToolbarsAlignToTheRightAndFlipAboveAtTheBottom(CaptureAction mode, bool nearBottom)
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        typeof(ClassicDesktopStyleApplicationLifetime).GetInterfaces().Single(i => i.Name == "ISetupApplicationLifetime")
+            .GetMethod("BeforeAppInit")!.Invoke(lifetime, null);
+        var area = new DesktopPlacement(480, nearBottom ? 900 : 300, 440, 86);
+        using var fixture = DesktopController.RenderText("Toolbar alignment");
+        var placements = new List<DesktopPlacement>();
+        var platform = new FakePlatform { WindowPlacementOverride = area, CaptureRegion = _ => Task.FromResult(fixture.Png) };
+        platform.WindowPlaced = (placement, _) => placements.Add(placement);
+        using var controller = new DesktopController(platform, lifetime);
+        controller.Main = new MainWindow(controller);
+        PinnedWindow? pin = null;
+        LongCaptureSession? longCapture = null;
+        RecordingControlWindow? recording = null;
+        try
+        {
+            Window toolbar;
+            switch (mode)
+            {
+                case CaptureAction.Pin:
+                    pin = new PinnedWindow(controller, fixture.Clone());
+                    pin.Show(); pin.Activate(); Layout(pin);
+                    pin.MouseDown(new Point(12, 12), MouseButton.Left, RawInputModifiers.None);
+                    pin.MouseUp(new Point(12, 12), MouseButton.Left, RawInputModifiers.None);
+                    pin.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.Space, null);
+                    toolbar = Assert.Single(lifetime.Windows, window => window.Title == "Tbox 贴图工具条");
+                    break;
+                case CaptureAction.Long:
+                    longCapture = new LongCaptureSession(controller, area, () => { });
+                    longCapture.Start();
+                    toolbar = Assert.Single(lifetime.Windows, window => window.Title == "Tbox 长截图工具条");
+                    break;
+                default:
+                    recording = new RecordingControlWindow(controller, new RecordingArea(area, (int)area.Width, (int)area.Height));
+                    recording.Show();
+                    toolbar = recording;
+                    break;
+            }
+            Layout(toolbar);
+            var placed = Assert.Single(placements.Distinct(), placement =>
+                placement.Width == Math.Ceiling(toolbar.Width) && placement.Height == Math.Ceiling(toolbar.Height));
+            Assert.Equal(area.Left + area.Width, placed.Left + placed.Width);
+            Assert.Equal(nearBottom ? area.Top - 12 - placed.Height : area.Top + area.Height + 12, placed.Top);
+            if (!nearBottom || mode == CaptureAction.Record) PreviewToolbarAlignment(mode, toolbar, area, placed, nearBottom);
+        }
+        finally
+        {
+            if (recording is not null) await recording.CancelAsync();
+            longCapture?.Stop();
+            pin?.Close();
+            controller.Main.Close();
+        }
+    }
+
+    private static void PreviewToolbarAlignment(CaptureAction mode, Window toolbar, DesktopPlacement area, DesktopPlacement placed, bool above)
+    {
+        if (Environment.GetEnvironmentVariable("TBOX_UI_PREVIEWS") is not { Length: > 0 } directory) return;
+        Directory.CreateDirectory(directory);
+        var toolbarSize = new PixelSize((int)placed.Width, (int)placed.Height);
+        using var rendered = new RenderTargetBitmap(toolbarSize, new Vector(96, 96));
+        rendered.Render(toolbar);
+        using var preview = new RenderTargetBitmap(new PixelSize(660, 182), new Vector(96, 96));
+        var name = mode switch { CaptureAction.Pin => "贴图", CaptureAction.Long => "长截图", _ => above ? "录屏 · 下方空间不足" : "录屏" };
+        var origin = new Vector(628 - area.Left - area.Width, (above ? 78 : 34) - area.Top);
+        var imageBounds = new Rect(area.Left + origin.X, area.Top + origin.Y, area.Width, area.Height);
+        var toolbarBounds = new Rect(placed.Left + origin.X, placed.Top + origin.Y, placed.Width, placed.Height);
+        using (var context = preview.CreateDrawingContext())
+        {
+            context.FillRectangle(Brush.Parse("#F4F3F8"), new Rect(0, 0, 660, 182));
+            var label = new FormattedText(name, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface(FontFamily.Default, weight: FontWeight.SemiBold), 15, Brush.Parse("#262431"));
+            context.DrawText(label, new Point(24, 18));
+            var border = mode switch { CaptureAction.Long => Ui.LongYellow, CaptureAction.Record => Ui.RecordRed, _ => Brush.Parse("#6D4AE8") };
+            context.DrawRectangle(Brushes.White, new Pen(border, 1), imageBounds, 4);
+            context.FillRectangle(Brush.Parse("#E8E6EE"), new Rect(imageBounds.X + 16, imageBounds.Y + 16, 180, 8), 2);
+            context.FillRectangle(Brush.Parse("#E8E6EE"), new Rect(imageBounds.X + 16, imageBounds.Y + 34, 260, 8), 2);
+            context.DrawLine(new Pen(Brush.Parse("#A29AB5"), 1, DashStyle.Dash),
+                new Point(imageBounds.Right, Math.Min(imageBounds.Top, toolbarBounds.Top) - 8),
+                new Point(imageBounds.Right, Math.Max(imageBounds.Bottom, toolbarBounds.Bottom)));
+            context.DrawImage(rendered, new Rect(0, 0, toolbarSize.Width, toolbarSize.Height), toolbarBounds);
+        }
+        var suffix = above ? "-above" : "";
+        preview.Save(Path.Combine(directory, $"toolbar-alignment-{mode.ToString().ToLowerInvariant()}{suffix}.png"));
+    }
+
+    [AvaloniaFact]
+    public async Task ATextNoteAtThePinEdgeFitsInBothTheEditorAndTheSavedImage()
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var pin = new PinnedWindow(scope.Controller, scope.Frame.Crop(new PixelRegion(90, 85, 420, 220)));
+        pin.Show();
+        Layout(pin);
+        try
+        {
+            var surface = pin.GetVisualDescendants().OfType<PinSurface>().Single();
+            pin.Editor.Select(AnnotationTool.Text);
+            pin.Editor.FontSize = 24;
+            pin.Editor.Color = 0xFFE5484D;
+            pin.Editor.Begin(pin.ToPixel(new Point(surface.Bounds.Width - 9, surface.Bounds.Height - 8)), false);
+            var input = pin.GetVisualDescendants().OfType<TextBox>().Single();
+            input.Text = "Review note\nCheck the source figures.";
+            Layout(pin);
+            Assert.True(new Rect(surface.Bounds.Size).Contains(input.Bounds));
+            Preview(pin, "pin-text-edge-editing");
+
+            pin.FinishEditing();
+            Layout(pin);
+            var text = Assert.IsType<TextAnnotationCommand>(Assert.Single(pin.Editor.Document.Commands));
+            Assert.Equal(input.Text, text.Text);
+            Assert.InRange(text.Bounds.Right, 0, pin.Region.Width + .01);
+            Assert.InRange(text.Bounds.Bottom, 0, pin.Region.Height + .01);
+            if (Environment.GetEnvironmentVariable("TBOX_UI_PREVIEWS") is { Length: > 0 } directory)
+            {
+                using var rendered = AnnotationRenderer.Render(pin.Picture, pin.Region, pin.Editor.Document.Commands);
+                await File.WriteAllBytesAsync(Path.Combine(directory, "pin-text-edge-saved.png"), rendered.Png);
+            }
+        }
+        finally { pin.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task CancelledSaveLeavesPreviousScreenshotAndCacheIntact()
     {
         using var scope = await CaptureScope.StartAsync(null);

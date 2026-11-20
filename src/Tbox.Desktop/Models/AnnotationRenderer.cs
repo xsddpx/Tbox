@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Media.TextFormatting;
 using Avalonia.Platform;
 using Tbox.Core;
 
@@ -71,10 +72,11 @@ public static class AnnotationRenderer
                     }
                     break;
                 case TextAnnotationCommand text:
-                    var formatted = Text(text.Text, text.Style.FontSizePixels, brush);
-                    formatted.MaxTextWidth = text.Bounds.Width;
-                    formatted.MaxTextHeight = text.Bounds.Height;
-                    context.DrawText(formatted, rect.TopLeft); break;
+                    if (rect.Width <= 0 || rect.Height <= 0) break;
+                    using (context.PushClip(rect))
+                    using (var layout = LayoutText(text.Text, text.Style.FontSizePixels, rect.Width, brush))
+                        layout.Draw(context, rect.TopLeft);
+                    break;
             }
         }
     }
@@ -114,6 +116,9 @@ public static class AnnotationRenderer
     }
 
     private static Point P(AnnotationPoint p) => new(p.X, p.Y);
+    internal static TextLayout LayoutText(string text, double fontSize, double width, IBrush brush) =>
+        new(text, Typeface.Default, fontSize, brush, textWrapping: TextWrapping.Wrap, maxWidth: width);
+
     private static FormattedText Text(string text, double size, IBrush brush) => new(text, CultureInfo.CurrentUICulture,
         FlowDirection.LeftToRight, Typeface.Default, size, brush);
 }

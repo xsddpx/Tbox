@@ -41,7 +41,7 @@ public sealed class AnnotationToolbar : Border
     internal Border PropertiesSurface { get; } = Ui.ToolbarSurface(new StackPanel(), 5);
     internal StackPanel MainRow => _row;
 
-    public AnnotationToolbar(AnnotationEditor editor, Action prepare)
+    public AnnotationToolbar(AnnotationEditor editor, Func<bool> prepare)
     {
         _editor = editor;
         Background = Ui.ToolbarBackground; Padding = new Thickness(5); CornerRadius = new CornerRadius(DesignTokens.TaskRadius);
@@ -50,7 +50,7 @@ public sealed class AnnotationToolbar : Border
         MorePopup = CreatePopup(Ui.ToolbarSurface(_menu, 5));
         foreach (var (tool, icon, name) in Specs)
         {
-            var button = IconButton(icon, name, () => { prepare(); editor.Select(editor.Tool == tool ? null : tool); });
+            var button = IconButton(icon, name, () => { if (prepare()) editor.Select(editor.Tool == tool ? null : tool); });
             _tools.Add(tool, button); _row.Children.Add(button);
         }
         _row.Children.Add(Ui.ToolbarDivider());
