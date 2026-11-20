@@ -335,7 +335,11 @@ public sealed class DesktopController : IDisposable
 
     private Task ToggleQuickLookAsync(nint foreground)
     {
-        if (_quickLook is null || IsQuitting || _installingUpdate || !_settings.QuickLook.Enabled) return Task.CompletedTask;
+        if (_quickLook is null || IsQuitting || _installingUpdate || !_settings.QuickLook.Enabled)
+        {
+            AppLog.Write($"QuickLook ignored: quitting={IsQuitting} updating={_installingUpdate} enabled={_settings.QuickLook.Enabled}");
+            return Task.CompletedTask;
+        }
         _quickLookWindow ??= new QuickLookWindow(this, _quickLook);
         return _quickLookWindow.ToggleAsync(foreground);
     }

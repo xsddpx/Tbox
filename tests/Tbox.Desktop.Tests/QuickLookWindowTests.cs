@@ -67,6 +67,27 @@ public sealed class QuickLookWindowTests
     }
 
     [AvaloniaFact]
+    public async Task AMinimizedPreviewOpensAgainRestored()
+    {
+        using var scope = await Scope.CreateAsync();
+        var a = scope.File("a.txt");
+        scope.Source.Selection = new QuickLookSelection([a], false);
+        await scope.ActivateAsync();
+        var window = scope.Controller.QuickLookWindow!;
+        // Minimized from the taskbar or by Win+D: the next press must open it, not close it.
+        window.WindowState = WindowState.Minimized;
+        await scope.ActivateAsync();
+        Assert.True(window.IsVisible);
+        Assert.Equal(WindowState.Normal, window.WindowState);
+        // Closed while minimized, it still opens restored.
+        window.WindowState = WindowState.Minimized;
+        window.Dismiss();
+        await scope.ActivateAsync();
+        Assert.True(window.IsVisible);
+        Assert.Equal(WindowState.Normal, window.WindowState);
+    }
+
+    [AvaloniaFact]
     public async Task NothingSelectedShowsNoWindow()
     {
         using var scope = await Scope.CreateAsync();

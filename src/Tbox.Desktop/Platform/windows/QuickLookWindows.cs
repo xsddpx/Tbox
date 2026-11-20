@@ -138,6 +138,7 @@ internal static class QuickLookWindows
     // Peek's BringToForeground: borrow the foreground thread's input state for the call.
     internal static void BringToForeground(nint window)
     {
+        if (NativeMethods.IsIconic(window)) ShowWindow(window, 9); // SW_RESTORE
         var foreground = NativeMethods.GetForegroundWindow();
         if (foreground == window) return;
         var current = NativeMethods.GetCurrentThreadId();
@@ -353,6 +354,7 @@ internal static class QuickLookWindows
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")] private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
     [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(nint monitor, int kind, out uint x, out uint y);
     [DllImport("user32.dll")] private static extern bool BringWindowToTop(nint window);
+    [DllImport("user32.dll")] private static extern bool ShowWindow(nint window, int command);
     [DllImport("user32.dll")] private static extern bool GetIconInfo(nint icon, out IconInfo info);
     [DllImport("user32.dll")] private static extern bool DestroyIcon(nint icon);
     [DllImport("user32.dll")] private static extern nint GetDC(nint window);

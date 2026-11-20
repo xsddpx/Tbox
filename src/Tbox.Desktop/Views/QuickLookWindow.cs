@@ -39,6 +39,7 @@ internal sealed class QuickLookWindow : Window
     private Task<LibVLC>? _engineTask;
     private long _lastNavigation;
     private bool _pinned, _dialogOpen, _placed;
+    private DesktopPlacement? _placement;
     private int _revision;
     private string? _app;
 
@@ -120,7 +121,10 @@ internal sealed class QuickLookWindow : Window
     internal async Task ToggleAsync(nint foreground)
     {
         var selection = foreground == Handle ? null : await _source.ReadSelectionAsync(foreground, CancellationToken.None);
-        if (IsVisible)
+        // A minimized window (Show desktop, the minimize button) counts as closed, so the key opens it again.
+        var open = IsVisible && WindowState != WindowState.Minimized;
+        AppLog.Write($"QuickLook toggle: open={open} state={WindowState} items={selection?.Items.Count ?? 0}");
+        if (open)
         {
             if (selection is { Multiple: false } && !string.Equals(selection.Items[0], _items.Current, StringComparison.OrdinalIgnoreCase))
             {
@@ -188,7 +192,7 @@ internal sealed class QuickLookWindow : Window
         catch (Exception error) when (error is not OperationCanceledException)
         {
             if (revision != _revision) return;
-            AppLog.Write($"QuickLook measure {preview.GetType().Name}: {error.GetType().Name}");
+            AppLog.Write($"QuickLook measure {preview.GetType().Name}: {error}");
             preview = Fallback(preview, context);
             size = await preview.MeasureAsync(token);
         }
@@ -199,7 +203,7 @@ internal sealed class QuickLookWindow : Window
         catch (Exception error) when (error is not OperationCanceledException)
         {
             if (revision != _revision) return;
-            AppLog.Write($"QuickLook load {preview.GetType().Name}: {error.GetType().Name}");
+            AppLog.Write($"QuickLook load {preview.GetType().Name}: {error}");
             if (preview is QuickLookInfo) { ShowError(); return; }
             preview = Fallback(preview, context);
             Place(monitor, await preview.MeasureAsync(token), preview.EffectivePixels);
@@ -237,7 +241,14 @@ internal sealed class QuickLookWindow : Window
         var pixelWidth = width * monitor.Scale; var pixelHeight = height * monitor.Scale;
         var placement = new DesktopPlacement(monitor.Bounds.Left + (monitor.Bounds.Width - pixelWidth) / 2,
             monitor.Bounds.Top + (monitor.Bounds.Height - pixelHeight) / 2, pixelWidth, pixelHeight);
-        if (WindowState != WindowState.Normal) WindowState = WindowState.Normal;
+        _placement = placement;
+        // A minimized window keeps its size for later; it is applied when EnsureShown restores the window.
+        if (WindowState == WindowState.Minimized) return;
+        Apply(placement);
+    }
+
+    private void Apply(DesktopPlacement placement)
+    {
         var handle = Handle;
         if (handle == 0) return;
         // Moving to a display with another scale resizes the window once more; the second call restores the size.
@@ -248,8 +259,12 @@ internal sealed class QuickLookWindow : Window
 
     private void EnsureShown()
     {
-        if (IsVisible) return;
-        Show();
+        // Avalonia shows a hidden window in the state it was left in. A preview minimized from the taskbar or by
+        // Win+D would otherwise open minimized every time, appearing for a moment and shrinking away.
+        var restore = WindowState != WindowState.Normal;
+        if (restore) WindowState = WindowState.Normal;
+        if (!IsVisible) Show();
+        if (restore && _placement is { } placement) Apply(placement);
         _source.PreviewWindow = Handle;
         _source.BringToForeground(Handle);
         Activate();
