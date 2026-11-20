@@ -13,6 +13,7 @@
     <FileVersion>1.1.100.0</FileVersion>
     <TboxWindowsFfmpegRoot>$(MSBuildThisFileDirectory)../../TEMP/media-runtime/windows</TboxWindowsFfmpegRoot>
     <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">Assets/Tbox.ico</ApplicationIcon>
+    <ApplicationManifest Condition="'$(TboxWindows)' == 'true'">Platform/windows/app.manifest</ApplicationManifest>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -22,6 +23,12 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />
+    <!-- 速览 text, Markdown and SVG previews. Svg.Skia 3.x is the last line on SkiaSharp 2.88, which Avalonia 11 uses. -->
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="11.3.0" />
+    <PackageReference Include="AvaloniaEdit.TextMate" Version="11.3.0" />
+    <PackageReference Include="Markdig" Version="1.6.0" />
+    <PackageReference Include="Svg.Skia" Version="3.7.0" />
+    <PackageReference Include="SharpCompress" Version="0.50.10" />
     <ProjectReference Include="../Tbox.Core/Tbox.Core.csproj" />
     <AvaloniaResource Include="Assets/WindowsTrayIcon.ico" />
     <AvaloniaResource Include="Assets/StoreLogo.png" />

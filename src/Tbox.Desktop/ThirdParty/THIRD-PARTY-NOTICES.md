@@ -12,6 +12,15 @@ Windows 与 Mac 共用版的图像导出使用 FFmpeg 8.1.2（当前构建为 LG
 | MicroCom.Runtime | 0.11.0 | MIT | NuGet 包元数据 |
 | Tmds.DBus.Protocol | 0.21.3 | MIT | NuGet 包元数据；Linux 后端依赖 |
 | .NET runtime / System.IO.Pipelines | .NET 8 | MIT 及分发包第三方通知 | https://github.com/dotnet/runtime |
+| AvaloniaEdit / AvaloniaEdit.TextMate | 11.3.0 | MIT | https://github.com/AvaloniaUI/AvaloniaEdit |
+| TextMateSharp / TextMateSharp.Grammars | 1.0.65 | MIT；内置语法文件各有许可，见包内声明 | https://github.com/danipen/TextMateSharp |
+| Onigwrap（含 Oniguruma） | 1.0.6 | MIT；Oniguruma 为 BSD-2-Clause，见通知 | https://github.com/aikawayataro/Onigwrap |
+| Markdig | 1.6.0 | BSD-2-Clause | https://github.com/xoofx/markdig |
+| Svg.Skia / Svg.Model / ShimSkiaSharp | 3.7.0 | MIT | https://github.com/wieslawsoltes/Svg.Skia |
+| Svg.Custom（SVG.NET） | 3.7.0 | MS-PL | https://github.com/svg-net/SVG |
+| SharpCompress | 0.50.10 | MIT | https://github.com/adamhathcock/sharpcompress |
+
+速览的文本/代码、Markdown、SVG 预览和 7z、rar 目录读取使用上表后七项，均以托管库形式随应用分发，许可原文见同目录 `*-LICENSE.txt` 与 `Onigwrap-THIRD-PARTY-NOTICES.txt`。
 
 macOS 原生桥接代码为本仓库新写实现，调用系统提供的 AppKit、Vision、ScreenCaptureKit 和 Carbon；不复制其他截图应用的源码或图标。应用图标沿用 Tbox 自有资源。
 
