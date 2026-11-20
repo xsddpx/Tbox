@@ -707,9 +707,12 @@ public sealed class TaskToolbarTests
     public async Task ContactSheetPlayheadSnapsToSamplesAndShowsTheirFrames()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
-        // The real fixture and bundled FFmpeg decode the six sample thumbnails.
+        // The real fixture and bundled FFmpeg decode the six sample thumbnails. macOS test builds do not bundle FFmpeg
+        // (the media smoke test covers decoding there), so the card then shows its placeholder.
         var fixture = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "assets", "media-test", "fixture.mp4");
-        Assert.True(File.Exists(fixture) && File.Exists(RecordingExporter.FfmpegPath));
+        Assert.True(File.Exists(fixture));
+        var decodes = File.Exists(RecordingExporter.FfmpegPath);
+        Assert.True(decodes || !OperatingSystem.IsWindows(), "Windows 测试输出应带 FFmpeg。");
         using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
         controller.Main = new MainWindow(controller);
         var workspace = new RecordingWorkspace(Path.Combine(Path.GetTempPath(), "tbox-sheet-" + Guid.NewGuid().ToString("N")));
@@ -722,8 +725,8 @@ public sealed class TaskToolbarTests
             Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "六宫格")); Layout(review);
             var track = review.Track; var ticks = track.Ticks;
             Assert.Equal(6, ticks.Count);
-            for (var wait = 0; wait < 200 && review.LoadedThumbnails < 6; wait++) { await Task.Delay(50); Dispatcher.UIThread.RunJobs(); }
-            Assert.Equal(6, review.LoadedThumbnails);
+            for (var wait = 0; decodes && wait < 200 && review.LoadedThumbnails < 6; wait++) { await Task.Delay(50); Dispatcher.UIThread.RunJobs(); }
+            Assert.Equal(decodes ? 6 : 0, review.LoadedThumbnails);
 
             // Dragging the playhead 5 px past node 04 lands exactly on its sample time.
             Point At(int tick, double offset) => track.TranslatePoint(new Point(6 + (track.Bounds.Width - 12) * (ticks[tick] / track.Duration) + offset, track.Bounds.Height - 14), review)!.Value;
@@ -735,7 +738,7 @@ public sealed class TaskToolbarTests
             Assert.True(review.ThumbnailPopup.IsOpen);
             var card = (Border)review.ThumbnailPopup.Child!;
             Assert.Equal("04 · " + RecordingTrimBar.FormatPrecise(ticks[3]), card.GetVisualDescendants().OfType<TextBlock>().Single().Text);
-            Assert.NotNull(card.GetVisualDescendants().OfType<Image>().Single().Source);
+            Assert.Equal(decodes, card.GetVisualDescendants().OfType<Image>().Single().Source is not null);
             var tick = track.TranslatePoint(track.TickAnchor(3).Center, review)!.Value;
             var centre = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height), review)!.Value;
             Assert.InRange(centre.X - tick.X, -2, 2); Assert.True(centre.Y <= track.TranslatePoint(default, review)!.Value.Y);
