@@ -132,7 +132,7 @@ public sealed class TaskToolbarTests
         oldEditor.Undo();
         var oldSelection = new CaptureSelectionBounds(100, 80, 300, 200);
         await controller.CaptureFrames.AddAsync(new CaptureFrame([oldDisplay], 1, oldSelection, oldEditor.Document.Snapshot()));
-        var session = new CaptureSession(controller, [currentDisplay], _ => { });
+        var session = new CaptureSession(controller, [currentDisplay], () => { });
         session.Show();
         var window = Assert.Single(session.Windows);
         Layout(window);
@@ -189,7 +189,7 @@ public sealed class TaskToolbarTests
             Assert.Null(Assert.Single(controller.CaptureFrames.CompatibleWith([savedDisplay])).Frame);
 
             var currentDisplay = new CapturedDisplay(1, 0, 0, 1200, 720, scope.Frame.Png);
-            var session = new CaptureSession(controller, [currentDisplay], _ => { });
+            var session = new CaptureSession(controller, [currentDisplay], () => { });
             session.Show();
             var window = Assert.Single(session.Windows);
             Layout(window);
@@ -703,6 +703,45 @@ public sealed class TaskToolbarTests
         finally { _ = control.CancelAsync(); Dispatcher.UIThread.RunJobs(); controller.Main.Close(); }
     }
 
+    [AvaloniaTheory]
+    [InlineData(CaptureAction.Long, false, false)]
+    [InlineData(CaptureAction.Long, false, true)]
+    [InlineData(CaptureAction.Long, true, false)]
+    [InlineData(CaptureAction.Long, true, true)]
+    [InlineData(CaptureAction.Record, false, false)]
+    [InlineData(CaptureAction.Record, false, true)]
+    [InlineData(CaptureAction.Record, true, false)]
+    [InlineData(CaptureAction.Record, true, true)]
+    public async Task LongCaptureAndRecordingPreserveTheMainWindowVisibility(CaptureAction mode, bool fromScreenshot, bool mainVisible)
+    {
+        using var scope = await CaptureScope.StartAsync(fromScreenshot ? null : mode, mainVisible: mainVisible);
+        void CheckVisibility()
+        {
+            App.RestoreOnReopen(scope.Controller, new ActivatedEventArgs(ActivationKind.Reopen));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(mainVisible, scope.Controller.Main.IsVisible);
+        }
+
+        CheckVisibility();
+        var longCapture = mode == CaptureAction.Long;
+        if (fromScreenshot)
+        {
+            var toolbarMenu = Assert.Single(scope.Window.GetVisualDescendants().OfType<AnnotationToolbar>());
+            Click(toolbarMenu.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "更多操作"));
+            Layout(scope.Window);
+            var entry = longCapture ? "长截图" : "录屏";
+            Click(toolbarMenu.MorePopup.Child!.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == entry));
+        }
+        else scope.Window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+
+        CheckVisibility();
+        var toolbar = await scope.WaitForWindowAsync(longCapture ? "Tbox 长截图工具条" : "Tbox 录屏控制");
+        Assert.NotNull(toolbar);
+        CheckVisibility();
+        toolbar.Close();
+        Assert.Equal(mainVisible, scope.Controller.Main.IsVisible);
+    }
+
     [AvaloniaFact]
     public async Task ContactSheetPlayheadSnapsToSamplesAndShowsTheirFrames()
     {
@@ -755,8 +794,7 @@ public sealed class TaskToolbarTests
             // Hovering a node shows its thumbnail without moving the playhead.
             var position = track.Position;
             review.MouseMove(At(5, -3), RawInputModifiers.None); Layout(review);
-            // The playback timer may resync to the player's millisecond clock, but hovering must not seek.
-            Assert.Equal(5, track.HotTick); Assert.InRange((track.Position - position).Duration().TotalMilliseconds, 0, 5); Assert.True(review.ThumbnailPopup.IsOpen);
+            Assert.Equal(5, track.HotTick); Assert.Equal(position, track.Position); Assert.True(review.ThumbnailPopup.IsOpen);
             Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "MP4")); Layout(review);
             Assert.Empty(track.Ticks); Assert.Equal(-1, track.HotTick); Assert.False(review.ThumbnailPopup.IsOpen);
         }
@@ -779,7 +817,7 @@ public sealed class TaskToolbarTests
         bool Shows(string text) => review.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == text);
         try
         {
-            Assert.True(Shows("2560 × 1440 · 00:42 · 30 FPS · 静音"));
+            Assert.True(Shows("2560 × 1440 · 00:42.0 · 30 FPS · 静音"));
             Assert.True(Shows("导出全部 · 00:00.0 – 00:42.0　拖动两端红色手柄截取"));
             Assert.Equal(["MP4", "GIF", "WebP", "六宫格"], RecordingReviewWindow.Formats.Select(f => AutomationProperties.GetName(Chip(f switch
             {
@@ -832,6 +870,49 @@ public sealed class TaskToolbarTests
         Assert.False(Directory.Exists(workspace.SessionDirectory));
     }
 
+    [AvaloniaFact]
+    public async Task ScrubbingAStoppedReviewKeepsTheSelectedTimeAndShowsTheDecodedFrame()
+    {
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "assets", "media-test", "fixture.mp4"))) root = root.Parent;
+        Assert.NotNull(root);
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        controller.Main = new MainWindow(controller);
+        var workspace = new RecordingWorkspace(Path.Combine(Path.GetTempPath(), "tbox-scrub-" + Guid.NewGuid().ToString("N")));
+        File.Copy(Path.Combine(root.FullName, "assets", "media-test", "fixture.mp4"), workspace.MasterFilePath);
+        var area = new RecordingArea(new DesktopPlacement(0, 0, 320, 240), 320, 240);
+        var review = new RecordingReviewWindow(controller, workspace, area, new RecordingOutput(workspace.MasterFilePath, false, 2), TimeSpan.FromSeconds(2));
+        review.Show(); Layout(review);
+        try
+        {
+            var track = review.Track;
+            Point At(double fraction, double y) => track.TranslatePoint(new Point(6 + (track.Bounds.Width - 12) * fraction, y), review)!.Value;
+            // The lower part of the white playhead is draggable even when it shares the start handle's position.
+            review.MouseDown(At(0, track.Bounds.Height - 7), MouseButton.Left, RawInputModifiers.None);
+            review.MouseMove(At(0.63, 8), RawInputModifiers.LeftMouseButton);
+            review.MouseUp(At(0.63, 8), MouseButton.Left, RawInputModifiers.None);
+            Assert.True(track.Range.IsFull(track.Duration));
+            var selected = track.Position;
+            Assert.InRange(selected.TotalMilliseconds, 1250, 1270);
+
+            var image = review.GetVisualDescendants().OfType<Image>().Single(i => AutomationProperties.GetName(i) == "录屏定位画面");
+            var decodes = File.Exists(RecordingExporter.FfmpegPath);
+            for (var wait = 0; decodes && image.Source is null && wait < 100; wait++) await Task.Delay(20);
+            Assert.Equal(decodes, image.Source is not null);
+            await Task.Delay(150);
+            Assert.Equal(selected, track.Position);
+            Assert.Contains(review.GetVisualDescendants().OfType<TextBlock>(), block => block.Text == "00:01.2 / 00:02.0");
+
+            // Press the red start handle above the white playhead and release at a different time.
+            review.MouseDown(At(0, track.Bounds.Height - 18), MouseButton.Left, RawInputModifiers.None);
+            review.MouseUp(At(0.27, track.Bounds.Height - 18), MouseButton.Left, RawInputModifiers.None);
+            Assert.InRange(review.Options().Range.Start.TotalMilliseconds, 530, 550);
+            Assert.Equal(review.Options().Range.Start, track.Position);
+            Assert.Contains(review.GetVisualDescendants().OfType<TextBlock>(), block => block.Text == "00:00.5 / 00:02.0");
+        }
+        finally { await review.RequestCloseAsync(discardUnsaved: true); controller.Main.Close(); }
+    }
+
     [Fact]
     public void ModeColoursFollowTheSpec()
     {
@@ -874,7 +955,17 @@ public sealed class TaskToolbarTests
         private CaptureScope(ClassicDesktopStyleApplicationLifetime lifetime, DesktopController controller, Picture frame, CaptureWindow window)
         { _lifetime = lifetime; _controller = controller; _frame = frame; Window = window; }
 
-        public static async Task<CaptureScope> StartAsync(CaptureAction? preset, double topSafeInset = 0)
+        public async Task<Window?> WaitForWindowAsync(string title)
+        {
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                if (_lifetime.Windows.FirstOrDefault(window => window.Title == title) is { } window) return window;
+                await Task.Delay(10);
+            }
+            return null;
+        }
+
+        public static async Task<CaptureScope> StartAsync(CaptureAction? preset, double topSafeInset = 0, bool mainVisible = false)
         {
             if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
             var frame = Desktop(1200, 720);
@@ -885,10 +976,13 @@ public sealed class TaskToolbarTests
             {
                 HasScreenPermission = true,
                 Displays = [new CapturedDisplay(1, 0, 0, 1200, 720, frame.Png)],
+                CaptureRegion = async token => { await Task.Delay(Timeout.Infinite, token); return frame.Png; },
+                Recorder = new FakeRecorder(),
                 DisplayTopSafeInset = topSafeInset
             };
             var controller = new DesktopController(platform, lifetime);
             controller.Main = new MainWindow(controller);
+            if (mainVisible) controller.Main.Show();
             await (preset switch { CaptureAction.Record => controller.RecordRegionAsync(), CaptureAction.Long => controller.LongCaptureAsync(), _ => controller.CaptureAsync() });
             var window = Assert.Single(lifetime.Windows.OfType<CaptureWindow>());
             Layout(window);

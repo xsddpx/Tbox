@@ -15,8 +15,8 @@ namespace Tbox.Desktop.Views;
 internal sealed class RecordingTrimBar : Control
 {
     private const double HandleWidth = 10, HandleHeight = 24, HeadSize = 16, RailHeight = 4, Inset = HandleWidth / 2 + 1, Snap = 8;
-    private static readonly IBrush Rail = Brush.Parse("#E6E4EE"), Band = new SolidColorBrush(Color.Parse("#E5484D"), .18),
-        Tick = Brush.Parse("#1A1B22"), Tip = Brush.Parse("#1D1D24"), Muted = Brush.Parse("#5F6270");
+    private static readonly IBrush Rail = Brush.Parse("#E6E4EE"), Band = new SolidColorBrush(Color.Parse("#E5484D"), .26),
+        Tip = Brush.Parse("#1D1D24"), Muted = Brush.Parse("#5F6270");
     private enum Part { None, Start, End, Head }
     private Part _drag;
     private TimeSpan _duration, _position;
@@ -68,32 +68,31 @@ internal sealed class RecordingTrimBar : Control
 
     public override void Render(DrawingContext context)
     {
+        context.FillRectangle(Brushes.Transparent, new Rect(Bounds.Size));
         var mid = Mid;
         context.FillRectangle(Rail, new Rect(Inset, mid - RailHeight / 2, Track, RailHeight), 2);
         double start = X(_range.Start), end = X(_range.End), head = X(_position);
-        context.FillRectangle(Band, new Rect(start, mid - 4, end - start, 8));
+        context.FillRectangle(Band, new Rect(start, mid - RailHeight / 2, end - start, RailHeight), 2);
         var red = Ui.RecordRed;
-        context.DrawRectangle(null, new Pen(red, 1.5), new Rect(start, mid - 4, end - start, 8));
-        if (head > start) context.FillRectangle(red, new Rect(start, mid - RailHeight / 2, Math.Min(head, end) - start, RailHeight));
+        if (head > start) context.FillRectangle(red, new Rect(start, mid - RailHeight / 2, Math.Min(head, end) - start, RailHeight), 2);
         for (var i = 0; i < _ticks.Count; i++)
         {
             var x = X(_ticks[i]);
-            context.FillRectangle(i == _hot ? red : Tick, new Rect(x - 1, mid - 5, 2, 10), 1);
-            Label(context, (i + 1).ToString("00"), x, mid - HandleHeight / 2 - 14, i == _hot ? red : Muted, 10, null);
+            var marker = i == _hot || _ticks[i] == _position ? red : Muted;
+            context.FillRectangle(marker, new Rect(x - .75, mid - 4, 1.5, 8), .75f);
+            Label(context, (i + 1).ToString("00"), x, 0, marker, 10, null);
         }
         foreach (var x in new[] { start, end })
         {
-            context.DrawRectangle(red, null, new RoundedRect(new Rect(x - HandleWidth / 2, mid - HandleHeight / 2, HandleWidth, HandleHeight), 3),
-                new BoxShadows(new BoxShadow { OffsetY = 1, Blur = 3, Color = Color.FromArgb(64, 16, 18, 32) }));
+            context.FillRectangle(red, new Rect(x - 4, mid - 12, 8, 20), 3);
             context.FillRectangle(new SolidColorBrush(Colors.White, .8), new Rect(x - 1, mid - 5, 2, 10), 1);
         }
-        context.DrawRectangle(Brushes.White, new Pen(new SolidColorBrush(Color.FromArgb(38, 16, 18, 32)), 1),
-            new RoundedRect(new Rect(head - HeadSize / 2, mid - HeadSize / 2, HeadSize, HeadSize), HeadSize / 2),
-            new BoxShadows(new BoxShadow { OffsetY = 2, Blur = 6, Color = Color.FromArgb(51, 16, 18, 32) }));
+        context.DrawRectangle(Brushes.White, new Pen(red, 1.5),
+            new RoundedRect(new Rect(head - HeadSize / 2, mid + 3 - HeadSize / 2, HeadSize, HeadSize), HeadSize / 2));
         if (_drag is Part.Start or Part.End)
         {
             var at = _drag == Part.Start ? _range.Start : _range.End;
-            Label(context, FormatPrecise(at), X(at), mid - HandleHeight / 2 - 22, Brushes.White, 11, Tip);
+            Label(context, FormatPrecise(at), X(at), 0, Brushes.White, 11, Tip, Bounds.Width);
         }
     }
 
@@ -103,25 +102,35 @@ internal sealed class RecordingTrimBar : Control
         _hot = index; InvalidateVisual(); HotTickChanged?.Invoke(index);
     }
 
-    private static void Label(DrawingContext context, string text, double centre, double top, IBrush foreground, double size, IBrush? background)
+    private static void Label(DrawingContext context, string text, double centre, double top, IBrush foreground, double size, IBrush? background,
+        double width = double.PositiveInfinity)
     {
         var layout = new FormattedText(text, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
             new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.SemiBold), size, foreground);
         var x = centre - layout.Width / 2;
-        if (background is not null) context.FillRectangle(background, new Rect(x - 6, top, layout.Width + 12, 18), 4);
+        if (background is not null)
+        {
+            x = Math.Clamp(x, 6, Math.Max(6, width - layout.Width - 6));
+            context.FillRectangle(background, new Rect(x - 6, top, layout.Width + 12, 18), 4);
+        }
         context.DrawText(layout, new Point(x, top + (background is null ? 0 : (18 - layout.Height) / 2)));
     }
 
-    internal static string FormatPrecise(TimeSpan time) => $"{(int)time.TotalMinutes:00}:{time.Seconds:00}.{time.Milliseconds / 100}";
+    internal static string FormatPrecise(TimeSpan time, bool showHours = false) => showHours || time.TotalHours >= 1
+        ? time.ToString(@"h\:mm\:ss\.f", System.Globalization.CultureInfo.InvariantCulture)
+        : time.ToString(@"mm\:ss\.f", System.Globalization.CultureInfo.InvariantCulture);
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || _duration <= TimeSpan.Zero) return;
-        var x = e.GetPosition(this).X;
+        var point = e.GetPosition(this);
+        var x = point.X;
         double start = X(_range.Start), end = X(_range.End);
-        // Prefer the nearer handle when both overlap; clicks elsewhere seek inside the range.
-        _drag = Math.Abs(x - start) <= HandleWidth && Math.Abs(x - start) <= Math.Abs(x - end) ? Part.Start
+        // The lower half of the white playhead remains reachable when it shares a red handle's x coordinate.
+        var grabPlayhead = point.Y >= Mid + 4 && Math.Abs(x - X(_position)) <= HeadSize / 2;
+        _drag = grabPlayhead ? Part.Head
+            : Math.Abs(x - start) <= HandleWidth && Math.Abs(x - start) <= Math.Abs(x - end) ? Part.Start
             : Math.Abs(x - end) <= HandleWidth ? Part.End : Part.Head;
         if (_drag != Part.Head) SetHot(-1);
         e.Pointer.Capture(this); Move(x); e.Handled = true;
@@ -154,6 +163,7 @@ internal sealed class RecordingTrimBar : Control
     {
         base.OnPointerReleased(e);
         if (_drag == Part.None) return;
+        Move(e.GetPosition(this).X);
         var trimmed = _drag != Part.Head; _drag = Part.None; e.Pointer.Capture(null);
         SetHot(IsPointerOver ? NearTick(e.GetPosition(this).X) : -1); InvalidateVisual();
         if (trimmed) RangeChanged?.Invoke(_range);

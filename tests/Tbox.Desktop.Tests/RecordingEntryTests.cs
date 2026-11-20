@@ -14,8 +14,10 @@ namespace Tbox.Desktop.Tests;
 
 public sealed class RecordingEntryTests
 {
-    [AvaloniaFact]
-    public async Task RecordingEntryShowsSelectionControlsAndCancelReturnsToLauncher()
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RecordingEntryShowsSelectionControlsAndPreservesMainWindowOnCancel(bool mainVisible)
     {
         using var frame = DesktopController.RenderText("Recording selection");
         using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -28,11 +30,11 @@ public sealed class RecordingEntryTests
         };
         using var controller = new DesktopController(platform, lifetime);
         var main = controller.Main = new MainWindow(controller);
-        main.Show();
+        if (mainVisible) main.Show();
         try
         {
             await controller.RecordRegionAsync();
-            Assert.False(main.IsVisible);
+            Assert.Equal(mainVisible, main.IsVisible);
             var selection = Assert.Single(lifetime.Windows.OfType<CaptureWindow>());
             selection.UpdateLayout();
             selection.MouseDown(new Point(12, 12), MouseButton.Left, RawInputModifiers.None);
@@ -44,7 +46,7 @@ public sealed class RecordingEntryTests
                 b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "确认录屏区域 · Enter");
             selection.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
             Assert.Empty(lifetime.Windows.OfType<CaptureWindow>());
-            Assert.True(main.IsVisible); // Cancelling restores the settings window it was started from.
+            Assert.Equal(mainVisible, main.IsVisible);
         }
         finally { controller.Dispose(); main.Close(); }
     }

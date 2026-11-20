@@ -108,6 +108,6 @@ public sealed class App : Application
         // macOS reopens an existing process through the application lifetime,
         // without starting the second process handled by SingleInstance.
         if (args.Kind == ActivationKind.Reopen)
-            Dispatcher.UIThread.Post(controller.ShowMain);
+            Dispatcher.UIThread.Post(controller.ShowMainOnReopen);
     }
 }

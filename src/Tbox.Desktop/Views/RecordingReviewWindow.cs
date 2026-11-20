@@ -21,14 +21,15 @@ internal sealed class RecordingReviewWindow : Window
 {
     private readonly DesktopController _controller;
     private readonly RecordingWorkspace _workspace;
-    private readonly RecordingArea _area;
     private readonly RecordingOutput _output;
-    private readonly TimeSpan _duration;
     private readonly VideoSize _source;
     private readonly VideoView _video = new();
+    private readonly Image _scrubImage = new() { IsVisible = false, Stretch = Stretch.Uniform };
     private readonly RecordingTrimBar _track = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Value = 100, Width = 80, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _time = new() { Text = "00:00 / 00:00", FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _time = new() { FontSize = 12, FontFeatures = new FontFeatureCollection { FontFeature.Parse("tnum") },
+        FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _recordingDetails = Ui.Description("");
     private readonly TextBlock _range = new() { FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _status = Ui.Description("");
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 6, MinHeight = 6, Width = 140, CornerRadius = new CornerRadius(3), IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
@@ -49,6 +50,11 @@ internal sealed class RecordingReviewWindow : Window
     private MediaPlayer? _player;
     private LibVLCSharp.Shared.Media? _media;
     private CancellationTokenSource? _exportCancellation;
+    private readonly CancellationTokenSource _scrubCancellation = new();
+    private Task _scrubTask = Task.CompletedTask;
+    private Picture? _scrubFrame;
+    private TimeSpan? _scrubPosition, _resumeFrom;
+    private Task _restartTask = Task.CompletedTask;
     // Contact-sheet sample thumbnails keyed by time; a new range cancels the batch still decoding.
     private readonly Dictionary<TimeSpan, Picture> _thumbnails = [];
     private CancellationTokenSource? _thumbnailLoad;
@@ -76,8 +82,9 @@ internal sealed class RecordingReviewWindow : Window
 
     public RecordingReviewWindow(DesktopController controller, RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
     {
-        _controller = controller; _workspace = workspace; _area = area; _output = output; _duration = duration;
+        _controller = controller; _workspace = workspace; _output = output;
         _source = new VideoSize(area.PixelWidth, area.PixelHeight);
+        AutomationProperties.SetName(_scrubImage, "录屏定位画面");
         Ui.Configure(this, "录屏 · Tbox", 900, 680);
         MinWidth = 760; MinHeight = 500;
         Ui.ExtendIntoTitleBar(this);
@@ -97,11 +104,17 @@ internal sealed class RecordingReviewWindow : Window
             _volume.Resources["SliderTrackFill" + state] = Brush.Parse("#E6E4EE");
         }
         _track.Duration = duration;
-        var speaker = new LineIcon(output.HasSystemAudio ? IconKind.Speaker : IconKind.Mute, brush: Brush.Parse("#5F6270")) { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center };
-        var playback = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 4, 20, 0), Children =
+        var playback = new Grid { ColumnDefinitions = new ColumnDefinitions(output.HasSystemAudio ? "Auto,*,Auto,Auto,Auto" : "Auto,*,Auto"),
+            ColumnSpacing = 12, Margin = new Thickness(20, 4, 20, 0), Children =
         {
-            _play, Ui.Column(_track, 1), Ui.Column(_time, 2), Ui.Column(speaker, 3), Ui.Column(_volume, 4)
+            _play, Ui.Column(_track, 1), Ui.Column(_time, 2)
         } };
+        if (output.HasSystemAudio)
+        {
+            var speaker = new LineIcon(IconKind.Speaker, brush: Brush.Parse("#5F6270")) { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center };
+            playback.Children.Add(Ui.Column(speaker, 3));
+            playback.Children.Add(Ui.Column(_volume, 4));
+        }
         // Range line under the track (PixPin: drag the handles at both ends; only the part between them is exported).
         _resetRange = Ui.Link("恢复全部", () => _track.Range = new(TimeSpan.Zero, _track.Duration));
         var rangeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(64, 0, 20, 0), Height = 22,
@@ -121,8 +134,8 @@ internal sealed class RecordingReviewWindow : Window
         _thumbnailFrame.Child = _thumbnailImage;
         ThumbnailPopup = new Popup
         {
-            // The overlay layer draws above the native video view.
-            PlacementTarget = _track, Placement = PlacementMode.Top, VerticalOffset = -2, ShouldUseOverlayLayer = true,
+            // A separate popup surface stays above the native video view.
+            PlacementTarget = _track, Placement = PlacementMode.Top, VerticalOffset = -2,
             IsHitTestVisible = false, TakesFocusFromNativeControl = false,
             PlacementConstraintAdjustment = PopupPositionerConstraintAdjustment.SlideX | PopupPositionerConstraintAdjustment.FlipY,
             Child = new Border { Background = Brush.Parse("#1D1D24"), CornerRadius = new CornerRadius(8), Padding = new Thickness(4, 4, 4, 2), IsHitTestVisible = false,
@@ -130,17 +143,17 @@ internal sealed class RecordingReviewWindow : Window
                 Child = new StackPanel { Spacing = 3, Children = { _thumbnailFrame, _thumbnailLabel } } }
         };
         _track.HotTickChanged += _ => ShowThumbnail();
-        _track.Seeked += time => { if (!_closing && _player is { } player) player.Time = (long)time.TotalMilliseconds; UpdateTime(time); };
+        _track.Seeked += Seek;
         _status.FontSize = DesignTokens.Caption;
         var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { format, _frameRateGroup, sizeGroup, _progress, _status } };
         _status.VerticalAlignment = VerticalAlignment.Center; _status.TextWrapping = TextWrapping.NoWrap; _status.TextTrimming = TextTrimming.CharacterEllipsis;
         var bar = Ui.ResultBar(left, _cancelExport, _save);
         ApplyFormatDefaults(); UpdateRange();
 
-        var size = $"{area.PixelWidth} × {area.PixelHeight} · {FormatTime(duration)} · {RecordingFrameRatePolicy.RecordingFrameRate} FPS · {(output.HasSystemAudio ? "系统声音" : "静音")}";
-        var header = Ui.ResultHeader(IconKind.Record, ToolTone.Red, "录屏预览", Ui.Description(size), _rerecord);
+        var header = Ui.ResultHeader(IconKind.Record, ToolTone.Red, "录屏预览", _recordingDetails, _rerecord);
         var strip = Ui.TitleStrip("录屏 · Tbox", brand);
-        var canvas = new Border { Background = Brush.Parse("#111217"), CornerRadius = new CornerRadius(12), Margin = new Thickness(12, 0), ClipToBounds = true, Child = _video };
+        var canvas = new Border { Background = Brush.Parse("#111217"), CornerRadius = new CornerRadius(12), Margin = new Thickness(12, 0),
+            ClipToBounds = true, Child = new Grid { Children = { _video, _scrubImage } } };
         DockPanel.SetDock(strip, Dock.Top); DockPanel.SetDock(header, Dock.Top); DockPanel.SetDock(bar, Dock.Bottom);
         DockPanel.SetDock(rangeRow, Dock.Bottom); DockPanel.SetDock(playback, Dock.Bottom);
         playback.Children.Add(ThumbnailPopup);
@@ -232,21 +245,64 @@ internal sealed class RecordingReviewWindow : Window
     private void UpdateRange()
     {
         var range = _track.Range; var full = range.IsFull(_track.Duration);
+        _recordingDetails.Text = $"{_source.Width} × {_source.Height} · {RecordingTrimBar.FormatPrecise(_track.Duration)} · {RecordingFrameRatePolicy.RecordingFrameRate} FPS · {(_output.HasSystemAudio ? "系统声音" : "静音")}";
         _range.Text = full ? $"导出全部 · {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)}　拖动两端红色手柄截取"
             : $"截取 {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)} · 共 {RecordingTrimBar.FormatPrecise(range.Length)}";
         _resetRange.IsVisible = !full;
         var ticks = Format == RecordingExportFormat.ContactSheet ? ContactSheetPolicy.SampleTimes(range, RecordingFrameRatePolicy.RecordingFrameRate) : [];
         if (!ticks.SequenceEqual(_track.Ticks)) _track.Ticks = ticks;
         LoadThumbnails(ticks);
-        if (_player?.IsPlaying == true) return;
-        // A paused playhead outside the handles jumps to the start handle.
-        var now = _player is { } player ? TimeSpan.FromMilliseconds(Math.Max(0, player.Time)) : _track.Position;
-        if (now < range.Start || now > range.End)
+        if (_track.Position < range.Start || _track.Position > range.End) Seek(range.Start);
+        else UpdateTime(_track.Position);
+    }
+
+    private void Seek(TimeSpan time)
+    {
+        if (_closing) return;
+        _resumeFrom = null;
+        _scrubPosition = time;
+        if (_player?.IsPlaying == true) _player.SetPause(true);
+        _track.Position = time;
+        UpdateTime(time);
+        if (File.Exists(RecordingExporter.FfmpegPath))
         {
-            if (_player is { } paused) paused.Time = (long)range.Start.TotalMilliseconds;
-            now = range.Start;
+            if (_scrubTask.IsCompleted) _scrubTask = PreviewScrubAsync();
         }
-        _track.Position = now; UpdateTime(now);
+        else if (_player?.IsSeekable == true) _player.Time = (long)time.TotalMilliseconds;
+    }
+
+    private async Task PreviewScrubAsync()
+    {
+        // Decode one frame at a time and pick up the latest position when the pointer moves faster than decoding.
+        // VLC cannot seek reliably once playback has ended, and decoding also shows the selected frame while paused.
+        var frameLength = TimeSpan.FromSeconds(1d / RecordingFrameRatePolicy.RecordingFrameRate);
+        var size = RecordingSizePolicy.FitLongEdge(_source, 960, false);
+        try
+        {
+            while (_resumeFrom is null && _scrubPosition is { } time)
+            {
+                var lastFrame = _track.Duration > frameLength ? _track.Duration - frameLength : TimeSpan.Zero;
+                var pixels = await RecordingExporter.ReadFrameAsync(_output.FilePath, time > lastFrame ? lastFrame : time, size, _scrubCancellation.Token);
+                if (_closing || _resumeFrom is not null || _scrubPosition is null) break;
+                var previous = _scrubFrame;
+                _scrubFrame = Picture.FromPixels(pixels, size.Width, size.Height);
+                _scrubImage.Source = _scrubFrame.Bitmap;
+                _scrubImage.IsVisible = true;
+                _video.IsVisible = false;
+                previous?.Dispose();
+                if (_scrubPosition == time) break;
+            }
+        }
+        catch (OperationCanceledException) when (_closing) { }
+        catch (Exception error) { AppLog.Write("录屏定位预览：" + error.Message); }
+    }
+
+    private void ShowPlayback()
+    {
+        _video.IsVisible = true;
+        _scrubImage.IsVisible = false;
+        _scrubImage.Source = null;
+        _scrubFrame?.Dispose(); _scrubFrame = null;
     }
 
     private void ShowThumbnail()
@@ -298,7 +354,9 @@ internal sealed class RecordingReviewWindow : Window
             _media = new LibVLCSharp.Shared.Media(_engine, _output.FilePath, FromType.FromPath);
             _player = new MediaPlayer(_engine); _video.MediaPlayer = _player;
             _player.EncounteredError += (_, _) => Dispatcher.UIThread.Post(() => _status.Text = "回放失败，母版保留，可尝试保存后用系统播放器打开。");
-            _player.Play(_media); _play.IsEnabled = true; _timer.Start(); _status.Text = "";
+            if (_scrubPosition is null) _player.Play(_media);
+            else _player.Media = _media;
+            _play.IsEnabled = true; _timer.Start(); _status.Text = "";
         }
         catch (Exception error)
         {
@@ -309,35 +367,56 @@ internal sealed class RecordingReviewWindow : Window
 
     private async Task TogglePlaybackAsync()
     {
-        if (_closing || _player is not { } player) return;
-        if (player.IsPlaying) player.Pause();
+        if (_closing || !_restartTask.IsCompleted || _player is not { } player) return;
+        if (_resumeFrom is not null || player.IsPlaying && _scrubPosition is null)
+        {
+            _resumeFrom = null;
+            player.SetPause(true);
+        }
         else
         {
             var range = _track.Range;
-            var restart = player.State == VLCState.Ended || player.Time < (long)range.Start.TotalMilliseconds ||
-                player.Time >= (long)range.End.TotalMilliseconds - 50;
-            if (player.State == VLCState.Ended) await Task.Run(player.Stop);
-            if (_closing) return;
+            var position = _scrubPosition ?? _track.Position;
+            var ended = player.State == VLCState.Ended;
+            if (_scrubPosition is not null || ended || position < range.Start || position >= range.End)
+                _resumeFrom = position < range.Start || position >= range.End || ended && _scrubPosition is null
+                    ? range.Start : position;
+            if (ended)
+            {
+                _restartTask = Task.Run(player.Stop);
+                await _restartTask;
+                if (_closing || _resumeFrom is null) return;
+            }
             player.Play();
-            // Playback stays between the handles: once the end handle is reached, play again from the start handle.
-            if (restart) player.Time = (long)range.Start.TotalMilliseconds;
         }
         UpdatePlayback();
     }
 
     private void UpdatePlayback()
     {
-        if (_closing || _player is not { } player) return;
+        if (_closing || !_restartTask.IsCompleted || _player is not { } player) return;
         if (player.Length > 0 && Math.Abs(player.Length - _track.Duration.TotalMilliseconds) > 1)
         { _track.Duration = TimeSpan.FromMilliseconds(player.Length); UpdateRange(); }
-        var now = TimeSpan.FromMilliseconds(Math.Max(0, player.Time));
-        if (player.IsPlaying && now >= _track.Range.End && !_track.Range.IsFull(_track.Duration)) { player.Pause(); now = _track.Range.End; }
-        if (!_track.IsDragging) _track.Position = now;
-        UpdateTime(now);
-        _play.Content = new LineIcon(player.IsPlaying ? IconKind.Pause : IconKind.Play, brush: Brush.Parse("#1A1B22")) { Width = 18, Height = 18 };
+        if (_resumeFrom is { } target)
+        {
+            if (!player.IsPlaying || !player.IsSeekable) return;
+            player.Time = (long)target.TotalMilliseconds;
+            _resumeFrom = _scrubPosition = null;
+            _track.Position = target;
+            ShowPlayback();
+        }
+        else if (_scrubPosition is null && !_track.IsDragging)
+        {
+            var now = player.State == VLCState.Ended ? _track.Duration : TimeSpan.FromMilliseconds(Math.Max(0, player.Time));
+            if (now >= _track.Range.End && !_track.Range.IsFull(_track.Duration)) Seek(_track.Range.End);
+            else _track.Position = now;
+        }
+        UpdateTime(_track.Position);
+        _play.Content = new LineIcon(player.IsPlaying && _scrubPosition is null ? IconKind.Pause : IconKind.Play, brush: Brush.Parse("#1A1B22")) { Width = 18, Height = 18 };
     }
 
-    private void UpdateTime(TimeSpan now) => _time.Text = $"{FormatTime(now)} / {FormatTime(_track.Duration)}";
+    private void UpdateTime(TimeSpan now) =>
+        _time.Text = $"{RecordingTrimBar.FormatPrecise(now, _track.Duration.TotalHours >= 1)} / {RecordingTrimBar.FormatPrecise(_track.Duration)}";
 
     private async Task SaveAsync()
     {
@@ -426,13 +505,21 @@ internal sealed class RecordingReviewWindow : Window
             finally { _discardConfirmation = null; }
         }
         if (_closing) { await _released.Task; return true; }
-        _closing = true; _timer.Stop(); _thumbnailLoad?.Cancel(); ThumbnailPopup.IsOpen = false;
+        _closing = true; _timer.Stop(); _scrubCancellation.Cancel(); _thumbnailLoad?.Cancel(); ThumbnailPopup.IsOpen = false;
         try
         {
             await _initialization;
+            await _scrubTask;
+            _scrubCancellation.Dispose();
+            _scrubImage.Source = null;
+            _scrubFrame?.Dispose();
             if (_player is { } player)
             {
-                try { await Task.Run(player.Stop); }
+                try
+                {
+                    await _restartTask;
+                    await Task.Run(player.Stop);
+                }
                 catch (Exception error) { _controller.Main.SetStatus("回放停止异常：" + error.Message); }
             }
             _video.MediaPlayer = null;
