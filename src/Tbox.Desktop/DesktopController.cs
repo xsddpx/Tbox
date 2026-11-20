@@ -389,6 +389,11 @@ public sealed class DesktopController : IDisposable
     // Tray click, app reopen and a second launch all bring the main window to the front.
     // A hidden window reopens on 截图; one that is already open keeps its page unless a page is requested.
     public void ShowMain() => ShowMain(null);
+    internal void ShowMainOnReopen()
+    {
+        if (!_capturing && _capture is null && _longCapture is null && _recording is null && _reviews.Count == 0) ShowMain();
+    }
+
     internal void ShowMain(MainPage? page)
     {
         if (IsQuitting) return;
@@ -429,13 +434,8 @@ public sealed class DesktopController : IDisposable
         }
         _capturing = true;
         var timer = Stopwatch.StartNew();
-        var restore = (preset is CaptureAction.Long or CaptureAction.Record) && Main.IsVisible;
-        if (restore) Main.Hide();
         try
         {
-            // Only a window we just hid needs time to leave the compositor's next capture.
-            // Ordinary hotkey/button captures preserve the main window and start immediately.
-            if (restore) await Task.Delay(150, _stop.Token);
             // Snapshot external targets before overlays exist, alongside screen capture, not on the input thread.
             var targetsTask = Task.Run(Platform.CreateCaptureTargets, _stop.Token);
             var displaysTask = Platform.CaptureAsync(_stop.Token);
@@ -443,15 +443,10 @@ public sealed class DesktopController : IDisposable
             var displays = await displaysTask;
             var capturedMs = timer.Elapsed.TotalMilliseconds;
             if (IsQuitting || _installingUpdate) return;
-            _capture = new CaptureSession(this, displays, cancelled =>
-            {
-                _capture = null;
-                if (restore && cancelled && !IsQuitting) ShowMain();
-            }, preset, await targetsTask);
+            _capture = new CaptureSession(this, displays, () => _capture = null, preset, await targetsTask);
             _capture.Show();
             AppLog.Write($"Capture ready: acquisition={capturedMs:F1}ms, overlay-shown={timer.Elapsed.TotalMilliseconds:F1}ms, displays={displays.Count}");
         }
-        catch { if (restore) ShowMain(); throw; }
         finally { _capturing = false; }
     }
 
@@ -550,7 +545,7 @@ public sealed class DesktopController : IDisposable
     internal async Task StartRecordingAsync(RecordingArea area)
     {
         if (_recording is not null || _quitRequested) return;
-        _capturing = true; Main.Hide();
+        _capturing = true;
         try
         {
             await Task.Delay(150, _stop.Token);

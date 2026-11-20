@@ -143,7 +143,10 @@ internal sealed class RecordingControlWindow : Window
             if (!_closing) _timer.Start();
         }
         catch (OperationCanceledException) when (_closing) { }
-        catch (Exception error) { if (!_closing) { _controller.Main.SetStatus(error.Message); await CancelAsync(); _controller.ShowMain(); } }
+        catch
+        {
+            if (!_closing) { await CancelAsync(); throw; }
+        }
         finally { _busy = false; Refresh(); }
     }
 
@@ -169,7 +172,7 @@ internal sealed class RecordingControlWindow : Window
             catch { workspace.Dispose(); throw; }
         }
         catch (OperationCanceledException) when (_closing) { }
-        catch (Exception error) { _controller.Main.SetStatus(error.Message); await CancelAsync(); _controller.ShowMain(); }
+        catch { await CancelAsync(); throw; }
         finally { _busy = false; }
     }
 

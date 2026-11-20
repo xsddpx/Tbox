@@ -17,7 +17,7 @@ internal static class ToolbarSmokeTest
 {
     public static async Task<object> RunAsync(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, string directory)
     {
-        var session = new CaptureSession(controller, displays, _ => { });
+        var session = new CaptureSession(controller, displays, () => { });
         var placements = new List<object>();
         try
         {

@@ -11,7 +11,7 @@ public enum CaptureAction { Copy, Save, Pin, Ocr, Long, Record }
 internal sealed class CaptureSession
 {
     private readonly DesktopController _controller;
-    private readonly Action<bool> _closed;
+    private readonly Action _closed;
     private readonly List<CaptureWindow> _windows = [];
     internal IReadOnlyList<CaptureWindow> Windows => _windows;
     private readonly ICaptureTargetSource _targets;
@@ -29,7 +29,7 @@ internal sealed class CaptureSession
     // Record or Long when the session only selects a region for that mode; null for a normal capture.
     public CaptureAction? Preset { get; }
 
-    public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action<bool> closed,
+    public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action closed,
         CaptureAction? preset = null, ICaptureTargetSource? targets = null)
     {
         _controller = controller; _closed = closed;
@@ -232,15 +232,15 @@ internal sealed class CaptureSession
             placement = new DesktopPlacement(display.Left + region.Left * display.Width / pixelWidth, display.Top + region.Top * display.Height / pixelHeight,
                 region.Width * display.Width / pixelWidth, region.Height * display.Height / pixelHeight);
             if (!State.TryComplete()) return;
-            Close(false);
             _controller.Run(() => _controller.StartRecordingAsync(new RecordingArea(placement, region.Width, region.Height)));
+            Close();
             return;
         }
         if (!State.TryComplete()) return;
         if (action == CaptureAction.Long)
         {
-            Close(false);
             _controller.Run(() => _controller.StartLongCaptureAsync(placement));
+            Close();
             return;
         }
         var picture = action is CaptureAction.Ocr or CaptureAction.Pin ? window.Picture.Crop(region)
@@ -249,15 +249,15 @@ internal sealed class CaptureSession
             window.Display.Id, selection, window.Editor.Document.Snapshot());
         var annotations = action == CaptureAction.Pin ? window.Editor.Document.Commands
             .Select(command => AnnotationTransform.Translate(command, -region.Left, -region.Top)).ToArray() : [];
-        Close(false);
+        Close();
         _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations, frame: frame));
     }
 
-    public void Cancel() { State.Cancel(); Close(true); }
-    private void Close(bool cancelled)
+    public void Cancel() { State.Cancel(); Close(); }
+    private void Close()
     {
         foreach (var window in _windows) window.Close();
         _windows.Clear();
-        _closed(cancelled);
+        _closed();
     }
 }
