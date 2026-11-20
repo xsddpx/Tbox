@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using LibVLCSharp.Shared;
 using Tbox.Core;
 using Tbox.Desktop.Models;
@@ -92,6 +93,10 @@ internal sealed class QuickLookWindow : Window
         {
             if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && !_dialogOpen) { e.Handled = true; controller.Run(DeleteCurrentAsync); }
         }, RoutingStrategies.Bubble);
+        // The Space that opens the preview is released over it: Explorer gets the press, this window gets the release.
+        // A focused button clicks on that release, so it must never reach one.
+        AddHandler(KeyUpEvent, (_, e) => { if (e.Key == Key.Space && !_dialogOpen) e.Handled = true; }, RoutingStrategies.Tunnel);
+        Opened += (_, _) => KeepCaptionButtonsUnfocused();
         Deactivated += (_, _) =>
         {
             if (_controller.Settings.QuickLook.CloseAfterLosingFocus && !_dialogOpen && IsVisible) Dispatcher.UIThread.Post(Dismiss);
@@ -265,6 +270,9 @@ internal sealed class QuickLookWindow : Window
         if (restore) WindowState = WindowState.Normal;
         if (!IsVisible) Show();
         if (restore && _placement is { } placement) Apply(placement);
+        KeepCaptionButtonsUnfocused();
+        // Focus left on a title-bar control from an earlier session would take Space and Enter.
+        if (FocusManager?.GetFocusedElement() is Control && !FocusInPreview()) Focus();
         _source.PreviewWindow = Handle;
         _source.BringToForeground(Handle);
         Activate();
@@ -331,15 +339,38 @@ internal sealed class QuickLookWindow : Window
         if (e.Key == Key.Escape && modifiers == KeyModifiers.None || e.Key == Key.W && modifiers == KeyModifiers.Control) { e.Handled = true; Dismiss(); return; }
         if (modifiers == KeyModifiers.Alt && e.Key is Key.Left or Key.Right) { e.Handled = true; Navigate(e.Key == Key.Left ? -1 : 1); return; }
         if (e.Key == Key.Enter && modifiers == KeyModifiers.None) { e.Handled = true; OpenCurrent(); return; }
+        // Space belongs to the preview; outside it (the title bar, the window itself) it only toggles playback.
+        if (e.Key == Key.Space && modifiers == KeyModifiers.None && !FocusInPreview()) { e.Handled = true; _preview?.TogglePlayback(); return; }
+        // Arrows switch files before Avalonia's focus navigation can move focus into the title bar. A preview control
+        // that uses arrows itself keeps them: the archive tree and the video slider all four, the PDF Up and Down.
+        if (modifiers == KeyModifiers.None && e.Key is Key.Left or Key.Right or Key.Up or Key.Down && !PreviewOwnsArrow(e.Key))
+        {
+            e.Handled = true; Navigate(e.Key is Key.Left or Key.Up ? -1 : 1); return;
+        }
         if (e.Key == Key.C && modifiers == KeyModifiers.Control && FocusManager?.GetFocusedElement() is not TextBox) { e.Handled = true; _controller.Run(CopyFileAsync); }
     }
 
     private void OnBubbleKey(object? sender, KeyEventArgs e)
     {
         if (_dialogOpen || e.Handled || e.KeyModifiers != KeyModifiers.None) return;
-        if (e.Key is Key.Left or Key.Up) { e.Handled = true; Navigate(-1); }
-        else if (e.Key is Key.Right or Key.Down) { e.Handled = true; Navigate(1); }
-        else if (e.Key == Key.Space) { e.Handled = true; _preview?.TogglePlayback(); }
+        if (e.Key == Key.Space) { e.Handled = true; _preview?.TogglePlayback(); }
+    }
+
+    private bool FocusInPreview() => FocusManager?.GetFocusedElement() is Control focused && _content.IsVisualAncestorOf(focused);
+
+    private bool PreviewOwnsArrow(Key key)
+    {
+        if (FocusManager?.GetFocusedElement() is not Control focused || !_content.IsVisualAncestorOf(focused)) return false;
+        if (focused is TreeViewItem or TreeView or Slider || focused.FindAncestorOfType<Slider>() is not null) return true;
+        return key is Key.Up or Key.Down && (focused is ScrollViewer || focused.FindAncestorOfType<ScrollViewer>() is not null);
+    }
+
+    // The system minimize, maximize and close buttons drawn by Avalonia take focus by default; keyboard focus stays
+    // with the preview, as in Peek.
+    private void KeepCaptionButtonsUnfocused()
+    {
+        foreach (var button in this.GetVisualDescendants().OfType<Button>())
+            if (button.FindAncestorOfType<Avalonia.Controls.Chrome.CaptionButtons>() is not null) { button.Focusable = false; button.IsTabStop = false; }
     }
 
     private async Task CopyFileAsync()

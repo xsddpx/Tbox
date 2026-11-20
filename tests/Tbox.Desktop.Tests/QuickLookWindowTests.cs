@@ -88,6 +88,31 @@ public sealed class QuickLookWindowTests
     }
 
     [AvaloniaFact]
+    public async Task ArrowsNeverMoveFocusToAButtonAndSpaceReleaseClicksNothing()
+    {
+        using var scope = await Scope.CreateAsync();
+        var (a, b) = (scope.File("a.txt"), scope.File("b.txt"));
+        scope.Source.Selection = new QuickLookSelection([a, b], true);
+        await scope.ActivateAsync();
+        var window = scope.Controller.QuickLookWindow!;
+        foreach (var key in new[] { Key.Right, Key.Down, Key.Left, Key.Up, Key.Tab })
+        {
+            await Task.Delay(QuickLookPolicy.NavigationThrottle);
+            window.KeyPress(key, RawInputModifiers.None, PhysicalKey.None, null);
+            await scope.SettleAsync();
+            Assert.IsNotType<Button>(window.FocusManager?.GetFocusedElement());
+        }
+        // Even with a title-bar button focused, the Space released after opening must not click it.
+        var pin = window.GetVisualDescendants().OfType<Button>().First(button => ToolTip.GetTip(button) as string == "将窗口固定为当前大小");
+        pin.Focusable = true; pin.Focus();
+        window.KeyPress(Key.Space, RawInputModifiers.None, PhysicalKey.Space, " ");
+        window.KeyRelease(Key.Space, RawInputModifiers.None, PhysicalKey.Space, " ");
+        await scope.SettleAsync();
+        Assert.False(window.Pinned);
+        Assert.True(window.IsVisible);
+    }
+
+    [AvaloniaFact]
     public async Task NothingSelectedShowsNoWindow()
     {
         using var scope = await Scope.CreateAsync();
