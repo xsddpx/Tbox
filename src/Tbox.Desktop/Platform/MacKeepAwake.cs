@@ -35,7 +35,8 @@ internal sealed class MacKeepAwake(string stateDirectory) : IKeepAwake
             // Only undo what Tbox did: without the marker the setting belongs to the user or another app.
             else if (!wantLid && File.Exists(_marker))
             {
-                if (sleepDisabled && await SetSleepDisabledAsync(false) is { } kept) return new KeepAwakeResult(_applied with { Lid = false }, kept);
+                // Cancelled: sleep stays disabled, so report it as still in effect.
+                if (sleepDisabled && await SetSleepDisabledAsync(false) is { } kept) return new KeepAwakeResult(_applied = _applied with { Lid = true }, kept);
                 File.Delete(_marker);
             }
             _applied = _applied with { Lid = wantLid };

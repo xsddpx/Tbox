@@ -102,7 +102,7 @@ internal sealed class FakePlatform : IPlatformServices
     }
 }
 
-// A recorder that only tracks calls, for toolbar state tests.
+// Records keep-awake requests and simulates refusals and the macOS password prompt.
 internal sealed class FakeKeepAwake : IKeepAwake
 {
     public bool HasLid { get; set; } = true;
