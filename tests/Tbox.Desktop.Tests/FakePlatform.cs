@@ -120,6 +120,14 @@ internal sealed class FakeKeepAwake : IKeepAwake
     public bool RefuseLid { get; set; }
     // Lets a test observe the state while a password prompt is open.
     public TaskCompletionSource? Authorization { get; set; }
+    public bool RequiresLidApproval { get; set; }
+    public int ApprovalRequests { get; private set; }
+
+    public string? RequestLidApproval()
+    {
+        ApprovalRequests++;
+        return null;
+    }
     public List<KeepAwakeRequest> Requests { get; } = [];
     public KeepAwakeRequest Applied { get; private set; } = KeepAwakeRequest.None;
     public bool Disposed { get; private set; }
@@ -129,6 +137,8 @@ internal sealed class FakeKeepAwake : IKeepAwake
         Requests.Add(request);
         if (request.Lid != Applied.Lid && Authorization is { } pending) await pending.Task;
         if (request.System && RefuseSystem) return new KeepAwakeResult(Applied = KeepAwakeRequest.None, "系统拒绝保持唤醒。");
+        if (request.Lid && RequiresLidApproval)
+            return new KeepAwakeResult(Applied = request with { Lid = false }, RequiresLidApproval: true);
         var lid = request.Lid && !RefuseLid;
         Applied = request with { Lid = lid };
         return new KeepAwakeResult(Applied, request.Lid && !lid ? "已取消授权，合上盖子时仍会睡眠。" : null);

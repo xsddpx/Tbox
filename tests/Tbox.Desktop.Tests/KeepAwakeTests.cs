@@ -108,7 +108,7 @@ public sealed class KeepAwakeTests
     }
 
     [AvaloniaFact]
-    public async Task TheLidSwitchIsNotShownOnWhileTheMacPasswordPromptIsOpen()
+    public async Task TheLidSwitchStaysOffWhileTheSystemAppliesTheSetting()
     {
         var platform = new FakePlatform { KeepAwake = { LidNeedsAuthorization = true, Authorization = new() } };
         using var scope = new Scope(platform);
@@ -121,12 +121,44 @@ public sealed class KeepAwakeTests
         Layout(scope.Main);
         var lid = Switch(scope.Main, "合上盖子时保持唤醒");
         Assert.False(lid.IsChecked); Assert.False(lid.IsEffectivelyEnabled);
-        Assert.Contains(scope.Main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "等待管理员授权合盖唤醒…");
+        Assert.Contains(scope.Main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "正在应用合盖设置…");
 
         platform.KeepAwake.Authorization.SetResult();
         await change; Layout(scope.Main);
         Assert.True(lid.IsChecked); Assert.True(lid.IsEffectivelyEnabled);
         Assert.Contains(scope.Main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "已开启 · 屏幕常亮 · 合盖不睡眠");
+    }
+
+    [AvaloniaFact]
+    public async Task StartupPreservesLidPreferenceAndOnlyRequestsApprovalFromTheButton()
+    {
+        var platform = new FakePlatform { KeepAwake = { LidNeedsAuthorization = true, RequiresLidApproval = true } };
+        using var scope = new Scope(platform);
+        await scope.InitializeAsync(new AppSettings { KeepAwakeEnabled = true, KeepAwakeLidClosed = true });
+        scope.Controller.ShowMain(MainPage.KeepAwake); Layout(scope.Main);
+        Assert.True(scope.Controller.KeepAwakeRequiresLidApproval);
+        Assert.Equal(new KeepAwakeRequest(true, true, false), platform.KeepAwake.Applied);
+        Assert.True((await scope.ReadSettingsAsync()).KeepAwakeLidClosed);
+        Assert.Equal(0, platform.KeepAwake.ApprovalRequests);
+        Assert.False(Switch(scope.Main, "合上盖子时保持唤醒").IsChecked);
+        Assert.Contains(Texts(scope.Main), text => text == "合盖唤醒待授权");
+
+        var approval = Assert.Single(scope.Main.CurrentPageView.GetVisualDescendants().OfType<Button>(),
+            button => button.IsEffectivelyVisible && Equals(button.Content, "前往系统设置"));
+        approval.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(1, platform.KeepAwake.ApprovalRequests);
+
+        platform.KeepAwake.RequiresLidApproval = false;
+        await scope.Controller.RefreshKeepAwakeApprovalAsync();
+        Layout(scope.Main);
+        Assert.False(scope.Controller.KeepAwakeRequiresLidApproval);
+        Assert.True(platform.KeepAwake.Applied.Lid);
+        Assert.False(approval.IsEffectivelyVisible);
+
+        await scope.Controller.QuitAsync();
+        Assert.Equal(KeepAwakeRequest.None, platform.KeepAwake.Applied);
+        Assert.Equal(1, platform.KeepAwake.ApprovalRequests);
+        Assert.True((await scope.ReadSettingsAsync()).KeepAwakeLidClosed);
     }
 
     [AvaloniaFact]
