@@ -189,7 +189,7 @@ internal sealed class QuickLookWindow : Window
         _content.Content = Centered(new QuickLookSpinner());
         var monitor = _source.MonitorOf(monitorWindow == 0 ? Handle : monitorWindow);
         var context = new QuickLookContext(_source, monitor.Scale, (int)monitor.Bounds.Width, (int)monitor.Bounds.Height, Engine,
-            _controller.Settings.QuickLook.ShowFileInfoTooltip);
+            _controller.Settings.QuickLook);
         var preview = Create(path, context);
         _preview = preview;
         (double Width, double Height)? size;

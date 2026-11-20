@@ -19,7 +19,7 @@ public sealed record QuickLookArchive(IReadOnlyList<QuickLookArchiveEntry> Root,
     public static QuickLookArchive Read(string path, CancellationToken cancellationToken)
     {
         var archiveSize = new FileInfo(path).Length;
-        var builder = new Builder();
+        var builder = new QuickLookArchiveBuilder();
         var extension = Path.GetExtension(path);
         if (extension.Equals(".tar", StringComparison.OrdinalIgnoreCase))
         {
@@ -54,7 +54,7 @@ public sealed record QuickLookArchive(IReadOnlyList<QuickLookArchiveEntry> Root,
         return builder.Build(archiveSize);
     }
 
-    private static void ReadTar(Stream stream, Builder builder, CancellationToken cancellationToken)
+    private static void ReadTar(Stream stream, QuickLookArchiveBuilder builder, CancellationToken cancellationToken)
     {
         using var reader = new TarReader(stream);
         while (reader.GetNextEntry() is { } entry)
@@ -65,49 +65,50 @@ public sealed record QuickLookArchive(IReadOnlyList<QuickLookArchiveEntry> Root,
                 builder.Add(entry.Name, false, entry.Length);
         }
     }
+}
 
-    private sealed class Builder
+// Builds the tree from entry paths in any order; formats Core cannot read (7z, rar) feed it from the desktop app.
+public sealed class QuickLookArchiveBuilder
+{
+    private readonly QuickLookArchiveEntry _root = new("", true);
+    private readonly Dictionary<string, QuickLookArchiveEntry> _directories = new(StringComparer.OrdinalIgnoreCase);
+    private int _count, _directoryCount, _fileCount;
+    private long _extracted;
+
+    public void Add(string fullName, bool isDirectory, long size)
     {
-        private readonly QuickLookArchiveEntry _root = new("", true);
-        private readonly Dictionary<string, QuickLookArchiveEntry> _directories = new(StringComparer.OrdinalIgnoreCase);
-        private int _count, _directoryCount, _fileCount;
-        private long _extracted;
-
-        public void Add(string fullName, bool isDirectory, long size)
+        if (++_count > QuickLookArchive.MaximumEntries) throw new InvalidDataException("压缩包内的项目过多，无法预览。");
+        var parts = fullName.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return;
+        var parent = _root;
+        var key = "";
+        var folders = isDirectory ? parts.Length : parts.Length - 1;
+        for (var i = 0; i < folders; i++)
         {
-            if (++_count > MaximumEntries) throw new InvalidDataException("压缩包内的项目过多，无法预览。");
-            var parts = fullName.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0) return;
-            var parent = _root;
-            var key = "";
-            var folders = isDirectory ? parts.Length : parts.Length - 1;
-            for (var i = 0; i < folders; i++)
+            key += parts[i] + "/";
+            if (!_directories.TryGetValue(key, out var folder))
             {
-                key += parts[i] + "/";
-                if (!_directories.TryGetValue(key, out var folder))
-                {
-                    folder = new QuickLookArchiveEntry(parts[i], true);
-                    _directories[key] = folder; parent.Children.Add(folder); _directoryCount++;
-                }
-                parent = folder;
+                folder = new QuickLookArchiveEntry(parts[i], true);
+                _directories[key] = folder; parent.Children.Add(folder); _directoryCount++;
             }
-            if (isDirectory) return;
-            parent.Children.Add(new QuickLookArchiveEntry(parts[^1], false) { Size = size });
-            _fileCount++; _extracted += size;
+            parent = folder;
         }
+        if (isDirectory) return;
+        parent.Children.Add(new QuickLookArchiveEntry(parts[^1], false) { Size = size });
+        _fileCount++; _extracted += size;
+    }
 
-        public QuickLookArchive Build(long archiveSize)
-        {
-            Sort(_root);
-            return new QuickLookArchive(_root.Children, _directoryCount, _fileCount, archiveSize, _extracted);
-        }
+    public QuickLookArchive Build(long archiveSize)
+    {
+        Sort(_root);
+        return new QuickLookArchive(_root.Children, _directoryCount, _fileCount, archiveSize, _extracted);
+    }
 
-        private static void Sort(QuickLookArchiveEntry entry)
-        {
-            entry.Children.Sort((a, b) => a.IsDirectory != b.IsDirectory ? (a.IsDirectory ? -1 : 1)
-                : StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name));
-            foreach (var child in entry.Children) if (child.IsDirectory) Sort(child);
-        }
+    private static void Sort(QuickLookArchiveEntry entry)
+    {
+        entry.Children.Sort((a, b) => a.IsDirectory != b.IsDirectory ? (a.IsDirectory ? -1 : 1)
+            : StringComparer.OrdinalIgnoreCase.Compare(a.Name, b.Name));
+        foreach (var child in entry.Children) if (child.IsDirectory) Sort(child);
     }
 }
 

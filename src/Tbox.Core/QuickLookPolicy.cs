@@ -13,9 +13,13 @@ public sealed record QuickLookSettings
     public bool CloseAfterLosingFocus { get; init; }
     public bool ConfirmFileDelete { get; init; } = true;
     public bool ShowFileInfoTooltip { get; init; } = true;
+    // Peek's source-code preview options (Monaco in Peek, the text editor here).
+    public bool WrapText { get; init; }
+    public int TextFontSize { get; init; } = 14;
+    public int MaxTextFileSizeKb { get; init; } = 10240;
 }
 
-public enum QuickLookKind { Image, Video, Pdf, Archive, Folder, Unsupported }
+public enum QuickLookKind { Image, Video, Pdf, Archive, Folder, Text, Markdown, Svg, Unsupported }
 
 public static class QuickLookPolicy
 {
@@ -31,11 +35,64 @@ public static class QuickLookPolicy
     private static readonly HashSet<string> Videos = new(StringComparer.OrdinalIgnoreCase)
         { ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".wmv", ".flv", ".3gp", ".3g2", ".mpg", ".mpeg", ".ts", ".m2ts", ".mts", ".ogv" };
     private static readonly HashSet<string> Archives = new(StringComparer.OrdinalIgnoreCase)
-        { ".zip", ".jar", ".nupkg", ".tar", ".gz", ".tgz" };
+        { ".zip", ".jar", ".nupkg", ".tar", ".gz", ".tgz", ".7z", ".rar" };
+    private static readonly HashSet<string> Markdown = new(StringComparer.OrdinalIgnoreCase) { ".md", ".markdown", ".mdown", ".mkd", ".mdwn", ".mdtxt", ".mdtext" };
+    // Peek's Monaco list, trimmed to formats people read as text.
+    private static readonly HashSet<string> Texts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".text", ".log", ".csv", ".tsv", ".ini", ".cfg", ".conf", ".config", ".env", ".properties", ".toml", ".yaml", ".yml",
+        ".json", ".jsonc", ".json5", ".xml", ".xaml", ".axaml", ".csproj", ".vbproj", ".fsproj", ".props", ".targets", ".sln", ".resx", ".manifest", ".plist",
+        ".html", ".htm", ".xhtml", ".css", ".scss", ".sass", ".less", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".vue", ".svelte",
+        ".cs", ".csx", ".vb", ".fs", ".fsx", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".m", ".mm", ".java", ".kt", ".kts", ".scala", ".groovy", ".gradle",
+        ".go", ".rs", ".swift", ".dart", ".py", ".pyw", ".pyi", ".rb", ".php", ".pl", ".pm", ".lua", ".r", ".jl", ".sql", ".graphql", ".gql", ".proto",
+        ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd", ".reg", ".dockerfile", ".makefile", ".mk", ".cmake",
+        ".tex", ".bib", ".rst", ".adoc", ".org", ".diff", ".patch", ".gitignore", ".gitattributes", ".editorconfig", ".srt", ".vtt", ".ass", ".lrc"
+    };
+    // Extensionless files people expect to read as text.
+    private static readonly HashSet<string> TextNames = new(StringComparer.OrdinalIgnoreCase)
+        { "Dockerfile", "Makefile", "LICENSE", "README", "CHANGELOG", "AUTHORS", "CONTRIBUTING", "NOTICE", "Gemfile", "Rakefile", "Procfile", ".gitignore", ".editorconfig" };
 
     public static bool IsAnimatable(string path) => Path.GetExtension(path) is var e &&
         (e.Equals(".gif", StringComparison.OrdinalIgnoreCase) || e.Equals(".webp", StringComparison.OrdinalIgnoreCase));
     public static bool IsSkiaImage(string path) => SkiaImages.Contains(Path.GetExtension(path));
+    // Peek's Monaco limits: font size 2–100, maximum file size 1–102400 KB.
+    public static int ClampFontSize(int size) => Math.Clamp(size, 2, 100);
+    public static int ClampMaxTextKb(int kb) => Math.Clamp(kb, 1, 102400);
+
+    // A file with no recognised extension is shown as text when its first bytes hold no NUL and decode as UTF-8,
+    // as editors guess; UTF-16 is recognised by its byte-order mark.
+    public static bool LooksLikeText(ReadOnlySpan<byte> head)
+    {
+        if (head.Length >= 2 && (head[0] == 0xFF && head[1] == 0xFE || head[0] == 0xFE && head[1] == 0xFF)) return true;
+        if (head.IndexOf((byte)0) >= 0) return false;
+        // A multi-byte sequence may be cut at the end of the sample.
+        var trimmed = head;
+        for (var i = 0; i < 3 && trimmed.Length > 0 && (trimmed[^1] & 0xC0) == 0x80; i++) trimmed = trimmed[..^1];
+        if (trimmed.Length > 0 && trimmed[^1] >= 0xC0) trimmed = trimmed[..^1];
+        return System.Text.Unicode.Utf8.IsValid(trimmed);
+    }
+
+    // Reads text the way editors do: a byte-order mark wins, then UTF-8, then the system ANSI code page (GBK on
+    // Chinese Windows). Returns the text, the encoding name for the status line and whether the file was cut.
+    public static (string Text, string Encoding, bool Truncated) ReadText(string path, long maxBytes, System.Text.Encoding? fallback)
+    {
+        using var stream = File.OpenRead(path);
+        var truncated = stream.Length > maxBytes;
+        var buffer = new byte[(int)Math.Min(stream.Length, maxBytes)];
+        stream.ReadExactly(buffer);
+        System.Text.Encoding encoding; var skip = 0;
+        if (buffer.Length >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF) { encoding = new System.Text.UTF8Encoding(false); skip = 3; }
+        else if (buffer.Length >= 2 && buffer[0] == 0xFF && buffer[1] == 0xFE) { encoding = System.Text.Encoding.Unicode; skip = 2; }
+        else if (buffer.Length >= 2 && buffer[0] == 0xFE && buffer[1] == 0xFF) { encoding = System.Text.Encoding.BigEndianUnicode; skip = 2; }
+        else if (LooksLikeText(buffer) || fallback is null) encoding = new System.Text.UTF8Encoding(false);
+        else encoding = fallback;
+        var name = encoding switch
+        {
+            System.Text.UnicodeEncoding { CodePage: 1201 } => "UTF-16 BE", System.Text.UnicodeEncoding => "UTF-16 LE",
+            System.Text.UTF8Encoding => skip == 3 ? "UTF-8 BOM" : "UTF-8", _ => encoding.WebName.ToUpperInvariant()
+        };
+        return (encoding.GetString(buffer, skip, buffer.Length - skip), name, truncated);
+    }
 
     public static QuickLookKind Classify(string path, bool isDirectory, IReadOnlySet<string>? systemImages = null)
     {
@@ -45,6 +102,9 @@ public static class QuickLookPolicy
         if (Videos.Contains(extension)) return QuickLookKind.Video;
         if (extension.Equals(".pdf", StringComparison.OrdinalIgnoreCase)) return QuickLookKind.Pdf;
         if (Archives.Contains(extension)) return QuickLookKind.Archive;
+        if (extension.Equals(".svg", StringComparison.OrdinalIgnoreCase)) return QuickLookKind.Svg;
+        if (Markdown.Contains(extension)) return QuickLookKind.Markdown;
+        if (Texts.Contains(extension) || TextNames.Contains(Path.GetFileName(path))) return QuickLookKind.Text;
         return QuickLookKind.Unsupported;
     }
 

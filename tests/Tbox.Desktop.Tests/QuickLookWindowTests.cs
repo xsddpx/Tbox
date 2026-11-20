@@ -19,7 +19,8 @@ public sealed class QuickLookWindowTests
     public async Task ActivationOpensTheSelectionWalksTheFolderAndClosesOnTheSecondPress()
     {
         using var scope = await Scope.CreateAsync();
-        var (a, b, c) = (scope.File("a.txt"), scope.File("b.txt"), scope.File("c.txt"));
+        // .bin with binary content shows the information page, which carries the type line checked below.
+        var (a, b, c) = (scope.Bytes("a.bin", [0, 1]), scope.Bytes("b.bin", [0, 1]), scope.Bytes("c.bin", [0, 1]));
         scope.Source.Selection = new QuickLookSelection([b], false);
         scope.Source.Folder = [a, b, c];
         Assert.True(scope.Source.SpaceToActivate);
@@ -28,7 +29,7 @@ public sealed class QuickLookWindowTests
         var window = Assert.IsType<QuickLookWindow>(scope.Controller.QuickLookWindow);
         Assert.True(window.IsVisible);
         Assert.Equal((b, 3), (window.CurrentPath, window.ItemCount));
-        Assert.Equal("b.txt - 速览", window.Title);
+        Assert.Equal("b.bin - 速览", window.Title);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "(2/3)");
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "用 记事本 打开");
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "文件类型: 文本文档");
@@ -113,6 +114,69 @@ public sealed class QuickLookWindowTests
     }
 
     [AvaloniaFact]
+    public async Task TextMarkdownAndSvgOpenInTheirOwnPreviews()
+    {
+        using var scope = await Scope.CreateAsync();
+        const string Code = "class A\n{\n    int x;\n}\n";
+        var code = scope.File("Program.cs", Code);
+        var markdown = scope.File("README.md", "# 标题\n\n正文 **加粗** 和 `code`\n\n- [x] 完成\n- 第二项\n\n| 列 | 值 |\n| --- | --- |\n| a | 1 |\n");
+        var svg = scope.File("logo.svg", "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='60'><rect width='120' height='60' fill='red'/></svg>");
+        var unknown = scope.File("notes", "plain words without an extension");
+        var binary = scope.Bytes("blob", [0x4D, 0x5A, 0x90, 0x00, 0x03]);
+        scope.Source.Selection = new QuickLookSelection([code, markdown, svg, unknown, binary], true);
+        await scope.ActivateAsync();
+        var window = scope.Controller.QuickLookWindow!;
+        IEnumerable<string?> Texts() => window.GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text);
+
+        var editor = Assert.Single(window.GetVisualDescendants().OfType<AvaloniaEdit.TextEditor>());
+        Assert.Equal(Code, editor.Text);
+        Assert.True(editor.IsReadOnly);
+        Assert.Contains("UTF-8", Texts());
+        Assert.Contains("5 行", Texts());
+
+        await Next();
+        Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), text => text.Inlines?.Text == "标题");
+        Assert.Contains(window.GetVisualDescendants().OfType<CheckBox>(), box => box.IsChecked == true);
+        Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), text => text.Inlines?.Text == "值");
+
+        await Next();
+        var image = window.GetVisualDescendants().OfType<Image>().Single(image => image.Source is Avalonia.Media.Imaging.WriteableBitmap);
+        Assert.Equal(new PixelSize(120, 60), ((Avalonia.Media.Imaging.Bitmap)image.Source!).PixelSize);
+
+        // A file without an extension is sniffed: text opens in the editor, binary shows the information page.
+        await Next();
+        Assert.Equal("plain words without an extension", Assert.Single(window.GetVisualDescendants().OfType<AvaloniaEdit.TextEditor>()).Text);
+        await Next();
+        Assert.Empty(window.GetVisualDescendants().OfType<AvaloniaEdit.TextEditor>());
+        Assert.Contains("文件类型: 文本文档", Texts());
+
+        async Task Next()
+        {
+            await Task.Delay(QuickLookPolicy.NavigationThrottle);
+            window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.ArrowRight, null);
+            await scope.SettleAsync();
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task TextFollowsTheSizeLimitAndWrapSetting()
+    {
+        using var scope = await Scope.CreateAsync();
+        await scope.Controller.SetQuickLookAsync(scope.Controller.Settings.QuickLook with { MaxTextFileSizeKb = 1, WrapText = true, TextFontSize = 20 });
+        var big = scope.File("big.log", new string('x', 3000));
+        scope.Source.Selection = new QuickLookSelection([big], false);
+        await scope.ActivateAsync();
+        var window = scope.Controller.QuickLookWindow!;
+        var editor = Assert.Single(window.GetVisualDescendants().OfType<AvaloniaEdit.TextEditor>());
+        Assert.Equal(1024, editor.Text.Length);
+        Assert.True(editor.WordWrap);
+        Assert.Equal(20, editor.FontSize);
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "文件超过 1 KB，只显示开头部分");
+        var saved = (await scope.ReadSettingsAsync()).QuickLook;
+        Assert.Equal((1, true, 20), (saved.MaxTextFileSizeKb, saved.WrapText, saved.TextFontSize));
+    }
+
+    [AvaloniaFact]
     public async Task NothingSelectedShowsNoWindow()
     {
         using var scope = await Scope.CreateAsync();
@@ -177,10 +241,17 @@ public sealed class QuickLookWindowTests
             return scope;
         }
 
-        public string File(string name)
+        public string File(string name, string? text = null)
         {
             var path = Path.Combine(_directory, name);
-            System.IO.File.WriteAllText(path, name);
+            System.IO.File.WriteAllText(path, text ?? name);
+            return path;
+        }
+
+        public string Bytes(string name, byte[] bytes)
+        {
+            var path = Path.Combine(_directory, name);
+            System.IO.File.WriteAllBytes(path, bytes);
             return path;
         }
 

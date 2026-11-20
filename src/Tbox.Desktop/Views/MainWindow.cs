@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -62,6 +63,11 @@ public sealed class MainWindow : Window
     private readonly ComboBox _quickLookMethod = new() { MinWidth = 160, Items = { "空格键", "自定义快捷方式" } };
     private readonly SettingsLine _quickLookMethodLine;
     private readonly Dictionary<string, ToggleSwitch> _quickLookSwitches = [];
+    private readonly ToggleSwitch _quickLookWrap = Switch("自动换行");
+    private readonly ComboBox _quickLookFont = new() { MinWidth = 160 };
+    private readonly ComboBox _quickLookMaxSize = new() { MinWidth = 160 };
+    private static readonly int[] QuickLookFontSizes = [10, 12, 13, 14, 16, 18, 20, 24];
+    private static readonly int[] QuickLookMaxSizes = [1024, 5120, 10240, 51200, 102400];
     // 保持唤醒
     private readonly ToggleSwitch _awakeToggle = Switch("保持唤醒");
     private readonly ToggleSwitch _awakeDisplayToggle = Switch("保持屏幕常亮");
@@ -263,6 +269,9 @@ public sealed class MainWindow : Window
         _quickLookToggle.IsChecked = quickLook.Enabled;
         _quickLookMethod.SelectedIndex = quickLook.SpaceToActivate ? 0 : 1;
         foreach (var (key, toggle) in _quickLookSwitches) toggle.IsChecked = QuickLookFlag(quickLook, key);
+        _quickLookWrap.IsChecked = quickLook.WrapText;
+        _quickLookFont.SelectedIndex = Nearest(QuickLookFontSizes, QuickLookPolicy.ClampFontSize(quickLook.TextFontSize));
+        _quickLookMaxSize.SelectedIndex = Nearest(QuickLookMaxSizes, QuickLookPolicy.ClampMaxTextKb(quickLook.MaxTextFileSizeKb));
         _updating = false;
         _quickLookOff.IsVisible = !quickLook.Enabled;
         _quickLookSettings.IsEnabled = quickLook.Enabled; _quickLookSettings.Opacity = quickLook.Enabled ? 1 : .45;
@@ -332,6 +341,17 @@ public sealed class MainWindow : Window
         };
         foreach (var (key, toggle) in _quickLookSwitches)
             On(toggle, value => _controller.SetQuickLookAsync(WithQuickLookFlag(_controller.Settings.QuickLook, key, value)));
+        On(_quickLookWrap, value => _controller.SetQuickLookAsync(_controller.Settings.QuickLook with { WrapText = value }));
+        _quickLookFont.SelectionChanged += (_, _) =>
+        {
+            if (_updating || _quickLookFont.SelectedIndex < 0) return;
+            _controller.Run(() => _controller.SetQuickLookAsync(_controller.Settings.QuickLook with { TextFontSize = QuickLookFontSizes[_quickLookFont.SelectedIndex] }));
+        };
+        _quickLookMaxSize.SelectionChanged += (_, _) =>
+        {
+            if (_updating || _quickLookMaxSize.SelectedIndex < 0) return;
+            _controller.Run(() => _controller.SetQuickLookAsync(_controller.Settings.QuickLook with { MaxTextFileSizeKb = QuickLookMaxSizes[_quickLookMaxSize.SelectedIndex] }));
+        };
         On(_awakeToggle, _controller.SetKeepAwakeAsync);
         On(_awakeDisplayToggle, _controller.SetKeepAwakeDisplayAsync);
         On(_awakeLidToggle, _controller.SetKeepAwakeLidAsync);
@@ -499,6 +519,13 @@ public sealed class MainWindow : Window
         ("ShowFileInfoTooltip", "显示文件预览工具提示", "将鼠标悬停在预览上时显示文件信息作为工具提示")
     ];
 
+    private static int Nearest(int[] values, int value)
+    {
+        var best = 0;
+        for (var i = 1; i < values.Length; i++) if (Math.Abs(values[i] - value) < Math.Abs(values[best] - value)) best = i;
+        return best;
+    }
+
     private static bool QuickLookFlag(QuickLookSettings settings, string key) => key switch
     {
         "AlwaysOnTop" => settings.AlwaysOnTop, "ShowInTaskbar" => settings.ShowInTaskbar, "CloseAfterLosingFocus" => settings.CloseAfterLosingFocus,
@@ -521,11 +548,19 @@ public sealed class MainWindow : Window
             _quickLookSwitches[key] = toggle;
             behaviour.Add(new SettingsLine(title, description ?? "", toggle));
         }
-        var hint = Ui.Note("支持图片、视频、PDF、压缩包和文件夹；其他文件显示文件信息。←/→ 切换，Enter 打开，Delete 删除，Esc 关闭。");
+        foreach (var size in QuickLookFontSizes) _quickLookFont.Items.Add(size.ToString(CultureInfo.InvariantCulture));
+        foreach (var kb in QuickLookMaxSizes) _quickLookMaxSize.Items.Add(QuickLookPolicy.ReadableSize(kb * 1024L, false));
+        AutomationProperties.SetName(_quickLookFont, "字号"); AutomationProperties.SetName(_quickLookMaxSize, "可预览的最大文件大小");
+        var hint = Ui.Note("支持图片、视频、PDF、压缩包（zip、7z、rar、tar）、文件夹、文本和代码、Markdown、SVG；其他文件显示文件信息。←/→ 切换，Enter 打开，Delete 删除，Esc 关闭。");
         return new StackPanel { Children =
         {
             Ui.GroupHeader("激活"), Ui.Rows(_quickLookMethodLine, _shortcuts[HotkeyAction.QuickLook]),
             Ui.GroupHeader("行为"), Ui.Rows([.. behaviour]),
+            // Peek's 预览 group, 源代码文件 (Monaco): word wrap, font size and the size limit.
+            Ui.GroupHeader("文本和代码文件"), Ui.Rows(
+                new SettingsLine("自动换行", "", _quickLookWrap),
+                new SettingsLine("字号", "", _quickLookFont),
+                new SettingsLine("可预览的最大文件大小", "超过时只显示文件开头部分", _quickLookMaxSize)),
             Spaced(hint, 18)
         } };
     }

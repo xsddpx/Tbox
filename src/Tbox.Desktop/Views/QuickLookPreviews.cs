@@ -18,7 +18,10 @@ namespace Tbox.Desktop.Views;
 
 // What a preview needs from its window: system services, the display it opens on and the shared video engine.
 internal sealed record QuickLookContext(IQuickLookSource Source, double Scale, int MonitorWidth, int MonitorHeight,
-    Func<Task<LibVLC>> Engine, bool Tooltips);
+    Func<Task<LibVLC>> Engine, QuickLookSettings Settings)
+{
+    public bool Tooltips => Settings.ShowFileInfoTooltip;
+}
 
 // One previewer, as in Peek's FilePreviewer: it reports the size it wants, then loads. Measure must be quick.
 internal abstract class QuickLookPreview(string path, QuickLookContext context) : IDisposable
@@ -45,8 +48,26 @@ internal abstract class QuickLookPreview(string path, QuickLookContext context) 
             QuickLookKind.Video => new QuickLookVideo(path, context),
             QuickLookKind.Pdf => new QuickLookPdf(path, context),
             QuickLookKind.Archive => new QuickLookArchiveView(path, context),
+            QuickLookKind.Text => new QuickLookText(path, context),
+            QuickLookKind.Markdown => new QuickLookMarkdown(path, context),
+            QuickLookKind.Svg => new QuickLookSvg(path, context),
+            _ when !directory && SniffText(path) => new QuickLookText(path, context),
             _ => new QuickLookInfo(path, context)
         };
+    }
+
+    // An unknown file reads as text when its first 4 KB look like text and it is within the text size limit.
+    private static bool SniffText(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            if (stream.Length == 0 || stream.Length > 102400L * 1024) return false;
+            Span<byte> head = stackalloc byte[(int)Math.Min(4096, stream.Length)];
+            stream.ReadExactly(head);
+            return QuickLookPolicy.LooksLikeText(head);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return false; }
     }
 
     internal static string Date(DateTime time) => time.ToString("yyyy/M/d H:mm", CultureInfo.InvariantCulture);
@@ -386,7 +407,8 @@ internal sealed class QuickLookArchiveView(string path, QuickLookContext context
 
     public override async Task LoadAsync(CancellationToken cancellationToken)
     {
-        var archive = await Task.Run(() => QuickLookArchive.Read(Path, cancellationToken), cancellationToken);
+        var sharp = System.IO.Path.GetExtension(Path).ToLowerInvariant() is ".7z" or ".rar";
+        var archive = await Task.Run(() => sharp ? QuickLookSharpArchive.Read(Path, cancellationToken) : QuickLookArchive.Read(Path, cancellationToken), cancellationToken);
         var tree = new TreeView { Margin = new Thickness(8, 8, 8, 0) };
         // Peek expands only the root level.
         foreach (var entry in archive.Root) tree.Items.Add(Item(entry, expand: true));

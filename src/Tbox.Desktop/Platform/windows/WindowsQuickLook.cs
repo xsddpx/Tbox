@@ -100,6 +100,15 @@ internal sealed class WindowsQuickLook : IQuickLookSource
     }
 
     public string TypeName(string path, bool directory) => QuickLookWindows.TypeName(path, directory);
+
+    // .NET Core ships only Unicode encodings; the code-pages provider adds the system ANSI page (936 on Chinese Windows).
+    public System.Text.Encoding? AnsiEncoding => _ansi.Value;
+    private static readonly Lazy<System.Text.Encoding?> _ansi = new(() =>
+    {
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        try { return System.Text.Encoding.GetEncoding((int)GetACP()); } catch (Exception) { return null; }
+    });
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern uint GetACP();
     public string? DefaultAppName(string path) => QuickLookWindows.DefaultAppName(path);
     public void Open(string path, nint owner) => QuickLookWindows.Open(path, owner);
     public Task<(bool Deleted, string? Error)> DeleteAsync(string path, nint owner) =>

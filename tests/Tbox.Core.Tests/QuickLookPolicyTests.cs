@@ -15,6 +15,13 @@ public sealed class QuickLookPolicyTests
     [InlineData("a.zip", false, QuickLookKind.Archive)]
     [InlineData("a.tar.gz", false, QuickLookKind.Archive)]
     [InlineData("a.docx", false, QuickLookKind.Unsupported)]
+    [InlineData("a.7z", false, QuickLookKind.Archive)]
+    [InlineData("a.RAR", false, QuickLookKind.Archive)]
+    [InlineData("Program.cs", false, QuickLookKind.Text)]
+    [InlineData("config.yaml", false, QuickLookKind.Text)]
+    [InlineData("Dockerfile", false, QuickLookKind.Text)]
+    [InlineData("README.md", false, QuickLookKind.Markdown)]
+    [InlineData("logo.svg", false, QuickLookKind.Svg)]
     [InlineData("folder.zip", true, QuickLookKind.Folder)]
     public void ClassifiesByExtension(string path, bool directory, QuickLookKind expected) =>
         Assert.Equal(expected, QuickLookPolicy.Classify(path, directory));
@@ -111,9 +118,53 @@ public sealed class QuickLookPolicyTests
     {
         var defaults = JsonSerializer.Deserialize<AppSettings>("{}")!.QuickLook;
         Assert.True(defaults is { Enabled: true, SpaceToActivate: true, ShowInTaskbar: true, ConfirmFileDelete: true, ShowFileInfoTooltip: true,
-            AlwaysOnTop: false, CloseAfterLosingFocus: false });
+            AlwaysOnTop: false, CloseAfterLosingFocus: false, WrapText: false, TextFontSize: 14, MaxTextFileSizeKb: 10240 });
+        Assert.Equal((2, 100, 1, 102400), (QuickLookPolicy.ClampFontSize(0), QuickLookPolicy.ClampFontSize(500), QuickLookPolicy.ClampMaxTextKb(0), QuickLookPolicy.ClampMaxTextKb(int.MaxValue)));
         var settings = new AppSettings { QuickLook = defaults with { SpaceToActivate = false, AlwaysOnTop = true } };
         Assert.Equal(settings, JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings)));
+    }
+
+    [Fact]
+    public void TextSniffingAcceptsUtf8AndRejectsBinary()
+    {
+        Assert.True(QuickLookPolicy.LooksLikeText("hello 世界\n"u8));
+        // A multi-byte character cut by the 4 KB sample is still text.
+        Assert.True(QuickLookPolicy.LooksLikeText("ab世"u8[..4]));
+        Assert.True(QuickLookPolicy.LooksLikeText(new byte[] { 0xFF, 0xFE, 0x41, 0x00 }));
+        Assert.False(QuickLookPolicy.LooksLikeText(new byte[] { 0x4D, 0x5A, 0x90, 0x00 }));
+        // GBK bytes are not valid UTF-8, so sniffing alone does not call them text.
+        Assert.False(QuickLookPolicy.LooksLikeText(new byte[] { 0xC4, 0xE3, 0xBA, 0xC3 }));
+    }
+
+    [Fact]
+    public void ReadTextHonoursByteOrderMarksFallsBackToAnsiAndCuts()
+    {
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+        var gbk = System.Text.Encoding.GetEncoding(936);
+        var path = Path.Combine(Path.GetTempPath(), $"tbox-quicklook-{Guid.NewGuid():N}.txt");
+        try
+        {
+            File.WriteAllText(path, "你好", new System.Text.UTF8Encoding(true));
+            Assert.Equal(("你好", "UTF-8 BOM", false), QuickLookPolicy.ReadText(path, 1024, gbk));
+            File.WriteAllText(path, "你好", System.Text.Encoding.Unicode);
+            Assert.Equal(("你好", "UTF-16 LE", false), QuickLookPolicy.ReadText(path, 1024, gbk));
+            File.WriteAllBytes(path, gbk.GetBytes("你好"));
+            Assert.Equal(("你好", "GB2312", false), QuickLookPolicy.ReadText(path, 1024, gbk));
+            File.WriteAllText(path, "abcdef");
+            Assert.Equal(("abc", "UTF-8", true), QuickLookPolicy.ReadText(path, 3, gbk));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ArchiveBuilderAcceptsEntriesInAnyOrder()
+    {
+        var builder = new QuickLookArchiveBuilder();
+        builder.Add("src\\b.cs", false, 4); builder.Add("a.txt", false, 1); builder.Add("src/", true, 0); builder.Add("src/A.cs", false, 2);
+        var archive = builder.Build(10);
+        Assert.Equal(["src", "a.txt"], archive.Root.Select(entry => entry.Name));
+        Assert.Equal(["A.cs", "b.cs"], archive.Root[0].Children.Select(entry => entry.Name));
+        Assert.Equal((1, 3, 7L, 10L), (archive.Directories, archive.Files, archive.ExtractedSize, archive.ArchiveSize));
     }
 
     [Fact]

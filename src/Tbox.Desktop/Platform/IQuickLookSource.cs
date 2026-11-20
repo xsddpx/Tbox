@@ -41,6 +41,8 @@ public interface IQuickLookSource : IDisposable
     // A small icon for a name that need not exist, e.g. an archive entry.
     Bitmap? SmallIcon(string name, bool directory);
     Task<IQuickLookPdf> OpenPdfAsync(string path, CancellationToken cancellationToken);
+    // The system's legacy code page (GBK on Chinese Windows) for text files that are neither UTF-8 nor UTF-16.
+    System.Text.Encoding? AnsiEncoding => null;
     string TypeName(string path, bool directory);
     string? DefaultAppName(string path);
     void Open(string path, nint owner);
