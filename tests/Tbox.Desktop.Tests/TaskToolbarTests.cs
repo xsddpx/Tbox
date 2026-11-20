@@ -709,8 +709,11 @@ public sealed class TaskToolbarTests
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
         // The real fixture and bundled FFmpeg decode the six sample thumbnails. macOS test builds do not bundle FFmpeg
         // (the media smoke test covers decoding there), so the card then shows its placeholder.
-        var fixture = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "assets", "media-test", "fixture.mp4");
-        Assert.True(File.Exists(fixture));
+        // Output depth differs per platform (bin/x64/Release/net8.0-windows… vs bin/Release/net8.0), so walk up to the repository.
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "assets", "media-test", "fixture.mp4"))) root = root.Parent;
+        Assert.NotNull(root);
+        var fixture = Path.Combine(root.FullName, "assets", "media-test", "fixture.mp4");
         var decodes = File.Exists(RecordingExporter.FfmpegPath);
         Assert.True(decodes || !OperatingSystem.IsWindows(), "Windows 测试输出应带 FFmpeg。");
         using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
