@@ -1,3 +1,5 @@
+开始处理本项目的任何任务前，先读取[用户全局协作规则（AGENT.md）](https://gist.githubusercontent.com/xsddpx/6863fc3b161276cd0116c098acaa82fc/raw/AGENT.md)的最新内容。
+
 # Repository Guidelines
 
 ## 项目结构与模块组织
