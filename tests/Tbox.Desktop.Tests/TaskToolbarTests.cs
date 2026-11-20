@@ -755,7 +755,8 @@ public sealed class TaskToolbarTests
             // Hovering a node shows its thumbnail without moving the playhead.
             var position = track.Position;
             review.MouseMove(At(5, -3), RawInputModifiers.None); Layout(review);
-            Assert.Equal(5, track.HotTick); Assert.Equal(position, track.Position); Assert.True(review.ThumbnailPopup.IsOpen);
+            // The playback timer may resync to the player's millisecond clock, but hovering must not seek.
+            Assert.Equal(5, track.HotTick); Assert.InRange((track.Position - position).Duration().TotalMilliseconds, 0, 5); Assert.True(review.ThumbnailPopup.IsOpen);
             Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "MP4")); Layout(review);
             Assert.Empty(track.Ticks); Assert.Equal(-1, track.HotTick); Assert.False(review.ThumbnailPopup.IsOpen);
         }
