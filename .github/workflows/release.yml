@@ -86,9 +86,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -141,9 +139,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - name: Check Apple Silicon runner and media tools
         run: |
           test "$(uname -m)" = arm64

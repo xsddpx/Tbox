@@ -13,6 +13,11 @@ on:
         required: true
         default: false
         type: boolean
+      verify_macos_installer:
+        description: 'Build, sign, verify and retain the Mac ZIP'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -26,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -34,9 +39,7 @@ jobs:
           lfs: true
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -159,9 +162,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -197,3 +198,38 @@ jobs:
             TEMP/windows-package/**/media/result.json
           if-no-files-found: ignore
           retention-days: 14
+
+  macos-signed-package:
+    # Build a development package with the existing release identity without creating a Release.
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_macos_installer
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Check Apple Silicon runner and media tools
+        run: |
+          test "$(uname -m)" = arm64
+          command -v pkg-config || brew install pkgconf
+      - name: Sign, package and verify Mac
+        env:
+          TBOX_MAC_P12_BASE64: ${{ secrets.TBOX_MAC_P12_BASE64 }}
+          TBOX_MAC_P12_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD }}
+          TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
+          TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
+        run: bash scripts/release/sign-and-package-macos.sh
+      - name: Preserve verified installer and package history
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-signed-package
+          path: |
+            artifacts/Tbox_*_osx-arm64.zip
+            docs/release-history.md
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 [[ "$(uname -m)" == arm64 ]] || { echo "当前媒体依赖构建仅验证 Apple Silicon。" >&2; exit 1; }
 # Match the declared app minimum regardless of the developer/runner's macOS.
-export MACOSX_DEPLOYMENT_TARGET=14.0
+export MACOSX_DEPLOYMENT_TARGET=15.0
 SOURCE="$ROOT/TEMP/media-sources"
 RUNTIME="$ROOT/TEMP/media-runtime"
 DOWNLOAD="$ROOT/TEMP/media-downloads"
@@ -61,7 +61,7 @@ if [[ ! -f "$RUNTIME/build-id" ]] || [[ "$(cat "$RUNTIME/build-id")" != "$STAMP"
   rmdir "$MOUNT"; trap - EXIT
   printf '%s\n' "$STAMP" > "$RUNTIME/build-id"
 fi
-python3 "$ROOT/scripts/verify-macos-deployment-target.py" "$RUNTIME/FFmpeg/bin/ffmpeg" "$RUNTIME/VLC"
+python3 "$ROOT/scripts/verify-macos-deployment-target.py" --deployment-target "$MACOSX_DEPLOYMENT_TARGET" "$RUNTIME/FFmpeg/bin/ffmpeg" "$RUNTIME/VLC"
 mkdir -p "$RUNTIME/Licenses"
 cp "$SOURCE/ffmpeg-8.1.2/COPYING.LGPLv2.1" "$RUNTIME/Licenses/FFmpeg-LGPL-2.1.txt"
 cp "$SOURCE/libwebp-1.6.0/COPYING" "$RUNTIME/Licenses/libwebp-LICENSE.txt"

@@ -11,7 +11,7 @@ Windows 与 Mac 共用版的图像和视频导出使用 FFmpeg 8.1.2（当前构
 | HarfBuzzSharp | 8.3.1.1 | MIT；HarfBuzz 许可见通知 | https://github.com/mono/SkiaSharp |
 | MicroCom.Runtime | 0.11.0 | MIT | NuGet 包元数据 |
 | Tmds.DBus.Protocol | 0.21.3 | MIT | NuGet 包元数据；Linux 后端依赖 |
-| .NET runtime / System.IO.Pipelines | .NET 8 | MIT 及分发包第三方通知 | https://github.com/dotnet/runtime |
+| .NET runtime / System.IO.Pipelines | .NET 10 | MIT 及分发包第三方通知 | https://github.com/dotnet/runtime |
 | AvaloniaEdit / AvaloniaEdit.TextMate | 11.3.0 | MIT | https://github.com/AvaloniaUI/AvaloniaEdit |
 | TextMateSharp / TextMateSharp.Grammars | 1.0.65 | MIT；内置语法文件各有许可，见包内声明 | https://github.com/danipen/TextMateSharp |
 | Onigwrap（含 Oniguruma） | 1.0.6 | MIT；Oniguruma 为 BSD-2-Clause，见通知 | https://github.com/aikawayataro/Onigwrap |

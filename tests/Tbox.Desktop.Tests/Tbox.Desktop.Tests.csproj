@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <TboxWindows Condition="'$(TboxWindows)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</TboxWindows>
-    <TargetFramework Condition="'$(TboxWindows)' == 'true'">net8.0-windows10.0.26100.0</TargetFramework>
+    <TargetFramework Condition="'$(TboxWindows)' == 'true'">net10.0-windows10.0.26100.0</TargetFramework>
     <EnableWindowsTargeting Condition="'$(TboxWindows)' == 'true'">true</EnableWindowsTargeting>
     <Platform Condition="'$(TboxWindows)' == 'true' and ('$(Platform)' == '' or '$(Platform)' == 'AnyCPU')">x64</Platform>
     <PlatformTarget Condition="'$(TboxWindows)' == 'true'">$(Platform)</PlatformTarget>

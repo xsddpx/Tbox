@@ -21,7 +21,9 @@
 5. 将两个安装包的时间和 SHA-256 提交到 `codex/release-record-vX.Y.Z`，随后尝试创建发布历史 PR。推送记录最多尝试三次。只有远程主线或记录分支存在匹配的发布记录，流程才会公开所需归档和应用 Release。
 6. 正式版本公开后，两平台更新器从同仓库匿名发现版本，通过 GitHub 附件元数据读取安装包大小和 SHA-256。预发布和支持归档会被跳过。
 
-当前覆盖 Windows 11 x64、macOS 14+ Apple Silicon。Intel Mac 尚未接入。当前证书属于持久开发签名，流程不等于 Apple 公证或商业可信签名；安装限制见 [公开安装说明](releases/INSTALL.md)。完整功能与用户设备升级验收仍遵循活需求文档。
+覆盖 Windows 11 x64 和 Apple Silicon。采用 .NET 10 的 Mac 版本最低要求 macOS 15。当前证书属于持久开发签名，安装限制见 [公开安装说明](releases/INSTALL.md)。完整功能与用户设备升级验收仍遵循活需求文档。
+
+维护者可在 **Shared desktop checks** 手动启用 `verify_installer` 或 `verify_macos_installer`，分别取得用既有发布身份签名的验证包及打包记录。普通推送和 PR 不运行签名任务；验证包留在 Actions，后续正式打包使用新版本号。
 
 ## 发布配置
 
