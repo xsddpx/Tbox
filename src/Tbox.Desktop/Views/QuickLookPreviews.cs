@@ -99,7 +99,7 @@ internal sealed class QuickLookImage(string path, QuickLookContext context) : Qu
         }
         // The window is at most 80% of the monitor, so decoding beyond the monitor's pixels adds nothing.
         var width = Math.Min(_pixels.Width, Context.MonitorWidth); var height = Math.Min(_pixels.Height, Context.MonitorHeight);
-        Bitmap bitmap;
+        Bitmap? bitmap;
         try
         {
             bitmap = _systemCodec ? await Context.Source.DecodeImageAsync(Path, width, height, cancellationToken)
@@ -108,7 +108,8 @@ internal sealed class QuickLookImage(string path, QuickLookContext context) : Qu
         catch (Exception error) when (error is not OperationCanceledException)
         {
             // Peek falls back to the shell thumbnail when the full image cannot be decoded.
-            bitmap = await Context.Source.ThumbnailAsync(Path, Math.Max(width, height), thumbnailOnly: true, cancellationToken) ?? throw error;
+            bitmap = await Context.Source.ThumbnailAsync(Path, Math.Max(width, height), thumbnailOnly: true, cancellationToken);
+            if (bitmap is null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(error);
         }
         _bitmaps.Add(bitmap);
         _image.Source = bitmap;
