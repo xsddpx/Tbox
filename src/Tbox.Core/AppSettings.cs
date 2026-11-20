@@ -36,4 +36,5 @@ public sealed record AppSettings
     public HotkeySettings FolderJumpHotkey { get; init; } = new();
     // Shared desktop app: global shortcuts chosen in the main window; unset entries use the platform defaults.
     public HotkeyBindings? Hotkeys { get; init; }
+    public QuickLookSettings QuickLook { get; init; } = new();
 }

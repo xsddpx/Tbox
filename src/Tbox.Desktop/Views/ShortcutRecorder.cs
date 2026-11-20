@@ -74,7 +74,7 @@ internal sealed class ShortcutRecorder : Button
         if (KeyName(e.Key) is not { } key)
         {
             Stop();
-            Finished?.Invoke("不支持这个按键，请使用字母、主键区数字或 F1–F12。");
+            Finished?.Invoke("不支持这个按键，请使用字母、主键区数字、空格或 F1–F12。");
             return;
         }
         var shortcut = new Shortcut((e.KeyModifiers & KeyModifiers.Control) != 0, (e.KeyModifiers & KeyModifiers.Alt) != 0,
@@ -107,6 +107,7 @@ internal sealed class ShortcutRecorder : Button
         >= Key.D0 and <= Key.D9 => ((char)('0' + (key - Key.D0))).ToString(),
         >= Key.F1 and <= Key.F12 => $"F{1 + (key - Key.F1)}",
         Key.PrintScreen => "PrintScreen",
+        Key.Space => "Space",
         _ => null
     };
 }
@@ -134,7 +135,11 @@ internal sealed class ShortcutRow : SettingsLine
     public void Refresh()
     {
         Recorder.Refresh();
-        var enabled = _action == HotkeyAction.Folder ? _controller.Settings.FolderJumpEnabled : _controller.Settings.ScreenPasteEnabled;
+        var enabled = _action switch
+        {
+            HotkeyAction.Folder => _controller.Settings.FolderJumpEnabled, HotkeyAction.QuickLook => _controller.Settings.QuickLook.Enabled,
+            _ => _controller.Settings.ScreenPasteEnabled
+        };
         _reset.IsVisible = !_controller.IsDefaultShortcut(_action) && !Recorder.IsRecording;
         if (Recorder.IsRecording) { SetDescription("按 Esc 取消"); return; }
         if (_error is not null) { SetDescription(_error, error: true); return; }
@@ -150,6 +155,7 @@ internal sealed class ShortcutRow : SettingsLine
             HotkeyAction.Capture => "框选区域后标注、贴图或识别文字",
             HotkeyAction.Pin => "把剪贴板里的图片或文字贴到屏幕",
             HotkeyAction.Toggle => "隐藏或重新显示所有贴图",
+            HotkeyAction.QuickLook => "自定义激活此模块的快捷键",
             _ => "只在打开 / 保存对话框里生效"
         });
     }

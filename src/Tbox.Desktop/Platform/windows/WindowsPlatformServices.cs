@@ -198,6 +198,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     public async Task<string?> PickFolderAsync(Window owner, string title) => await Dispatcher.UIThread.InvokeAsync(
         () => FolderPicker.Show(owner.TryGetPlatformHandle()?.Handle ?? 0, title), DispatcherPriority.Background);
     public IStartupRegistration CreateStartupRegistration() => new WindowsStartupRegistration();
+    public IQuickLookSource CreateQuickLook() => new WindowsQuickLook();
     public IKeepAwake CreateKeepAwake(string stateDirectory) => new WindowsKeepAwake(stateDirectory);
     public void Dispose() { _hotkeys?.Dispose(); _hotkeys = null; }
     private static Win32Exception Error(string message) => new(Marshal.GetLastWin32Error(), message);
