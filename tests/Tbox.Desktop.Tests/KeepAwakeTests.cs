@@ -65,6 +65,7 @@ public sealed class KeepAwakeTests
         await scope.InitializeAsync(new AppSettings { KeepAwakeEnabled = true, KeepAwakeLidClosed = true });
         await scope.Controller.QuitAsync();
         Assert.True(scope.Controller.IsQuitting);
+        Assert.Equal(1, scope.Shutdowns);
         Assert.Equal(KeepAwakeRequest.None, scope.Platform.KeepAwake.Applied);
         Assert.True((await scope.ReadSettingsAsync()).KeepAwakeEnabled);
     }
@@ -115,8 +116,9 @@ public sealed class KeepAwakeTests
         scope.Controller.ShowMain(MainPage.KeepAwake); Layout(scope.Main);
 
         var change = scope.Controller.SetKeepAwakeLidAsync(true);
+        // Saving the setting is real file IO, so the prompt opens a moment later.
+        await WaitAsync(() => scope.Controller.KeepAwakeAuthorizing);
         Layout(scope.Main);
-        Assert.True(scope.Controller.KeepAwakeAuthorizing);
         var lid = Switch(scope.Main, "合上盖子时保持唤醒");
         Assert.False(lid.IsChecked); Assert.False(lid.IsEffectivelyEnabled);
         Assert.Contains(scope.Main.GetVisualDescendants().OfType<TextBlock>(), t => t.IsEffectivelyVisible && t.Text == "等待管理员授权合盖唤醒…");
@@ -198,6 +200,8 @@ public sealed class KeepAwakeTests
         public DesktopController Controller { get; }
         public MainWindow Main => Controller.Main;
         public string Directory { get; }
+        // Counts quit requests; a real lifetime Shutdown hangs headless test hosts on macOS.
+        public int Shutdowns { get; private set; }
         private string SettingsPath => Path.Combine(Directory, "settings.json");
 
         public Scope(FakePlatform platform, string? directory = null)
@@ -207,7 +211,7 @@ public sealed class KeepAwakeTests
             _ownsDirectory = directory is null;
             Directory = directory ?? Path.Combine(Path.GetTempPath(), "tbox-keep-awake-" + Guid.NewGuid().ToString("N"));
             Platform = platform;
-            Controller = new DesktopController(platform, Lifetime, SettingsPath);
+            Controller = new DesktopController(platform, () => Shutdowns++, SettingsPath);
             Controller.UseCacheDirectoryForTests(Path.Combine(Directory, "cache"));
             Controller.Main = new MainWindow(Controller);
         }
