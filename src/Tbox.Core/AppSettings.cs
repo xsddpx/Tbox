@@ -28,6 +28,10 @@ public sealed record AppSettings
     public string? ScreenCaptureCacheDirectory { get; init; }
     public bool StartWithWindows { get; init; }
     public bool ShowFailureNotifications { get; init; } = true;
+    // Keep awake (AWAKE-001–003): remembered across restarts like PowerToys Awake.
+    public bool KeepAwakeEnabled { get; init; }
+    public bool KeepAwakeDisplay { get; init; } = true;
+    public bool KeepAwakeLidClosed { get; init; }
     public string AppTheme { get; init; } = "system";
     public HotkeySettings FolderJumpHotkey { get; init; } = new();
     // Shared desktop app: global shortcuts chosen in the main window; unset entries use the platform defaults.

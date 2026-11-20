@@ -24,6 +24,7 @@ public sealed class DesktopController : IDisposable
     private readonly IFolderNavigation _folders;
     private readonly FolderJumpBarSession _folderBar;
     private readonly IStartupRegistration _startup;
+    private readonly IKeepAwake _keepAwake;
     private readonly HotkeyConfiguration _hotkeys;
     private bool _recordingShortcut;
     private readonly SemaphoreSlim _moduleChanges = new(1);
@@ -64,6 +65,11 @@ public sealed class DesktopController : IDisposable
     public int PinCount => _pins.Count;
     public bool PinsHidden => _pinsHidden;
     public StartupState Startup { get; private set; } = new(false);
+    // What the system currently grants for keep awake; the settings hold what the user asked for.
+    public KeepAwakeRequest KeepAwake { get; private set; } = KeepAwakeRequest.None;
+    public bool KeepAwakeAuthorizing { get; private set; }
+    public bool KeepAwakeHasLid => _keepAwake.HasLid;
+    public bool KeepAwakeLidNeedsAuthorization => _keepAwake.LidNeedsAuthorization;
     public bool HasHotkeyConflict => HasConflictIn(capture: true) || HasConflictIn(capture: false);
     // Capture, pin and toggle belong to the capture page; folder jump to its own page.
     public bool HasConflictIn(bool capture) => _hotkeys.Conflicts.Any(action => (action != HotkeyAction.Folder) == capture);
@@ -90,6 +96,7 @@ public sealed class DesktopController : IDisposable
         _legacySettingsPath = settingsPath is null && OperatingSystem.IsWindows() ? Path.Combine(local, "Tbox", "settings.json") : null;
         _settingsStore = new JsonSettingsStore(_settingsPath);
         _pinSession = new PinSessionStore(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!);
+        _keepAwake = platform.CreateKeepAwake(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!);
         Models = new ModelServices.ModelService(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!, "model-services.json"), ModelCredentialStore.Create());
         _cache = CreateCache(null);
     }
@@ -109,6 +116,8 @@ public sealed class DesktopController : IDisposable
             if (HasHotkeyConflict) Main.SetStatus("部分快捷键被其他应用占用，可在主窗口修改或直接启动工具。");
             Main.Refresh();
             await RefreshStartupAsync();
+            // Also undoes a lid change left by an abnormal exit when keep awake is now off.
+            await ApplyKeepAwakeAsync();
             var location = await Task.Run(() => CacheLocation.Prepare(_cache.DirectoryPath,
                 CaptureCachePathPolicy.GetFallbackPath(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData))));
             _cache = new CaptureCache(location.Path);
@@ -783,6 +792,55 @@ public sealed class DesktopController : IDisposable
         if (!enabled) FailureNotificationWindow.Dismiss();
     }
 
+    public Task SetKeepAwakeAsync(bool enabled) => ChangeKeepAwakeAsync(settings => settings with { KeepAwakeEnabled = enabled });
+    public Task SetKeepAwakeDisplayAsync(bool enabled) => ChangeKeepAwakeAsync(settings => settings with { KeepAwakeDisplay = enabled });
+    public Task SetKeepAwakeLidAsync(bool enabled) => ChangeKeepAwakeAsync(settings => settings with { KeepAwakeLidClosed = enabled });
+
+    private async Task ChangeKeepAwakeAsync(Func<AppSettings, AppSettings> update)
+    {
+        await UpdateSettingsAsync(update);
+        await ApplyKeepAwakeAsync();
+    }
+
+    // Separate from _moduleChanges: a macOS password prompt can stay open while other settings change.
+    private readonly SemaphoreSlim _keepAwakeChanges = new(1);
+
+    private async Task ApplyKeepAwakeAsync()
+    {
+        await _keepAwakeChanges.WaitAsync(_stop.Token);
+        try
+        {
+            var request = KeepAwakeRequest.From(_settings);
+            if (!_keepAwake.HasLid) request = request with { Lid = false };
+            KeepAwakeAuthorizing = _keepAwake.LidNeedsAuthorization && request.Lid != KeepAwake.Lid;
+            if (KeepAwakeAuthorizing) Main.Refresh();
+            KeepAwakeResult result;
+            try { result = await _keepAwake.ApplyAsync(request); }
+            finally { KeepAwakeAuthorizing = false; }
+            KeepAwake = result.Applied;
+            if (result.Message is { } message) Main.SetStatus(message);
+            // A refused or cancelled request is switched back off and saved, so the switches never claim more than is in effect.
+            var refusedSystem = request.System && !result.Applied.System;
+            var refusedLid = request.System && result.Applied.System && request.Lid && !result.Applied.Lid;
+            if ((refusedSystem || refusedLid) && SettingsLoadWarning is null)
+                await UpdateSettingsAsync(settings => settings with
+                {
+                    KeepAwakeEnabled = settings.KeepAwakeEnabled && !refusedSystem,
+                    KeepAwakeLidClosed = settings.KeepAwakeLidClosed && !refusedLid
+                });
+        }
+        finally { _keepAwakeChanges.Release(); Main.Refresh(); }
+    }
+
+    // Quitting undoes keep awake while the saved switches stay on for the next start (AWAKE-001).
+    private async Task ReleaseKeepAwakeAsync()
+    {
+        await _keepAwakeChanges.WaitAsync(_stop.Token);
+        try { KeepAwake = (await _keepAwake.ApplyAsync(KeepAwakeRequest.None)).Applied; }
+        catch (Exception error) when (error is not OperationCanceledException) { AppLog.Write("Keep awake release failed: " + error); }
+        finally { _keepAwakeChanges.Release(); }
+    }
+
     public async Task RefreshStartupAsync()
     {
         await _moduleChanges.WaitAsync(_stop.Token);
@@ -856,6 +914,8 @@ public sealed class DesktopController : IDisposable
             if (_installingUpdate) return;
             await SavePinsForUpgradeAsync();
             if (_installingUpdate || IsQuitting) return;
+            await ReleaseKeepAwakeAsync();
+            if (_installingUpdate || IsQuitting) return;
             IsQuitting = true; _shutdown();
         }
         finally { _quitRequested = false; }
@@ -883,6 +943,7 @@ public sealed class DesktopController : IDisposable
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();
         _folders.Dispose();
+        _keepAwake.Dispose();
         Platform.Dispose();
     }
 }
