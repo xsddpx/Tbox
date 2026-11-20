@@ -39,6 +39,8 @@ public sealed class DesktopController : IDisposable
     private bool _quitRequested;
     private bool _installingUpdate;
     private OcrWindow? _ocr;
+    private readonly IQuickLookSource? _quickLook;
+    private QuickLookWindow? _quickLookWindow;
     private AppSettings _settings = new();
     private CaptureCache _cache;
     private bool _capturing;
@@ -68,6 +70,8 @@ public sealed class DesktopController : IDisposable
     // Capture, pin and toggle belong to the capture page; folder jump to its own page.
     public bool HasConflictIn(bool capture) => _hotkeys.Conflicts.Any(action => (action != HotkeyAction.Folder) == capture);
     public bool HasHotkeyConflictFor(HotkeyAction action) => _hotkeys.Conflicts.Contains(action);
+    internal bool SupportsQuickLook => _quickLook is not null;
+    internal QuickLookWindow? QuickLookWindow => _quickLookWindow;
     public Shortcut ShortcutFor(HotkeyAction action) => ShortcutPolicy.Effective(_settings.Hotkeys, action, OperatingSystem.IsMacOS());
     public bool IsDefaultShortcut(HotkeyAction action) => ShortcutFor(action) == ShortcutPolicy.Default(action, OperatingSystem.IsMacOS());
     // Raised after a shortcut changes so labels (tray menu, buttons, hints) can follow.
@@ -82,6 +86,7 @@ public sealed class DesktopController : IDisposable
         _folders = platform.CreateFolderNavigation();
         _folderBar = new(this, _folders, _stop.Token);
         _startup = platform.CreateStartupRegistration();
+        _quickLook = platform.CreateQuickLook();
         _hotkeys = new HotkeyConfiguration(binding => platform.RegisterHotkey(binding, action => OnHotkey(action)), platform.UnregisterHotkey);
         // Tooltips and labels across the windows read the shortcuts from this controller's settings.
         ShortcutLabels.Bindings = () => _settings.Hotkeys;
@@ -106,6 +111,7 @@ public sealed class DesktopController : IDisposable
             ShortcutsChanged?.Invoke();
             if (_settings.FolderJumpEnabled) _folders.Start();
             _folderBar.Sync();
+            ApplyQuickLook();
             if (HasHotkeyConflict) Main.SetStatus("部分快捷键被其他应用占用，可在主窗口修改或直接启动工具。");
             Main.Refresh();
             await RefreshStartupAsync();
@@ -217,6 +223,7 @@ public sealed class DesktopController : IDisposable
         if (_recordingShortcut) return false;
         _recordingShortcut = true;
         _hotkeys.Apply([]);
+        if (_quickLook is not null) _quickLook.Paused = true;
         if (Platform.SupportsSystemScreenshotShortcutTakeover) Platform.StopSystemScreenshotShortcutTakeover();
         return true;
     }
@@ -224,6 +231,7 @@ public sealed class DesktopController : IDisposable
     internal void ResumeHotkeys()
     {
         _recordingShortcut = false;
+        if (_quickLook is not null) _quickLook.Paused = false;
         if (IsQuitting) return;
         ApplyHotkeys(_settings);
         Main.Refresh();
@@ -238,23 +246,28 @@ public sealed class DesktopController : IDisposable
         await _moduleChanges.WaitAsync(_stop.Token);
         try
         {
-            foreach (var other in ShortcutPolicy.Actions)
+            foreach (var other in ShortcutPolicy.Actions.Append(HotkeyAction.QuickLook))
                 if (other != action && ShortcutFor(other) == target)
                     return $"已被“{ShortcutPolicy.Name(other)}”使用。";
 
             var previous = _settings;
-            var enabled = action == HotkeyAction.Folder ? previous.FolderJumpEnabled : previous.ScreenPasteEnabled;
+            var enabled = action switch
+            {
+                HotkeyAction.Folder => previous.FolderJumpEnabled, HotkeyAction.QuickLook => previous.QuickLook.Enabled, _ => previous.ScreenPasteEnabled
+            };
             var current = ShortcutFor(action);
-            if (!UsesSystemScreenshotShortcut(action, target) &&
+            // 速览 is read by its keyboard hook, so no other application can hold its shortcut.
+            if (action != HotkeyAction.QuickLook && !UsesSystemScreenshotShortcut(action, target) &&
                 !_hotkeys.TryChange(action, target, enabled && !_recordingShortcut && !UsesSystemScreenshotShortcut(action, current) ? current : null))
                 return $"{target.Display(mac)} 已被其他应用占用，请换一个组合。";
-            if (!enabled) _hotkeys.Release(action);
+            if (!enabled && action != HotkeyAction.QuickLook) _hotkeys.Release(action);
             // Store only the overrides; a default choice clears the entry so platform defaults keep applying.
             var saved = (previous.Hotkeys ?? new HotkeyBindings()).With(action, target == ShortcutPolicy.Default(action, mac) ? null : target);
             var updated = previous with { Hotkeys = saved == new HotkeyBindings() ? null : saved };
             try { await _settingsStore.SaveAsync(updated, _stop.Token); _settings = updated; }
             catch { ApplyHotkeys(previous); throw; }
             ApplyHotkeys(updated);
+            ApplyQuickLook();
             ShortcutsChanged?.Invoke();
             return null;
         }
@@ -292,6 +305,30 @@ public sealed class DesktopController : IDisposable
     {
         await UpdateSettingsAsync(settings => settings with { ShowFolderJumpBar = enabled });
         _folderBar.Sync();
+    }
+
+    internal async Task SetQuickLookAsync(QuickLookSettings settings)
+    {
+        await UpdateSettingsAsync(current => current with { QuickLook = settings });
+        ApplyQuickLook();
+        _quickLookWindow?.ApplySettings(settings);
+    }
+
+    // Starts or stops the 速览 keyboard hook to match the settings. The window is created on first use.
+    private void ApplyQuickLook()
+    {
+        if (_quickLook is null || IsQuitting) return;
+        var settings = _settings.QuickLook;
+        if (!settings.Enabled) { _quickLook.Stop(); _quickLookWindow?.Dismiss(); return; }
+        _quickLook.Start(settings.SpaceToActivate, ShortcutFor(HotkeyAction.QuickLook),
+            foreground => Dispatcher.UIThread.Post(() => Run(() => ToggleQuickLookAsync(foreground)), DispatcherPriority.Send));
+    }
+
+    private Task ToggleQuickLookAsync(nint foreground)
+    {
+        if (_quickLook is null || IsQuitting || _installingUpdate || !_settings.QuickLook.Enabled) return Task.CompletedTask;
+        _quickLookWindow ??= new QuickLookWindow(this, _quickLook);
+        return _quickLookWindow.ToggleAsync(foreground);
     }
 
     internal Task ToggleFavoriteFolderAsync(string path) => UpdateSettingsAsync(settings => settings with
@@ -880,6 +917,7 @@ public sealed class DesktopController : IDisposable
         if (Platform.SupportsSystemScreenshotShortcutTakeover) Platform.StopSystemScreenshotShortcutTakeover();
         Models.Dispose();
         _folderBar.Dispose();
+        _quickLookWindow?.Close(); _quickLook?.Dispose();
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();
         _folders.Dispose();

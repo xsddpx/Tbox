@@ -9,7 +9,8 @@ internal enum IconKind
 {
     Back, Settings, Folder, Capture, Pin, Ocr, Chevron, Record, Long, Eye, EyeOff, Jump, Gear, Copy, Model, Translate, Grip,
     Rectangle, Ellipse, Line, Polyline, Arrow, Number, Pen, Highlighter, Mosaic, Text, Eraser,
-    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute
+    Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute,
+    QuickLook, OpenFile, Unpin, File
 }
 
 // 24-unit line icons drawn with one stroke weight. Filled glyphs (record dot, play, stop) set Fill.
@@ -75,6 +76,10 @@ internal sealed class LineIcon : Control
             IconKind.Sliders => "M4 7 H11 M15 7 H20 M13 4.5 V9.5 M4 17 H8 M12 17 H20 M10 14.5 V19.5",
             IconKind.Speaker => "M4 9.5 H8 L13 5 V19 L8 14.5 H4 Z M16.5 9 A4 4 0 0 1 16.5 15 M19 6.5 A7.5 7.5 0 0 1 19 17.5",
             IconKind.Mute => "M4 9.5 H8 L13 5 V19 L8 14.5 H4 Z M16.5 9.5 L21 14 M21 9.5 L16.5 14",
+            IconKind.QuickLook => "M3 8 V3 H8 M16 3 H21 V8 M21 16 V21 H16 M8 21 H3 V16 M6 12 Q12 6 18 12 Q12 18 6 12 Z M12 10.6 A1.4 1.4 0 1 1 11.99 10.6 Z",
+            IconKind.OpenFile => "M14 4 H20 V10 M20 4 L11 13 M18 14 V19 Q18 20 17 20 H5 Q4 20 4 19 V7 Q4 6 5 6 H10",
+            IconKind.Unpin => "M8 3 L16 3 L15 10 L19 14 L13 14 L12 21 L11 14 L5 14 L9 10 Z M3 3 L21 21",
+            IconKind.File => "M6 3 H14 L19 8 V21 H6 Z M14 3 V8 H19",
             IconKind.Image => "M4 5 H20 V19 H4 Z M4 16 L9 11 L13 15 L16 12 L20 16 M15.5 8.5 A1 1 0 1 1 15.49 8.5 Z",
             _ => "M9 5 L16 12 L9 19"
         });

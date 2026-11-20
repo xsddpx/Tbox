@@ -55,6 +55,13 @@ public sealed class MainWindow : Window
     private readonly Border _folderOff = Ui.Note("文件夹跳转已关闭，快捷键已释放。打开右上角开关即可恢复。");
     private readonly Control _folderHero;
     private readonly SettingsLine _folderTarget;
+    // 速览 (Windows only)
+    private readonly ToggleSwitch _quickLookToggle = Switch("启用速览");
+    private readonly Border _quickLookOff = Ui.Note("速览已关闭。打开右上角开关即可恢复。");
+    private readonly Control _quickLookSettings;
+    private readonly ComboBox _quickLookMethod = new() { MinWidth = 160, Items = { "空格键", "自定义快捷方式" } };
+    private readonly SettingsLine _quickLookMethodLine;
+    private readonly Dictionary<string, ToggleSwitch> _quickLookSwitches = [];
     // 通用
     private readonly ToggleSwitch _startupToggle = Switch("开机时启动");
     private readonly ToggleSwitch _failureToggle = Switch("失败时提示");
@@ -84,7 +91,7 @@ public sealed class MainWindow : Window
             OperatingSystem.IsMacOS() ? "在“系统设置 › 隐私与安全性”中允许 Tbox 后即可截图" : "在系统设置中允许 Tbox 截取屏幕后即可截图", _capturePermissionButton);
         _captureButton = Ui.Primary("截图", () => controller.Run(controller.CaptureAsync), $"截图 · {ShortcutLabels.Capture}");
         _captureButton.MinHeight = 36; _captureButton.Padding = new Thickness(14, 0, 10, 0);
-        foreach (var action in ShortcutPolicy.Actions) _shortcuts[action] = new ShortcutRow(controller, action);
+        foreach (var action in ShortcutPolicy.Actions.Append(HotkeyAction.QuickLook)) _shortcuts[action] = new ShortcutRow(controller, action);
         _systemScreenshotShortcut = new SettingsLine("接管 macOS 全屏截图快捷键", "", _systemScreenshotShortcutToggle)
         {
             IsVisible = controller.Platform.SupportsSystemScreenshotShortcutTakeover
@@ -96,6 +103,9 @@ public sealed class MainWindow : Window
         _folderPermission = Ui.WarningBar(IconKind.Warn, "需要辅助功能权限", "允许后 Tbox 才能读取访达当前目录并跳转", folderButton);
         _folderHero = FolderHero();
         _folderTarget = new SettingsLine("当前会跳到", "");
+        _quickLookMethodLine = new SettingsLine("激活方法", "选择文件时使用快捷方式或按空格键", _quickLookMethod);
+        AutomationProperties.SetName(_quickLookMethod, "激活方法");
+        _quickLookSettings = QuickLookSettingsRows();
         _cancelStartup = Ui.Button("取消申请", () => controller.Run(() => controller.SetStartupAsync(false)), "取消开机启动申请");
         _startup = new SettingsLine("开机时启动", "启动后只在托盘运行，不打开窗口", Ui.Row(_cancelStartup, _startupToggle));
         _update = new UpdateCard(controller);
@@ -238,6 +248,17 @@ public sealed class MainWindow : Window
         _folderTarget.Trailing = !folders ? Ui.Status("已关闭", DesignTokens.Hint)
             : folderPermission ? Ui.Status("可用", DesignTokens.Ready) : Ui.Status("未授权", DesignTokens.Error);
 
+        // 速览
+        var quickLook = settings.QuickLook;
+        _updating = true;
+        _quickLookToggle.IsChecked = quickLook.Enabled;
+        _quickLookMethod.SelectedIndex = quickLook.SpaceToActivate ? 0 : 1;
+        foreach (var (key, toggle) in _quickLookSwitches) toggle.IsChecked = QuickLookFlag(quickLook, key);
+        _updating = false;
+        _quickLookOff.IsVisible = !quickLook.Enabled;
+        _quickLookSettings.IsEnabled = quickLook.Enabled; _quickLookSettings.Opacity = quickLook.Enabled ? 1 : .45;
+        _shortcuts[HotkeyAction.QuickLook].IsVisible = !quickLook.SpaceToActivate;
+
         // 通用
         _startup.SetDescription(_controller.Startup.Message ?? "启动后只在托盘运行，不打开窗口");
         _cancelStartup.IsVisible = _controller.Startup.RequiresApproval;
@@ -268,6 +289,14 @@ public sealed class MainWindow : Window
         On(_folderBarToggle, _controller.SetFolderJumpBarAsync);
         On(_startupToggle, _controller.SetStartupAsync);
         On(_failureToggle, _controller.SetFailureNotificationsAsync);
+        On(_quickLookToggle, enabled => _controller.SetQuickLookAsync(_controller.Settings.QuickLook with { Enabled = enabled }));
+        _quickLookMethod.SelectionChanged += (_, _) =>
+        {
+            if (_updating || _quickLookMethod.SelectedIndex < 0) return;
+            _controller.Run(() => _controller.SetQuickLookAsync(_controller.Settings.QuickLook with { SpaceToActivate = _quickLookMethod.SelectedIndex == 0 }));
+        };
+        foreach (var (key, toggle) in _quickLookSwitches)
+            On(toggle, value => _controller.SetQuickLookAsync(WithQuickLookFlag(_controller.Settings.QuickLook, key, value)));
     }
 
     private Control Sidebar()
@@ -280,6 +309,7 @@ public sealed class MainWindow : Window
             Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 12, 0, 6), IsHitTestVisible = false });
         void Item(MainPage page, IconKind icon, string title) { var item = new NavItem(icon, title, () => Navigate(page)); _nav[page] = item; items.Children.Add(item); }
         Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
+        if (_controller.SupportsQuickLook) Item(MainPage.QuickLook, IconKind.QuickLook, "速览");
         Item(MainPage.Translation, IconKind.Translate, "翻译");
         Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.About, IconKind.Update, "关于");
         var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
@@ -306,6 +336,10 @@ public sealed class MainWindow : Window
             Spaced(_folderPermission, 14), Spaced(_folderOff, 16), _folderHero,
             Ui.GroupHeader("状态"), Ui.Rows(_shortcuts[HotkeyAction.Folder], _folderTarget,
                 new SettingsLine("显示跳转栏", "在系统文件对话框旁显示已打开的文件夹、搜索、收藏和最近跳转", _folderBarToggle)));
+
+        if (_controller.SupportsQuickLook)
+            AddPage(MainPage.QuickLook, PageHeader(IconKind.QuickLook, "速览", "在资源管理器中选中文件后按空格，快速查看内容", _quickLookToggle),
+                Spaced(_quickLookOff, 16), _quickLookSettings);
 
         AddPage(MainPage.General, PageHeader(IconKind.Sliders, "通用", "启动与提示", null),
             Spaced(Ui.GroupHeader("启动"), 8), _startup,
@@ -410,6 +444,47 @@ public sealed class MainWindow : Window
         button.Content = new Border { CornerRadius = new CornerRadius(12), BorderBrush = Brush.Parse("#EEEDF3"), BorderThickness = new Thickness(1), Child = layout };
         Hover(button, "#F7F6FB", 12);
         return button;
+    }
+
+    // Peek's settings: 激活, 行为. Titles and descriptions follow its Chinese strings.
+    private static readonly (string Key, string Title, string? Description)[] QuickLookBehaviour =
+    [
+        ("AlwaysOnTop", "“速览”窗口始终在前端显示", null),
+        ("ShowInTaskbar", "在任务栏上显示速览图标", null),
+        ("CloseAfterLosingFocus", "失去焦点后自动关闭“速览”窗口", null),
+        ("ConfirmFileDelete", "在删除文件之前确认", "在将文件移动到回收站之前，系统将要求你确认"),
+        ("ShowFileInfoTooltip", "显示文件预览工具提示", "将鼠标悬停在预览上时显示文件信息作为工具提示")
+    ];
+
+    private static bool QuickLookFlag(QuickLookSettings settings, string key) => key switch
+    {
+        "AlwaysOnTop" => settings.AlwaysOnTop, "ShowInTaskbar" => settings.ShowInTaskbar, "CloseAfterLosingFocus" => settings.CloseAfterLosingFocus,
+        "ConfirmFileDelete" => settings.ConfirmFileDelete, _ => settings.ShowFileInfoTooltip
+    };
+
+    private static QuickLookSettings WithQuickLookFlag(QuickLookSettings settings, string key, bool value) => key switch
+    {
+        "AlwaysOnTop" => settings with { AlwaysOnTop = value }, "ShowInTaskbar" => settings with { ShowInTaskbar = value },
+        "CloseAfterLosingFocus" => settings with { CloseAfterLosingFocus = value }, "ConfirmFileDelete" => settings with { ConfirmFileDelete = value },
+        _ => settings with { ShowFileInfoTooltip = value }
+    };
+
+    private Control QuickLookSettingsRows()
+    {
+        var behaviour = new List<Control>();
+        foreach (var (key, title, description) in QuickLookBehaviour)
+        {
+            var toggle = Switch(title);
+            _quickLookSwitches[key] = toggle;
+            behaviour.Add(new SettingsLine(title, description ?? "", toggle));
+        }
+        var hint = Ui.Note("支持图片、视频、PDF、压缩包和文件夹；其他文件显示文件信息。←/→ 切换，Enter 打开，Delete 删除，Esc 关闭。");
+        return new StackPanel { Children =
+        {
+            Ui.GroupHeader("激活"), Ui.Rows(_quickLookMethodLine, _shortcuts[HotkeyAction.QuickLook]),
+            Ui.GroupHeader("行为"), Ui.Rows([.. behaviour]),
+            Spaced(hint, 18)
+        } };
     }
 
     private Control FolderHero()

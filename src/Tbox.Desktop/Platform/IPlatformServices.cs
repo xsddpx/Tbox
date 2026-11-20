@@ -78,6 +78,8 @@ public interface IPlatformServices : IDisposable
     IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond);
     IFolderNavigation CreateFolderNavigation();
     IStartupRegistration CreateStartupRegistration();
+    // 速览 is Windows only; other platforms keep their own file previews.
+    IQuickLookSource? CreateQuickLook() => null;
 
     async Task<string?> PickFolderAsync(Window owner, string title)
     {

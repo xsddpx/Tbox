@@ -71,6 +71,8 @@ internal sealed class FakePlatform : IPlatformServices
     public IFolderNavigation CreateFolderNavigation() => new FakeFolders(this);
     public IStartupRegistration StartupRegistration { get; set; } = new EmptyStartup();
     public IStartupRegistration CreateStartupRegistration() => StartupRegistration;
+    public FakeQuickLook QuickLook { get; } = new();
+    public IQuickLookSource CreateQuickLook() => QuickLook;
     public void Dispose() { }
     private sealed class EmptyStartup : IStartupRegistration
     {
