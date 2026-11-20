@@ -101,6 +101,18 @@ internal sealed class WindowsQuickLook : IQuickLookSource
 
     public string TypeName(string path, bool directory) => QuickLookWindows.TypeName(path, directory);
 
+    private readonly Dictionary<string, bool> _handlers = new(StringComparer.OrdinalIgnoreCase);
+    public bool HasPreviewHandler(string extension)
+    {
+        lock (_handlers)
+        {
+            if (!_handlers.TryGetValue(extension, out var found)) _handlers[extension] = found = QuickLookPreviewHandlers.Find(extension) is not null;
+            return found;
+        }
+    }
+    public Task<IQuickLookHostedPreview?> OpenPreviewHandlerAsync(string path, CancellationToken cancellationToken) =>
+        QuickLookHandlerView.OpenAsync(path, cancellationToken);
+
     // .NET Core ships only Unicode encodings; the code-pages provider adds the system ANSI page (936 on Chinese Windows).
     public System.Text.Encoding? AnsiEncoding => _ansi.Value;
     private static readonly Lazy<System.Text.Encoding?> _ansi = new(() =>
@@ -117,6 +129,7 @@ internal sealed class WindowsQuickLook : IQuickLookSource
     public void Dispose()
     {
         Stop();
+        QuickLookPreviewHandlers.ReleaseFactories();
         _shell.Dispose();
         foreach (var icon in _icons.Values) icon?.Dispose();
         _icons.Clear();

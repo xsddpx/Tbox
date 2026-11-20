@@ -368,3 +368,132 @@ internal static class QuickLookSharpArchive
         return builder.Build(new FileInfo(path).Length);
     }
 }
+
+// Peek's ShellPreviewHandlerPreviewer: the registered system preview handler draws the file (Office, Outlook mail,
+// fonts, RTF ...). It asks for no size, so the window takes 80% of the monitor.
+internal sealed class QuickLookShellHandler(string path, QuickLookContext context) : QuickLookPreview(path, context)
+{
+    private Platform.IQuickLookHostedPreview? _hosted;
+
+    public override async Task LoadAsync(CancellationToken cancellationToken)
+    {
+        _hosted = await Context.Source.OpenPreviewHandlerAsync(Path, cancellationToken) ?? throw new NotSupportedException("没有可用的预览处理程序。");
+        _hosted.Failed += Fail;
+        View = _hosted.View;
+    }
+
+    public override void Dispose()
+    {
+        if (_hosted is null) return;
+        _hosted.Failed -= Fail;
+        _hosted.Dispose();
+        _hosted = null;
+    }
+}
+
+// Office files on a PC without Office: the picture Office saved in the file, then its text. Word shows paragraphs,
+// Excel the first sheet as a grid, PowerPoint the text of each slide.
+internal sealed class QuickLookOfficeView(string path, QuickLookContext context) : QuickLookPreview(path, context)
+{
+    private static readonly IBrush Text = Brush.Parse("#1A1B22"), Muted = Brush.Parse("#5F6270"), Line = Brush.Parse("#E6E5EC"), Header = Brush.Parse("#F5F5F8");
+    private Bitmap? _thumbnail;
+
+    public override async Task LoadAsync(CancellationToken cancellationToken)
+    {
+        var office = await Task.Run(() => QuickLookOffice.Read(Path, cancellationToken), cancellationToken);
+        if (office.Thumbnail is { } bytes)
+            try { using var stream = new MemoryStream(bytes); _thumbnail = new Bitmap(stream); }
+            catch (Exception error) when (error is not OperationCanceledException) { _thumbnail = null; }
+        var body = new StackPanel { Spacing = 16, Margin = new Thickness(32, 24), MaxWidth = 1000 };
+        body.Children.Add(Banner(office));
+        if (_thumbnail is not null)
+            body.Children.Add(new Border
+            {
+                BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), ClipToBounds = true, HorizontalAlignment = HorizontalAlignment.Left,
+                Child = new Image { Source = _thumbnail, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = 480 }
+            });
+        switch (office.Kind)
+        {
+            case QuickLookOfficeKind.Word:
+                foreach (var paragraph in office.Paragraphs)
+                    body.Children.Add(new SelectableTextBlock { Text = paragraph.Length == 0 ? " " : paragraph, FontSize = 15, LineHeight = 24, Foreground = Text, TextWrapping = TextWrapping.Wrap });
+                break;
+            case QuickLookOfficeKind.Excel:
+                if (office.SheetName is { } sheet) body.Children.Add(Label($"工作表：{sheet}", 13, Muted));
+                body.Children.Add(Grid(office.Rows));
+                break;
+            case QuickLookOfficeKind.PowerPoint:
+                for (var index = 0; index < office.Slides.Count; index++) body.Children.Add(Slide(index + 1, office.Slides[index]));
+                break;
+        }
+        if (office.Truncated) body.Children.Add(Label("内容较多，只显示前一部分。", 13, Brush.Parse("#9A6700")));
+        if (office.Paragraphs.Count == 0 && office.Rows.Count == 0 && office.Slides.All(slide => slide.Count == 0))
+            body.Children.Add(Label("文件中没有可显示的文字。", 14, Muted));
+        View = new ScrollViewer { Background = Brushes.White, Focusable = true, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, Content = body };
+    }
+
+    // States plainly that this is a text extract, so missing layout is not mistaken for a broken file.
+    private static Control Banner(QuickLookOffice office) => new Border
+    {
+        Background = Brush.Parse("#F0F4FF"), BorderBrush = Brush.Parse("#C9D6FF"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(6), Padding = new Thickness(12, 8),
+        Child = Label(office.Kind switch
+        {
+            QuickLookOfficeKind.Word => "未安装 Office 预览，以下是文档中的文字，排版与原文件不同。",
+            QuickLookOfficeKind.Excel => "未安装 Office 预览，以下是第一个工作表的数据，格式和公式不显示。",
+            _ => "未安装 Office 预览，以下是每张幻灯片中的文字，图片和版式不显示。"
+        }, 13, Brush.Parse("#2B3A67"))
+    };
+
+    private static Control Grid(IReadOnlyList<IReadOnlyList<string>> rows)
+    {
+        var columns = rows.Count == 0 ? 0 : rows.Max(row => row.Count);
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        for (var i = 0; i < columns; i++) grid.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto));
+        grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+        void Cell(string text, int row, int column, bool header)
+        {
+            var border = new Border
+            {
+                BorderBrush = Line, BorderThickness = new Thickness(0, 0, 1, 1), Padding = new Thickness(8, 4), MinWidth = header && row == 0 && column > 0 ? 64 : 0,
+                Background = header ? Header : Brushes.White,
+                Child = new TextBlock { Text = text, FontSize = 13, Foreground = header ? Muted : Text, MaxWidth = 320, TextTrimming = TextTrimming.CharacterEllipsis,
+                    HorizontalAlignment = header ? HorizontalAlignment.Center : HorizontalAlignment.Left }
+            };
+            Avalonia.Controls.Grid.SetRow(border, row); Avalonia.Controls.Grid.SetColumn(border, column);
+            grid.Children.Add(border);
+        }
+        Cell("", 0, 0, true);
+        for (var c = 0; c < columns; c++) Cell(ColumnName(c), 0, c + 1, true);
+        for (var r = 0; r < rows.Count; r++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            Cell((r + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), r + 1, 0, true);
+            for (var c = 0; c < columns; c++) Cell(c < rows[r].Count ? rows[r][c] : "", r + 1, c + 1, false);
+        }
+        return new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+            Content = new Border { BorderBrush = Line, BorderThickness = new Thickness(1, 1, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Child = grid }
+        };
+    }
+
+    internal static string ColumnName(int index)
+    {
+        var name = "";
+        for (index++; index > 0; index = (index - 1) / 26) name = (char)('A' + (index - 1) % 26) + name;
+        return name;
+    }
+
+    private static Control Slide(int number, IReadOnlyList<string> lines)
+    {
+        var panel = new StackPanel { Spacing = 6 };
+        panel.Children.Add(Label($"第 {number} 张", 12, Muted));
+        if (lines.Count == 0) panel.Children.Add(Label("（没有文字）", 14, Muted));
+        for (var i = 0; i < lines.Count; i++)
+            panel.Children.Add(new SelectableTextBlock { Text = lines[i], FontSize = i == 0 ? 18 : 14, FontWeight = i == 0 ? FontWeight.SemiBold : FontWeight.Normal, Foreground = Text, TextWrapping = TextWrapping.Wrap });
+        return new Border { BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(20, 16), Child = panel };
+    }
+
+    public override void Dispose() { _thumbnail?.Dispose(); _thumbnail = null; }
+}

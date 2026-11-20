@@ -19,7 +19,7 @@ public sealed record QuickLookSettings
     public int MaxTextFileSizeKb { get; init; } = 10240;
 }
 
-public enum QuickLookKind { Image, Video, Pdf, Archive, Folder, Text, Markdown, Svg, Unsupported }
+public enum QuickLookKind { Image, Video, Pdf, Archive, Folder, Text, Markdown, Svg, PreviewHandler, Office, Unsupported }
 
 public static class QuickLookPolicy
 {
@@ -94,7 +94,17 @@ public static class QuickLookPolicy
         return (encoding.GetString(buffer, skip, buffer.Length - skip), name, truncated);
     }
 
-    public static QuickLookKind Classify(string path, bool isDirectory, IReadOnlySet<string>? systemImages = null)
+    // Peek's order: its own previewers first, then a registered shell preview handler, then the information page.
+    // Office files without a handler fall back to Tbox's own reader of the package.
+    public static QuickLookKind Classify(string path, bool isDirectory, IReadOnlySet<string>? systemImages = null, Func<string, bool>? hasPreviewHandler = null)
+    {
+        var kind = ClassifyBuiltIn(path, isDirectory, systemImages);
+        if (kind != QuickLookKind.Unsupported) return kind;
+        if (hasPreviewHandler?.Invoke(Path.GetExtension(path)) == true) return QuickLookKind.PreviewHandler;
+        return QuickLookOffice.KindOf(path) is not null ? QuickLookKind.Office : QuickLookKind.Unsupported;
+    }
+
+    private static QuickLookKind ClassifyBuiltIn(string path, bool isDirectory, IReadOnlySet<string>? systemImages)
     {
         if (isDirectory) return QuickLookKind.Folder;
         var extension = Path.GetExtension(path);

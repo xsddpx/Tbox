@@ -13,6 +13,7 @@
     <FileVersion>1.1.100.0</FileVersion>
     <TboxWindowsFfmpegRoot>$(MSBuildThisFileDirectory)../../TEMP/media-runtime/windows</TboxWindowsFfmpegRoot>
     <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">Assets/Tbox.ico</ApplicationIcon>
+    <ApplicationManifest Condition="'$(TboxWindows)' == 'true'">Platform/windows/app.manifest</ApplicationManifest>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

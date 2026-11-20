@@ -15,6 +15,14 @@ public interface IQuickLookPdf : IDisposable
     Task<Bitmap> RenderAsync(int index, int pixelWidth, CancellationToken cancellationToken);
 }
 
+// A system preview handler drawing into the preview (Peek's ShellPreviewHandlerControl). Failed fires when the
+// handler cannot show the file after it was attached, so the window can fall back to another preview.
+public interface IQuickLookHostedPreview : IDisposable
+{
+    Avalonia.Controls.Control View { get; }
+    event Action? Failed;
+}
+
 // The operating-system half of 速览: activation from the file manager, reading its selection and file services.
 // Activation callbacks arrive on a background thread with the foreground window that received the key.
 public interface IQuickLookSource : IDisposable
@@ -41,6 +49,10 @@ public interface IQuickLookSource : IDisposable
     // A small icon for a name that need not exist, e.g. an archive entry.
     Bitmap? SmallIcon(string name, bool directory);
     Task<IQuickLookPdf> OpenPdfAsync(string path, CancellationToken cancellationToken);
+    // True when a system preview handler is registered for the extension (Office, Outlook, fonts, RTF ...).
+    bool HasPreviewHandler(string extension) => false;
+    // Starts the handler for the file; null when none is registered.
+    Task<IQuickLookHostedPreview?> OpenPreviewHandlerAsync(string path, CancellationToken cancellationToken) => Task.FromResult<IQuickLookHostedPreview?>(null);
     // The system's legacy code page (GBK on Chinese Windows) for text files that are neither UTF-8 nor UTF-16.
     System.Text.Encoding? AnsiEncoding => null;
     string TypeName(string path, bool directory);

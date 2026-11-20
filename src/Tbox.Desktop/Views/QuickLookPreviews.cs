@@ -37,13 +37,18 @@ internal abstract class QuickLookPreview(string path, QuickLookContext context) 
     // Image, video and audio previews carry Peek's file-information tooltip.
     public virtual bool HasTooltip => false;
     public virtual void TogglePlayback() { }
+    // Raised when a preview fails after it is shown (a system preview handler that cannot draw the file).
+    public event Action<QuickLookPreview>? Failed;
+    protected void Fail() => Failed?.Invoke(this);
     public virtual void Dispose() { }
 
     public static QuickLookPreview Create(string path, QuickLookContext context)
     {
         var directory = Directory.Exists(path);
-        return QuickLookPolicy.Classify(path, directory, context.Source.ImageExtensions) switch
+        return QuickLookPolicy.Classify(path, directory, context.Source.ImageExtensions, context.Source.HasPreviewHandler) switch
         {
+            QuickLookKind.PreviewHandler => new QuickLookShellHandler(path, context),
+            QuickLookKind.Office => new QuickLookOfficeView(path, context),
             QuickLookKind.Image => new QuickLookImage(path, context),
             QuickLookKind.Video => new QuickLookVideo(path, context),
             QuickLookKind.Pdf => new QuickLookPdf(path, context),

@@ -177,6 +177,39 @@ public sealed class QuickLookWindowTests
     }
 
     [AvaloniaFact]
+    public async Task SystemPreviewHandlersShowAndOfficeFallsBackWhenTheyFail()
+    {
+        using var scope = await Scope.CreateAsync();
+        var rtf = scope.File("letter.rtf", @"{\rtf1 hi}");
+        var docx = scope.Docx("report.docx", "第一段", "第二段");
+        scope.Source.Handlers.Add(".rtf");
+        scope.Source.Selection = new QuickLookSelection([rtf, docx], true);
+        await scope.ActivateAsync();
+        var window = scope.Controller.QuickLookWindow!;
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "handler:letter.rtf");
+        var first = scope.Source.Hosted!;
+
+        // No handler for .docx on this PC: Tbox reads the text out of the package.
+        await Task.Delay(QuickLookPolicy.NavigationThrottle);
+        window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.ArrowRight, null);
+        await scope.SettleAsync();
+        Assert.True(first.Disposed);
+        Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), text => text.Text == "第二段");
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text?.StartsWith("未安装 Office 预览") == true);
+
+        // A handler that fails once shown is replaced by the same reader.
+        scope.Source.Handlers.Add(".docx"); scope.Source.FailHandler = true;
+        await Task.Delay(QuickLookPolicy.NavigationThrottle);
+        window.KeyPress(Key.Left, RawInputModifiers.None, PhysicalKey.ArrowLeft, null);
+        await scope.SettleAsync();
+        await Task.Delay(QuickLookPolicy.NavigationThrottle);
+        window.KeyPress(Key.Right, RawInputModifiers.None, PhysicalKey.ArrowRight, null);
+        await scope.SettleAsync();
+        Assert.True(scope.Source.Hosted!.Disposed);
+        Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), text => text.Text == "第一段");
+    }
+
+    [AvaloniaFact]
     public async Task NothingSelectedShowsNoWindow()
     {
         using var scope = await Scope.CreateAsync();
@@ -245,6 +278,16 @@ public sealed class QuickLookWindowTests
         {
             var path = Path.Combine(_directory, name);
             System.IO.File.WriteAllText(path, text ?? name);
+            return path;
+        }
+
+        public string Docx(string name, params string[] paragraphs)
+        {
+            var path = Path.Combine(_directory, name);
+            using var zip = System.IO.Compression.ZipFile.Open(path, System.IO.Compression.ZipArchiveMode.Create);
+            using var writer = new StreamWriter(zip.CreateEntry("word/document.xml").Open());
+            writer.Write("<w:document xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'><w:body>" +
+                string.Concat(paragraphs.Select(p => $"<w:p><w:r><w:t>{p}</w:t></w:r></w:p>")) + "</w:body></w:document>");
             return path;
         }
 

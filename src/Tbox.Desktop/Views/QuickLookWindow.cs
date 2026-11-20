@@ -210,14 +210,58 @@ internal sealed class QuickLookWindow : Window
             if (revision != _revision) return;
             AppLog.Write($"QuickLook load {preview.GetType().Name}: {error}");
             if (preview is QuickLookInfo) { ShowError(); return; }
-            preview = Fallback(preview, context);
-            Place(monitor, await preview.MeasureAsync(token), preview.EffectivePixels);
-            try { await preview.LoadAsync(token); }
-            catch (Exception second) when (second is not OperationCanceledException) { if (revision == _revision) ShowError(); return; }
+            for (var attempt = 0; ; attempt++)
+            {
+                preview = Fallback(preview, context);
+                Place(monitor, await preview.MeasureAsync(token), preview.EffectivePixels);
+                try { await preview.LoadAsync(token); break; }
+                catch (Exception next) when (next is not OperationCanceledException)
+                {
+                    if (revision != _revision) return;
+                    AppLog.Write($"QuickLook load {preview.GetType().Name}: {next}");
+                    if (preview is QuickLookInfo || attempt > 0) { ShowError(); return; }
+                }
+            }
         }
         if (revision != _revision) return;
-        if (preview.HasTooltip && context.Tooltips) SetTooltip(preview.View, path);
+        Show(preview, context, monitor, revision);
+    }
+
+    private void Show(QuickLookPreview preview, QuickLookContext context, QuickLookMonitor monitor, int revision)
+    {
+        if (preview.HasTooltip && context.Tooltips) SetTooltip(preview.View, preview.Path);
+        preview.Failed += failed => Dispatcher.UIThread.Post(() =>
+        {
+            if (revision != _revision || _preview != failed) return;
+            _controller.Run(() => ReplaceAsync(failed, context, monitor, revision));
+        });
         _content.Content = preview.View;
+    }
+
+    // A preview that failed once shown is replaced in place: an Office handler by Tbox's own reader, anything else by the information page.
+    private async Task ReplaceAsync(QuickLookPreview failed, QuickLookContext context, QuickLookMonitor monitor, int revision)
+    {
+        AppLog.Write($"QuickLook {failed.GetType().Name} failed after showing");
+        _content.Content = Centered(new QuickLookSpinner());
+        var next = failed is QuickLookShellHandler && QuickLookOffice.KindOf(failed.Path) is not null
+            ? new QuickLookOfficeView(failed.Path, context) : (QuickLookPreview)new QuickLookInfo(failed.Path, context);
+        failed.Dispose();
+        _preview = next;
+        var token = _loading?.Token ?? CancellationToken.None;
+        try
+        {
+            await next.MeasureAsync(token);
+            await next.LoadAsync(token);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            if (revision != _revision) return;
+            AppLog.Write($"QuickLook load {next.GetType().Name}: {error}");
+            if (next is QuickLookInfo) { ShowError(); return; }
+            await ReplaceAsync(next, context, monitor, revision);
+            return;
+        }
+        if (revision == _revision) Show(next, context, monitor, revision);
     }
 
     private QuickLookPreview Create(string path, QuickLookContext context)
@@ -226,13 +270,15 @@ internal sealed class QuickLookWindow : Window
         catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return new QuickLookInfo(path, context); }
     }
 
-    // Peek falls back to the file-information page when a previewer fails.
+    // Peek falls back to the file-information page when a previewer fails. An Office file whose system handler
+    // would not start is read by Tbox first.
     private QuickLookPreview Fallback(QuickLookPreview failed, QuickLookContext context)
     {
         failed.Dispose();
-        var info = new QuickLookInfo(failed.Path, context);
-        _preview = info;
-        return info;
+        QuickLookPreview next = failed is QuickLookShellHandler && QuickLookOffice.KindOf(failed.Path) is not null
+            ? new QuickLookOfficeView(failed.Path, context) : new QuickLookInfo(failed.Path, context);
+        _preview = next;
+        return next;
     }
 
     private Task<LibVLC> Engine() => _engineTask ??= Task.Run(() => _engine = MediaRuntime.Create());
