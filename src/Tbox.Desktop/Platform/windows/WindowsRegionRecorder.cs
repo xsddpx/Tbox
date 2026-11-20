@@ -7,11 +7,11 @@ internal sealed class WindowsRegionRecorder : IRegionRecorder
 {
     private readonly ScreenRegionRecorder _recorder;
     private readonly bool _audio;
-    public WindowsRegionRecorder(RecordingArea area, bool audio, int fps)
+    public WindowsRegionRecorder(RecordingArea area, bool audio, bool cursor, int fps)
     {
         _audio = audio;
         _recorder = new ScreenRegionRecorder(new RectInt32((int)Math.Round(area.Bounds.Left), (int)Math.Round(area.Bounds.Top),
-            area.PixelWidth, area.PixelHeight), audio, fps);
+            area.PixelWidth, area.PixelHeight), audio, cursor, fps);
     }
     public async Task StartAsync(string path, CancellationToken cancellationToken)
     {

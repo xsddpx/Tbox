@@ -54,11 +54,15 @@ internal sealed class FakePlatform : IPlatformServices
     public void StopSystemScreenshotShortcutTakeover() => SystemScreenshotShortcutHandler = null;
     public Action<DesktopPlacement, bool>? WindowPlaced { get; set; }
     public DesktopPlacement? WindowPlacementOverride { get; set; }
+    // Optional second display to the right of the primary one; window handles are not tracked, so only regions can reach it.
+    public DesktopPlacement? SecondaryWorkArea { get; set; }
     public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) => WindowPlaced?.Invoke(placement, false);
     public void MoveWindow(nint handle, DesktopPlacement placement) => WindowPlaced?.Invoke(placement, true);
     public void MoveToPointer(nint handle) { }
     public DesktopPlacement GetWindowPlacement(nint handle) => WindowPlacementOverride ?? new(0, 0, 800, 600);
     public DesktopPlacement GetWorkArea(nint handle) => new(0, 0, 1600, 1000);
+    public DesktopPlacement GetWorkAreaFor(DesktopPlacement region) =>
+        SecondaryWorkArea is { } second && region.Left + region.Width / 2 >= second.Left ? second : new(0, 0, 1600, 1000);
     public double DesktopUnitsPerDip(nint handle) => 1;
     public double DisplayTopSafeInset { get; set; }
     public double GetDisplayTopSafeInset(uint displayId) => DisplayTopSafeInset;
@@ -66,7 +70,9 @@ internal sealed class FakePlatform : IPlatformServices
     public ICaptureTargetSource CreateCaptureTargets() => new EmptyTargets();
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) { }
     public IRegionRecorder? Recorder { get; set; }
-    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => Recorder ?? throw new NotSupportedException();
+    public bool? LastRecorderCursor { get; private set; }
+    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, bool cursor, int framesPerSecond)
+    { LastRecorderCursor = cursor; return Recorder ?? throw new NotSupportedException(); }
     public FolderNavigationResult FolderJumpResult { get; set; } = new(true);
     public IFolderNavigation CreateFolderNavigation() => new FakeFolders(this);
     public IStartupRegistration StartupRegistration { get; set; } = new EmptyStartup();

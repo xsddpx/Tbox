@@ -179,6 +179,12 @@ public sealed class WindowsPlatformServices : IPlatformServices
         return bounds.Placement;
     }
     public DesktopPlacement GetWorkArea(nint handle) => ReadMonitor(MonitorFromWindow(handle, 2)).Work.Placement;
+    public DesktopPlacement GetWorkAreaFor(DesktopPlacement region)
+    {
+        var rect = new NativeRect { Left = (int)Math.Round(region.Left), Top = (int)Math.Round(region.Top),
+            Right = (int)Math.Round(region.Left + region.Width), Bottom = (int)Math.Round(region.Top + region.Height) };
+        return ReadMonitor(MonitorFromRect(ref rect, 2)).Work.Placement;
+    }
     public double DesktopUnitsPerDip(nint handle) => Math.Max(96u, GetDpiForWindow(handle)) / 96d;
     public DesktopPoint GetPointerPosition()
     {
@@ -186,7 +192,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
         return new DesktopPoint(point.X, point.Y);
     }
     public ICaptureTargetSource CreateCaptureTargets() => WindowsCaptureTargets.CreateSnapshot();
-    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, int framesPerSecond) => new WindowsRegionRecorder(area, systemAudio, framesPerSecond);
+    public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, bool cursor, int framesPerSecond) => new WindowsRegionRecorder(area, systemAudio, cursor, framesPerSecond);
     internal WindowsFolderPicker FolderPicker { get; } = new();
     public IFolderNavigation CreateFolderNavigation() => new WindowsFolderNavigation(FolderPicker, this);
     public async Task<string?> PickFolderAsync(Window owner, string title) => await Dispatcher.UIThread.InvokeAsync(
@@ -220,6 +226,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     [DllImport("user32.dll", SetLastError = true)] private static extern bool EnumDisplayMonitors(nint dc, nint clip, MonitorEnum callback, nint data);
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", SetLastError = true)] private static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
     [DllImport("user32.dll")] private static extern nint MonitorFromWindow(nint window, uint flags);
+    [DllImport("user32.dll")] private static extern nint MonitorFromRect(ref NativeRect rect, uint flags);
     [DllImport("user32.dll")] private static extern nint MonitorFromPoint(NativePoint point, uint flags);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out NativePoint point);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool GetWindowRect(nint window, out NativeRect bounds);

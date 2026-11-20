@@ -53,7 +53,7 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
         super.init()
     }
 
-    func start(region: CGRect, width: Int, height: Int) async throws {
+    func start(region: CGRect, width: Int, height: Int, cursor: Bool) async throws {
         // Access may have been revoked after the selection was made. Avoid asking again
         // through ScreenCaptureKit, including the retry without system audio.
         guard CGPreflightScreenCaptureAccess() else {
@@ -69,7 +69,7 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
         let config = SCStreamConfiguration()
         config.sourceRect = CGRect(x: region.minX - bounds.minX, y: region.minY - bounds.minY, width: region.width, height: region.height)
         config.width = width; config.height = height; config.pixelFormat = kCVPixelFormatType_32BGRA
-        config.colorSpaceName = CGColorSpace.sRGB; config.showsCursor = true
+        config.colorSpaceName = CGColorSpace.sRGB; config.showsCursor = cursor
         config.minimumFrameInterval = CMTime(value: 1, timescale: Int32(fps)); config.queueDepth = 5
         config.capturesAudio = audioEnabled; config.excludesCurrentProcessAudio = true
         config.sampleRate = 48000; config.channelCount = 2
@@ -187,9 +187,9 @@ private final class StartReply: @unchecked Sendable {
 
 @_cdecl("tbox_record_start")
 public func recordStart(_ path: UnsafePointer<CChar>?, _ left: Double, _ top: Double, _ width: Double, _ height: Double,
-                        _ pixelWidth: Int32, _ pixelHeight: Int32, _ fps: Int32, _ audio: Int32) -> UnsafeMutablePointer<CChar>? {
+                        _ pixelWidth: Int32, _ pixelHeight: Int32, _ fps: Int32, _ audio: Int32, _ cursor: Int32) -> UnsafeMutablePointer<CChar>? {
     guard let path = path, pixelWidth >= 16, pixelHeight >= 16, pixelWidth % 2 == 0, pixelHeight % 2 == 0,
-          [5, 10, 15, 25, 60].contains(Int(fps)) else { return response(["error": "录屏参数无效。"]) }
+          fps == 30 else { return response(["error": "录屏参数无效。"]) }
     let destination = String(cString: path)
     let reply = StartReply()
     Task.detached {
@@ -197,7 +197,7 @@ public func recordStart(_ path: UnsafePointer<CChar>?, _ left: Double, _ top: Do
         do {
             let created = try ScreenRecording(path: destination, width: Int(pixelWidth), height: Int(pixelHeight), fps: Int(fps), audioEnabled: audio != 0)
             recording = created
-            try await created.start(region: CGRect(x: left, y: top, width: width, height: height), width: Int(pixelWidth), height: Int(pixelHeight))
+            try await created.start(region: CGRect(x: left, y: top, width: width, height: height), width: Int(pixelWidth), height: Int(pixelHeight), cursor: cursor != 0)
             let expired = reply.lock.withLock {
                 if !reply.expired { reply.recording = created }
                 return reply.expired

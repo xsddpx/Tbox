@@ -46,7 +46,7 @@ internal static class RecordingSmokeTest
             platform.PlaceWindow(handle, area, overlay: false);
             await Task.Delay(500, cancellation);
             var source = Path.Combine(directory, "recording.mp4");
-            await using (var recorder = platform.CreateRecorder(new RecordingArea(area, 320, 240), false, 10))
+            await using (var recorder = platform.CreateRecorder(new RecordingArea(area, 320, 240), false, false, RecordingFrameRatePolicy.RecordingFrameRate))
             {
                 await recorder.StartAsync(source, cancellation);
                 await Task.Delay(2000, cancellation);
@@ -68,8 +68,13 @@ internal static class RecordingSmokeTest
             var duration = TimeSpan.FromMilliseconds(decoded.DurationMs);
             var gif = Path.Combine(directory, "recording.gif");
             var webp = Path.Combine(directory, "recording.webp");
-            await RecordingExporter.ExportAsync(source, gif, RecordingExportFormat.Gif, duration, null, cancellation);
-            await RecordingExporter.ExportAsync(source, webp, RecordingExportFormat.WebP, duration, null, cancellation);
+            var sheet = Path.Combine(directory, "recording.jpg");
+            var size = new VideoSize(320, 240); var full = new RecordingTimeRange(TimeSpan.Zero, duration);
+            await RecordingExporter.ExportAsync(source, gif, new(RecordingExportFormat.Gif, 10, size, full), size, duration, null, cancellation);
+            await RecordingExporter.ExportAsync(source, webp, new(RecordingExportFormat.WebP, 25, size, full), size, duration, null, cancellation);
+            await RecordingExporter.ExportAsync(source, sheet, new(RecordingExportFormat.ContactSheet, 0, new(200, 150), full), size, duration, null, cancellation);
+            var sheetBytes = await File.ReadAllBytesAsync(sheet, cancellation);
+            if (sheetBytes.Length < 4 || sheetBytes[0] != 0xFF || sheetBytes[1] != 0xD8) throw new InvalidOperationException("实采六宫格不是 JPG。");
             var gifBytes = await File.ReadAllBytesAsync(gif, cancellation);
             var webpBytes = await File.ReadAllBytesAsync(webp, cancellation);
             if (gifBytes.Length < 13 || !gifBytes.AsSpan(0, 6).SequenceEqual("GIF89a"u8) ||
@@ -84,8 +89,8 @@ internal static class RecordingSmokeTest
             if (!SHA256.HashData(await File.ReadAllBytesAsync(source, cancellation)).SequenceEqual(
                     SHA256.HashData(await File.ReadAllBytesAsync(copy, cancellation))))
                 throw new InvalidOperationException("保存 MP4 改变了录屏母版。");
-            return new { verified = true, systemAudioTested = false, width = 320, height = 240, requestedFps = 10,
-                decoded, gifBytes = gifBytes.Length, webpBytes = webpBytes.Length, mp4CopyIdentical = true };
+            return new { verified = true, systemAudioTested = false, width = 320, height = 240, requestedFps = RecordingFrameRatePolicy.RecordingFrameRate,
+                decoded, gifBytes = gifBytes.Length, webpBytes = webpBytes.Length, sheetBytes = sheetBytes.Length, mp4CopyIdentical = true };
         }
         finally { fixture.Close(); }
     }

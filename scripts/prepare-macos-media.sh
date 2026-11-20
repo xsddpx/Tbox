@@ -35,9 +35,9 @@ if [[ ! -f "$RUNTIME/build-id" ]] || [[ "$(cat "$RUNTIME/build-id")" != "$STAMP"
     cd "$SOURCE/ffmpeg-8.1.2"
     PKG_CONFIG_PATH="$RUNTIME/webp/lib/pkgconfig" ./configure --prefix="$RUNTIME/FFmpeg" --pkg-config="$PKG_CONFIG" --pkg-config-flags=--static \
       --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-ffplay --disable-network \
-      --enable-libwebp --enable-protocol=file,pipe --enable-demuxer=mov,lavfi --enable-muxer=gif,webp,mp4 \
+      --enable-libwebp --enable-protocol=file,pipe --enable-demuxer=mov,lavfi --enable-muxer=gif,webp,mp4,rawvideo \
       --enable-decoder=h264,aac,rawvideo,wrapped_avframe --enable-parser=h264,aac \
-      --enable-encoder=gif,libwebp,libwebp_anim,h264_videotoolbox \
+      --enable-encoder=gif,libwebp,libwebp_anim,h264_videotoolbox,rawvideo --enable-bsf=aac_adtstoasc,h264_mp4toannexb,extract_extradata \
       --enable-filter=fps,scale,split,palettegen,paletteuse,testsrc2,format,null,anull --enable-indev=lavfi --enable-videotoolbox
     make clean
     make -j"$(sysctl -n hw.ncpu)"
@@ -70,5 +70,8 @@ cp "$SOURCE/vlc-3.0.24/COPYING" "$RUNTIME/Licenses/VLC-GPL-2.txt"
 cp "$SOURCE/vlc-3.0.24/COPYING.LIB" "$RUNTIME/Licenses/LibVLC-LGPL-2.1.txt"
 "$RUNTIME/FFmpeg/bin/ffmpeg" -version > "$RUNTIME/Licenses/FFmpeg-build.txt"
 "$RUNTIME/FFmpeg/bin/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q 'libwebp_anim' || { echo "缺少动画 WebP 编码器。" >&2; exit 1; }
+for encoder in h264_videotoolbox rawvideo; do
+  "$RUNTIME/FFmpeg/bin/ffmpeg" -hide_banner -encoders 2>/dev/null | grep -q " $encoder " || { echo "缺少 $encoder 编码器。" >&2; exit 1; }
+done
 find "$RUNTIME/VLC/plugins" -type f -name '*.dylib' -exec basename {} \; | sort > "$RUNTIME/Licenses/VLC-plugins.txt"
 echo "媒体依赖已准备：$RUNTIME"

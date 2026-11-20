@@ -653,27 +653,183 @@ public sealed class TaskToolbarTests
     public void RecordingToolbarSwitchesFromPrepareToTimerAndDashesTheOutline()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
-        var recorder = new FakeRecorder();
-        using var controller = new DesktopController(new FakePlatform { Recorder = recorder }, new ClassicDesktopStyleApplicationLifetime());
+        var recorder = new FakeRecorder(); var platform = new FakePlatform { Recorder = recorder };
+        using var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
         controller.Main = new MainWindow(controller);
         var control = new RecordingControlWindow(controller, new RecordingArea(new DesktopPlacement(100, 100, 640, 360), 640, 360));
         control.Show(); Layout(control);
         try
         {
             var bar = (Border)control.Content!;
-            Assert.Equal(["帧率", "5 帧每秒", "10 帧每秒", "15 帧每秒", "25 帧每秒", "60 帧每秒", "|", "系统声音", "|", "开始录制", "取消"], Names(bar));
+            Assert.Equal(["系统声音", "录制鼠标", "|", "开始录制", "取消"], Names(bar));
+            var boxes = bar.GetVisualDescendants().OfType<CheckBox>().ToArray();
+            Assert.Equal([false, true], boxes.Select(b => b.IsChecked == true));
             var start = bar.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b)?.StartsWith("开始录制") == true);
             Assert.Equal(Color.Parse(DesignTokens.Recording), ((ISolidColorBrush)start.Resources["ButtonBackground"]!).Color);
             Preview(control, "task-record-ready");
+            boxes[1].IsChecked = false;
 
             control.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
             Dispatcher.UIThread.RunJobs(); Layout(control);
             Assert.True(recorder.Started);
+            Assert.False(platform.LastRecorderCursor);
             Assert.Equal(["00:00", "|", "暂停", "停止并预览", "|", "取消"], Names(bar));
             Assert.True(control.Outline.Dashed);
             Preview(control, "task-record-active");
         }
         finally { _ = control.CancelAsync(); Dispatcher.UIThread.RunJobs(); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void RecordingToolbarStaysOnTheSelectionsDisplay()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        // Display 2 sits to the right of the primary display; the bar must follow the selection there.
+        var second = new DesktopPlacement(1600, 0, 1920, 1040);
+        var platform = new FakePlatform { Recorder = new FakeRecorder(), SecondaryWorkArea = second };
+        var placements = new List<DesktopPlacement>();
+        platform.WindowPlaced = (placement, _) => placements.Add(placement);
+        using var controller = new DesktopController(platform, new ClassicDesktopStyleApplicationLifetime());
+        controller.Main = new MainWindow(controller);
+        var area = new DesktopPlacement(2000, 200, 800, 450);
+        var control = new RecordingControlWindow(controller, new RecordingArea(area, 800, 450));
+        control.Show(); Layout(control);
+        try
+        {
+            var bar = placements.Last();
+            Assert.True(bar.Left >= second.Left && bar.Left + bar.Width <= second.Left + second.Width, $"控制条不在选区所在显示器：{bar}");
+            Assert.Equal(area.Top + area.Height + 12, bar.Top);
+        }
+        finally { _ = control.CancelAsync(); Dispatcher.UIThread.RunJobs(); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task ContactSheetPlayheadSnapsToSamplesAndShowsTheirFrames()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        // The real fixture and bundled FFmpeg decode the six sample thumbnails. macOS test builds do not bundle FFmpeg
+        // (the media smoke test covers decoding there), so the card then shows its placeholder.
+        // Output depth differs per platform (bin/x64/Release/net8.0-windows… vs bin/Release/net8.0), so walk up to the repository.
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "assets", "media-test", "fixture.mp4"))) root = root.Parent;
+        Assert.NotNull(root);
+        var fixture = Path.Combine(root.FullName, "assets", "media-test", "fixture.mp4");
+        var decodes = File.Exists(RecordingExporter.FfmpegPath);
+        Assert.True(decodes || !OperatingSystem.IsWindows(), "Windows 测试输出应带 FFmpeg。");
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        controller.Main = new MainWindow(controller);
+        var workspace = new RecordingWorkspace(Path.Combine(Path.GetTempPath(), "tbox-sheet-" + Guid.NewGuid().ToString("N")));
+        File.Copy(fixture, workspace.MasterFilePath);
+        var review = new RecordingReviewWindow(controller, workspace, new RecordingArea(new DesktopPlacement(0, 0, 320, 240), 320, 240),
+            new RecordingOutput(workspace.MasterFilePath, false, 2), TimeSpan.FromSeconds(2));
+        review.Show(); Layout(review);
+        try
+        {
+            Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "六宫格")); Layout(review);
+            var track = review.Track; var ticks = track.Ticks;
+            Assert.Equal(6, ticks.Count);
+            for (var wait = 0; decodes && wait < 200 && review.LoadedThumbnails < 6; wait++) { await Task.Delay(50); Dispatcher.UIThread.RunJobs(); }
+            Assert.Equal(decodes ? 6 : 0, review.LoadedThumbnails);
+
+            // Dragging the playhead 5 px past node 04 lands exactly on its sample time.
+            Point At(int tick, double offset) => track.TranslatePoint(new Point(6 + (track.Bounds.Width - 12) * (ticks[tick] / track.Duration) + offset, track.Bounds.Height - 14), review)!.Value;
+            review.MouseDown(At(1, 30), MouseButton.Left, RawInputModifiers.None);
+            review.MouseMove(At(3, 5), RawInputModifiers.LeftMouseButton); Layout(review);
+            Assert.Equal(3, track.HotTick);
+            Assert.Equal(ticks[3], track.Position);
+            // The card above node 04 shows that frame and its label, centred over the tick.
+            Assert.True(review.ThumbnailPopup.IsOpen);
+            var card = (Border)review.ThumbnailPopup.Child!;
+            Assert.Equal("04 · " + RecordingTrimBar.FormatPrecise(ticks[3]), card.GetVisualDescendants().OfType<TextBlock>().Single().Text);
+            Assert.Equal(decodes, card.GetVisualDescendants().OfType<Image>().Single().Source is not null);
+            var tick = track.TranslatePoint(track.TickAnchor(3).Center, review)!.Value;
+            var centre = card.TranslatePoint(new Point(card.Bounds.Width / 2, card.Bounds.Height), review)!.Value;
+            Assert.InRange(centre.X - tick.X, -2, 2); Assert.True(centre.Y <= track.TranslatePoint(default, review)!.Value.Y);
+            Preview(review, "recording-review-contact-sheet-snap");
+            // Further away the playhead moves freely again.
+            review.MouseMove(At(3, 20), RawInputModifiers.LeftMouseButton);
+            Assert.Equal(-1, track.HotTick); Assert.False(review.ThumbnailPopup.IsOpen);
+            Assert.NotEqual(ticks[3], track.Position);
+            review.MouseUp(At(3, 20), MouseButton.Left, RawInputModifiers.None);
+
+            // Hovering a node shows its thumbnail without moving the playhead.
+            var position = track.Position;
+            review.MouseMove(At(5, -3), RawInputModifiers.None); Layout(review);
+            // The playback timer may resync to the player's millisecond clock, but hovering must not seek.
+            Assert.Equal(5, track.HotTick); Assert.InRange((track.Position - position).Duration().TotalMilliseconds, 0, 5); Assert.True(review.ThumbnailPopup.IsOpen);
+            Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "MP4")); Layout(review);
+            Assert.Empty(track.Ticks); Assert.Equal(-1, track.HotTick); Assert.False(review.ThumbnailPopup.IsOpen);
+        }
+        finally { await review.RequestCloseAsync(discardUnsaved: true); controller.Main.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task RecordingReviewChoosesFormatRateSizeAndRangeWhenSaving()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        var temp = Path.Combine(Path.GetTempPath(), "tbox-review-" + Guid.NewGuid().ToString("N"));
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        controller.Main = new MainWindow(controller);
+        var workspace = new RecordingWorkspace(temp);
+        File.WriteAllBytes(workspace.MasterFilePath, [1, 2, 3]);
+        var area = new RecordingArea(new DesktopPlacement(0, 0, 2560, 1440), 2560, 1440);
+        var review = new RecordingReviewWindow(controller, workspace, area, new RecordingOutput(workspace.MasterFilePath, false, 42), TimeSpan.FromSeconds(42));
+        review.Show(); Layout(review);
+        Button Chip(string name) => review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == name);
+        bool Shows(string text) => review.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == text);
+        try
+        {
+            Assert.True(Shows("2560 × 1440 · 00:42 · 30 FPS · 静音"));
+            Assert.True(Shows("导出全部 · 00:00.0 – 00:42.0　拖动两端红色手柄截取"));
+            Assert.Equal(["MP4", "GIF", "WebP", "六宫格"], RecordingReviewWindow.Formats.Select(f => AutomationProperties.GetName(Chip(f switch
+            {
+                RecordingExportFormat.Mp4 => "MP4", RecordingExportFormat.Gif => "GIF", RecordingExportFormat.WebP => "WebP", _ => "六宫格"
+            }))));
+            // Opening defaults: full range, master rate, full size; an unchanged MP4 copies the master.
+            var options = review.Options();
+            Assert.Equal(new RecordingExportOptions(RecordingExportFormat.Mp4, 30, new(2560, 1440), new(TimeSpan.Zero, TimeSpan.FromSeconds(42))), options);
+            Assert.True(options.CopiesMaster(new(2560, 1440), TimeSpan.FromSeconds(42)));
+            Assert.Equal(["100%   2560 × 1440", "75%   1920 × 1080", "50%   1280 × 720", "25%   640 × 360", "自定义"], (string[])review.Size.ItemsSource!);
+            Preview(review, "recording-review-mp4");
+
+            // Trimming moves into the exported options and shows the reset link.
+            review.Track.Range = new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8)); Layout(review);
+            Assert.True(Shows("截取 00:05.0 – 00:29.8 · 共 00:24.8"));
+            Assert.True(Chip("恢复全部").IsEffectivelyVisible);
+
+            // GIF: 10 FPS and the largest preset within 1280 px; a custom width keeps the aspect ratio and never enlarges.
+            Click(Chip("GIF")); Layout(review);
+            Assert.Equal(new RecordingExportOptions(RecordingExportFormat.Gif, 10, new(1280, 720), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
+            review.Size.SelectedIndex = 4; review.CustomWidth.Text = "640"; Layout(review);
+            Assert.True(review.CustomWidth.IsEffectivelyVisible);
+            Assert.True(Shows("× 360"));
+            Assert.Equal(new VideoSize(640, 360), review.Options().Size);
+            review.CustomWidth.Text = "99999";
+            Assert.Equal(new VideoSize(2560, 1440), review.Options().Size);
+            review.CustomWidth.Text = "640"; review.FrameRate.SelectedIndex = 0;
+            Assert.Equal(1, review.Options().FramesPerSecond);
+            Preview(review, "recording-review-gif-trimmed");
+
+            Click(Chip("WebP")); Layout(review);
+            Assert.Equal((25, new VideoSize(2560, 1440)), (review.Options().FramesPerSecond, review.Options().Size));
+            Assert.False(review.CustomWidth.IsEffectivelyVisible);
+
+            // 六宫格: no frame rate, per-cell long edge defaults to 320, six sample ticks inside the range.
+            Click(Chip("六宫格")); Layout(review);
+            Assert.False(review.FrameRate.IsEffectivelyVisible);
+            Assert.Equal(new RecordingExportOptions(RecordingExportFormat.ContactSheet, 0, new(320, 180), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
+            Assert.Equal(["原尺寸   7728 × 2972", "每格 ≤ 640 px   1968 × 812", "每格 ≤ 480 px   1488 × 632", "每格 ≤ 320 px   1008 × 452", "每格 ≤ 200 px   648 × 316", "自定义"],
+                (string[])review.Size.ItemsSource!);
+            Assert.Equal(6, review.Track.Ticks.Count);
+            Assert.Equal(TimeSpan.FromSeconds(5), review.Track.Ticks[0]);
+            Preview(review, "recording-review-contact-sheet");
+
+            Click(Chip("恢复全部")); Layout(review);
+            Assert.True(review.Options().Range.IsFull(TimeSpan.FromSeconds(42)));
+            Assert.False(Chip("恢复全部").IsEffectivelyVisible);
+        }
+        finally { await review.RequestCloseAsync(discardUnsaved: true); controller.Main.Close(); }
+        Assert.False(Directory.Exists(workspace.SessionDirectory));
     }
 
     [Fact]

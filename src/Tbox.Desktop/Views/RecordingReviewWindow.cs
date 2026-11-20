@@ -1,7 +1,11 @@
-﻿using Avalonia;
+using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Controls.Primitives.PopupPositioning;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -20,37 +24,62 @@ internal sealed class RecordingReviewWindow : Window
     private readonly RecordingArea _area;
     private readonly RecordingOutput _output;
     private readonly TimeSpan _duration;
+    private readonly VideoSize _source;
     private readonly VideoView _video = new();
-    private readonly Slider _position = new() { Minimum = 0, MinWidth = 100, VerticalAlignment = VerticalAlignment.Center };
+    private readonly RecordingTrimBar _track = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly Slider _volume = new() { Minimum = 0, Maximum = 100, Value = 100, Width = 80, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _time = new() { Text = "00:00 / 00:00", FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _range = new() { FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _status = Ui.Description("");
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 6, MinHeight = 6, Width = 140, CornerRadius = new CornerRadius(3), IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
     // Format choice is a segmented control (spec ④); MP4 first because it is the default.
-    private static readonly RecordingExportFormat[] Formats = [RecordingExportFormat.Mp4, RecordingExportFormat.Gif, RecordingExportFormat.WebP];
-    private static readonly string[] FormatHints = ["视频，体积小，质量好", "图像，兼容性高，质量较低", "图像，质量好，兼容性适中"];
+    internal static readonly RecordingExportFormat[] Formats = [RecordingExportFormat.Mp4, RecordingExportFormat.Gif, RecordingExportFormat.WebP, RecordingExportFormat.ContactSheet];
+    private static readonly string[] FormatNames = ["MP4", "GIF", "WebP", "六宫格"];
     private readonly Func<int> _formatIndex;
     private readonly Action<bool> _enableFormat;
-    private readonly Button _play, _save, _cancelExport, _rerecord;
-    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    private readonly Control _frameRateGroup, _customGroup;
+    private readonly TextBlock _customHeight = new() { FontSize = 13, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
+    private readonly Button _play, _save, _cancelExport, _rerecord, _resetRange;
+    private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // Size presets for the current format; the extra last item is "自定义" (width input).
+    private IReadOnlyList<RecordingSizeChoice> _sizes = [];
     private LibVLC? _engine;
     private MediaPlayer? _player;
     private LibVLCSharp.Shared.Media? _media;
     private CancellationTokenSource? _exportCancellation;
+    // Contact-sheet sample thumbnails keyed by time; a new range cancels the batch still decoding.
+    private readonly Dictionary<TimeSpan, Picture> _thumbnails = [];
+    private CancellationTokenSource? _thumbnailLoad;
+    private IReadOnlyList<TimeSpan> _thumbnailTicks = [];
+    // Card above a contact-sheet node: the sample frame (grey until decoded) and "04 · 00:03.2".
+    private readonly Image _thumbnailImage = new() { Height = 72, Stretch = Stretch.Uniform };
+    private readonly Border _thumbnailFrame = new() { Height = 72, MinWidth = 96, CornerRadius = new CornerRadius(4), ClipToBounds = true, Background = Brush.Parse("#2A2B33") };
+    private readonly TextBlock _thumbnailLabel = new() { FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Center };
+    internal Popup ThumbnailPopup { get; }
+    internal int LoadedThumbnails => _track.Ticks.Count(_thumbnails.ContainsKey);
     private Task _saveTask = Task.CompletedTask;
     private Task _initialization = Task.CompletedTask;
     private Task<bool>? _closeRequest;
     private ConfirmWindow? _discardConfirmation;
-    private bool _updating, _saving, _selectingSavePath, _saved, _closing, _allowClose, _discardUnsaved;
+    private bool _saving, _selectingSavePath, _saved, _closing, _allowClose, _discardUnsaved;
     public event Action? Released;
+
+    internal RecordingTrimBar Track => _track;
+    internal ComboBox FrameRate { get; } = new() { MinWidth = 0, FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
+        ItemsSource = RecordingExportProfiles.FrameRates.Select(rate => rate + " FPS").ToArray() };
+    internal ComboBox Size { get; } = new() { MinWidth = 132, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+    internal TextBox CustomWidth { get; } = new() { Width = 64, MinWidth = 0, Height = 30, MinHeight = 30, FontSize = 13, MaxLength = 5,
+        VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0) };
+    internal RecordingExportFormat Format => Formats[_formatIndex()];
 
     public RecordingReviewWindow(DesktopController controller, RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
     {
         _controller = controller; _workspace = workspace; _area = area; _output = output; _duration = duration;
-        Ui.Configure(this, "录屏 · Tbox", 900, 660);
-        MinWidth = 700; MinHeight = 480;
+        _source = new VideoSize(area.PixelWidth, area.PixelHeight);
+        Ui.Configure(this, "录屏 · Tbox", 900, 680);
+        MinWidth = 760; MinHeight = 500;
         Ui.ExtendIntoTitleBar(this);
         var brand = Ui.Brand();
         // Only the video canvas stays dark; the frame is the light result-window frame.
@@ -62,41 +91,68 @@ internal sealed class RecordingReviewWindow : Window
         {
             if (await RequestCloseAsync()) await controller.StartRecordingAsync(area);
         }));
-        _position.Maximum = Math.Max(1, duration.TotalMilliseconds);
-        foreach (var name in new[] { "SliderTrackValueFill", "SliderTrackValueFillPointerOver", "SliderTrackValueFillPressed" })
-            _position.Resources[name] = Ui.RecordRed;
-        foreach (var slider in new[] { _position, _volume })
-            foreach (var state in new[] { "", "PointerOver", "Pressed" })
-            {
-                slider.Resources["SliderThumbBackground" + state] = Brushes.White;
-                slider.Resources["SliderTrackFill" + state] = Brush.Parse("#E6E4EE");
-            }
-        var speaker = new LineIcon(output.HasSystemAudio ? IconKind.Speaker : IconKind.Mute, brush: Brush.Parse("#5F6270")) { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center };
-        var playback = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 12, 20, 4), Children =
+        foreach (var state in new[] { "", "PointerOver", "Pressed" })
         {
-            _play, Ui.Column(_position, 1), Ui.Column(_time, 2), Ui.Column(speaker, 3), Ui.Column(_volume, 4)
+            _volume.Resources["SliderThumbBackground" + state] = Brushes.White;
+            _volume.Resources["SliderTrackFill" + state] = Brush.Parse("#E6E4EE");
+        }
+        _track.Duration = duration;
+        var speaker = new LineIcon(output.HasSystemAudio ? IconKind.Speaker : IconKind.Mute, brush: Brush.Parse("#5F6270")) { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center };
+        var playback = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 4, 20, 0), Children =
+        {
+            _play, Ui.Column(_track, 1), Ui.Column(_time, 2), Ui.Column(speaker, 3), Ui.Column(_volume, 4)
         } };
-        var hint = Ui.Description(FormatHints[0]); hint.FontSize = DesignTokens.Caption; hint.VerticalAlignment = VerticalAlignment.Center;
-        var format = Ui.Segmented(["MP4", "GIF", "WebP"], 0, index => hint.Text = FormatHints[index], out _formatIndex, out _enableFormat);
+        // Range line under the track (PixPin: drag the handles at both ends; only the part between them is exported).
+        _resetRange = Ui.Link("恢复全部", () => _track.Range = new(TimeSpan.Zero, _track.Duration));
+        var rangeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(64, 0, 20, 0), Height = 22,
+            Children = { _range, _resetRange } };
+
+        var format = Ui.Segmented(FormatNames, 0, _ => { ApplyFormatDefaults(); UpdateRange(); }, out _formatIndex, out _enableFormat);
+        var chips = format.GetLogicalDescendants().OfType<Button>().ToArray();
+        for (var i = 0; i < chips.Length; i++) ToolTip.SetTip(chips[i], RecordingExportProfiles.Get(Formats[i]).Description);
+        AutomationProperties.SetName(FrameRate, "导出帧率"); AutomationProperties.SetName(Size, "导出尺寸"); AutomationProperties.SetName(CustomWidth, "自定义宽度");
+        _frameRateGroup = Group("帧率", FrameRate);
+        _customGroup = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, IsVisible = false,
+            Children = { CustomWidth, _customHeight } };
+        var sizeGroup = Group("尺寸", Size, _customGroup);
+        Size.SelectionChanged += (_, _) => { _customGroup.IsVisible = Size.SelectedIndex == _sizes.Count; UpdateCustomHeight(); };
+        CustomWidth.TextChanged += (_, _) => UpdateCustomHeight();
+        _track.RangeChanged += _ => UpdateRange();
+        _thumbnailFrame.Child = _thumbnailImage;
+        ThumbnailPopup = new Popup
+        {
+            // The overlay layer draws above the native video view.
+            PlacementTarget = _track, Placement = PlacementMode.Top, VerticalOffset = -2, ShouldUseOverlayLayer = true,
+            IsHitTestVisible = false, TakesFocusFromNativeControl = false,
+            PlacementConstraintAdjustment = PopupPositionerConstraintAdjustment.SlideX | PopupPositionerConstraintAdjustment.FlipY,
+            Child = new Border { Background = Brush.Parse("#1D1D24"), CornerRadius = new CornerRadius(8), Padding = new Thickness(4, 4, 4, 2), IsHitTestVisible = false,
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetY = 4, Blur = 12, Color = Color.FromArgb(64, 16, 18, 32) }),
+                Child = new StackPanel { Spacing = 3, Children = { _thumbnailFrame, _thumbnailLabel } } }
+        };
+        _track.HotTickChanged += _ => ShowThumbnail();
+        _track.Seeked += time => { if (!_closing && _player is { } player) player.Time = (long)time.TotalMilliseconds; UpdateTime(time); };
         _status.FontSize = DesignTokens.Caption;
-        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { format, hint, _progress, _status } };
+        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { format, _frameRateGroup, sizeGroup, _progress, _status } };
         _status.VerticalAlignment = VerticalAlignment.Center; _status.TextWrapping = TextWrapping.NoWrap; _status.TextTrimming = TextTrimming.CharacterEllipsis;
         var bar = Ui.ResultBar(left, _cancelExport, _save);
+        ApplyFormatDefaults(); UpdateRange();
 
-        var size = $"{area.PixelWidth} × {area.PixelHeight} · {FormatTime(duration)} · {(output.HasSystemAudio ? "系统声音" : "静音")}";
+        var size = $"{area.PixelWidth} × {area.PixelHeight} · {FormatTime(duration)} · {RecordingFrameRatePolicy.RecordingFrameRate} FPS · {(output.HasSystemAudio ? "系统声音" : "静音")}";
         var header = Ui.ResultHeader(IconKind.Record, ToolTone.Red, "录屏预览", Ui.Description(size), _rerecord);
         var strip = Ui.TitleStrip("录屏 · Tbox", brand);
         var canvas = new Border { Background = Brush.Parse("#111217"), CornerRadius = new CornerRadius(12), Margin = new Thickness(12, 0), ClipToBounds = true, Child = _video };
-        DockPanel.SetDock(strip, Dock.Top); DockPanel.SetDock(header, Dock.Top); DockPanel.SetDock(bar, Dock.Bottom); DockPanel.SetDock(playback, Dock.Bottom);
-        Content = new DockPanel { Children = { strip, header, bar, playback, canvas } };
+        DockPanel.SetDock(strip, Dock.Top); DockPanel.SetDock(header, Dock.Top); DockPanel.SetDock(bar, Dock.Bottom);
+        DockPanel.SetDock(rangeRow, Dock.Bottom); DockPanel.SetDock(playback, Dock.Bottom);
+        playback.Children.Add(ThumbnailPopup);
+        Content = new DockPanel { Children = { strip, header, bar, rangeRow, playback, canvas } };
         Closed += (_, _) => brand.Dispose();
         _play.IsEnabled = false;
         Opened += (_, _) => _initialization = InitializePlaybackAsync();
         _timer.Tick += (_, _) => UpdatePlayback();
-        _position.ValueChanged += (_, _) => { if (!_updating && !_closing && _player is { } player) player.Time = (long)_position.Value; };
         _volume.ValueChanged += (_, _) => { if (!_closing && _player is { } player) player.Volume = (int)_volume.Value; };
         KeyDown += (_, e) =>
         {
+            if (e.Source is TextBox) return;
             if (e.Key == Key.Space) controller.Run(TogglePlaybackAsync);
             else if (e.Key == Key.S && (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0) controller.Run(SaveAsync);
             else if (e.Key == Key.Escape) controller.Run(async () => { await RequestCloseAsync(); });
@@ -105,6 +161,131 @@ internal sealed class RecordingReviewWindow : Window
         };
         Closing += (_, e) => { if (!_allowClose) { e.Cancel = true; controller.Run(async () => { await RequestCloseAsync(); }); } };
         Closed += (_, _) => _closed.TrySetResult();
+    }
+
+    private static StackPanel Group(string label, params Control[] items)
+    {
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        panel.Children.Add(new TextBlock { Text = label, FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center });
+        panel.Children.AddRange(items);
+        return panel;
+    }
+
+    private bool Even => Format == RecordingExportFormat.Mp4;
+
+    // Every format starts from its own defaults; nothing is remembered between recordings.
+    private void ApplyFormatDefaults()
+    {
+        var format = Format; var profile = RecordingExportProfiles.Get(format);
+        _frameRateGroup.IsVisible = format != RecordingExportFormat.ContactSheet;
+        FrameRate.SelectedIndex = Math.Max(0, RecordingExportProfiles.FrameRates.ToList().IndexOf(profile.DefaultFramesPerSecond));
+        if (format == RecordingExportFormat.ContactSheet)
+        {
+            // Each cell is limited by its long edge; "原尺寸" keeps the recorded pixels.
+            _sizes = new[] { new RecordingSizeChoice("原尺寸", _source) }.Concat(ContactSheetPolicy.LongEdges
+                .Where(edge => edge < Math.Max(_source.Width, _source.Height))
+                .Select(edge => new RecordingSizeChoice($"每格 ≤ {edge} px", RecordingSizePolicy.FitLongEdge(_source, edge, false)))).ToArray();
+            var fallback = _sizes.Select((c, i) => (c, i)).FirstOrDefault(x => x.c.Label == $"每格 ≤ {ContactSheetPolicy.DefaultLongEdge} px");
+            Fill(fallback.c.Label is null ? 0 : fallback.i);
+        }
+        else
+        {
+            _sizes = RecordingSizePolicy.Choices(_source, Even);
+            Fill(RecordingSizePolicy.DefaultChoice(_source, format, Even));
+        }
+        CustomWidth.Text = OutputSize(Size.SelectedIndex).Width.ToString();
+    }
+
+    private void Fill(int selected)
+    {
+        var sheet = Format == RecordingExportFormat.ContactSheet;
+        var items = _sizes.Select(c =>
+        {
+            var shown = sheet ? ContactSheetPolicy.SheetSize(c.Size) : c.Size;
+            return $"{c.Label}   {shown.Width} × {shown.Height}";
+        }).Append("自定义").ToArray();
+        Size.ItemsSource = items; Size.SelectedIndex = selected;
+    }
+
+    private VideoSize OutputSize(int index)
+    {
+        if (index >= 0 && index < _sizes.Count) return _sizes[index].Size;
+        return RecordingSizePolicy.ScaleToWidth(_source, int.TryParse(CustomWidth.Text, out var width) && width > 0 ? width : _source.Width, Even);
+    }
+
+    private void UpdateCustomHeight()
+    {
+        if (!_customGroup.IsVisible) return;
+        var size = OutputSize(-1);
+        _customHeight.Text = Format == RecordingExportFormat.ContactSheet
+            ? $"× {size.Height}（输出 {ContactSheetPolicy.SheetSize(size).Width} × {ContactSheetPolicy.SheetSize(size).Height}）"
+            : $"× {size.Height}";
+    }
+
+    internal RecordingExportOptions Options()
+    {
+        var format = Format;
+        var fps = format == RecordingExportFormat.ContactSheet ? 0 : RecordingExportProfiles.FrameRates[Math.Max(0, FrameRate.SelectedIndex)];
+        return new RecordingExportOptions(format, fps, OutputSize(Size.SelectedIndex), _track.Range);
+    }
+
+    private void UpdateRange()
+    {
+        var range = _track.Range; var full = range.IsFull(_track.Duration);
+        _range.Text = full ? $"导出全部 · {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)}　拖动两端红色手柄截取"
+            : $"截取 {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)} · 共 {RecordingTrimBar.FormatPrecise(range.Length)}";
+        _resetRange.IsVisible = !full;
+        var ticks = Format == RecordingExportFormat.ContactSheet ? ContactSheetPolicy.SampleTimes(range, RecordingFrameRatePolicy.RecordingFrameRate) : [];
+        if (!ticks.SequenceEqual(_track.Ticks)) _track.Ticks = ticks;
+        LoadThumbnails(ticks);
+        if (_player?.IsPlaying == true) return;
+        // A paused playhead outside the handles jumps to the start handle.
+        var now = _player is { } player ? TimeSpan.FromMilliseconds(Math.Max(0, player.Time)) : _track.Position;
+        if (now < range.Start || now > range.End)
+        {
+            if (_player is { } paused) paused.Time = (long)range.Start.TotalMilliseconds;
+            now = range.Start;
+        }
+        _track.Position = now; UpdateTime(now);
+    }
+
+    private void ShowThumbnail()
+    {
+        var index = _track.HotTick;
+        if (index < 0 || _closing) { ThumbnailPopup.IsOpen = false; return; }
+        var time = _track.Ticks[index];
+        _thumbnailImage.Source = _thumbnails.TryGetValue(time, out var picture) ? picture.Bitmap : null;
+        _thumbnailFrame.Width = _thumbnailImage.Source is null ? Math.Round(72 * _source.Width / (double)_source.Height) : double.NaN;
+        _thumbnailLabel.Text = $"{index + 1:00} · {RecordingTrimBar.FormatPrecise(time)}";
+        ThumbnailPopup.PlacementRect = _track.TickAnchor(index);
+        // Reopen so the popup re-anchors to the new tick.
+        ThumbnailPopup.IsOpen = false; ThumbnailPopup.IsOpen = true;
+    }
+
+    // Decodes the six sample frames at thumbnail size once the handles settle; the cache keeps frames shared by both ranges.
+    private void LoadThumbnails(IReadOnlyList<TimeSpan> ticks)
+    {
+        if (_track.IsDragging || (_thumbnailLoad is not null && ticks.SequenceEqual(_thumbnailTicks))) return;
+        _thumbnailLoad?.Cancel(); _thumbnailLoad = null;
+        if (_closing || ticks.All(_thumbnails.ContainsKey) || !File.Exists(RecordingExporter.FfmpegPath)) return;
+        var cancellation = _thumbnailLoad = new CancellationTokenSource(); _thumbnailTicks = ticks;
+        var size = RecordingSizePolicy.FitLongEdge(_source, 160, false);
+        _controller.Run(async () =>
+        {
+            try
+            {
+                foreach (var time in ticks.Where(t => !_thumbnails.ContainsKey(t)).Distinct().ToArray())
+                {
+                    var pixels = await RecordingExporter.ReadFrameAsync(_output.FilePath, time, size, cancellation.Token);
+                    if (cancellation.IsCancellationRequested || _closing) return;
+                    _thumbnails[time] = Picture.FromPixels(pixels, size.Width, size.Height);
+                    if (_track.HotTick >= 0 && _track.Ticks[_track.HotTick] == time) ShowThumbnail();
+                }
+            }
+            // A missing thumbnail only leaves the placeholder; saving still reports its own errors.
+            catch (Exception error) when (error is not OperationCanceledException) { AppLog.Write("六宫格缩略图：" + error.Message); }
+            finally { if (_thumbnailLoad == cancellation) _thumbnailLoad = null; cancellation.Dispose(); }
+        });
     }
 
     private async Task InitializePlaybackAsync()
@@ -122,7 +303,7 @@ internal sealed class RecordingReviewWindow : Window
         catch (Exception error)
         {
             _status.Text = "回放组件不可用，仍可保存录屏：" + error.Message;
-            _play.IsEnabled = false; _position.IsEnabled = false; _volume.IsEnabled = false;
+            _play.IsEnabled = false; _volume.IsEnabled = false;
         }
     }
 
@@ -130,18 +311,33 @@ internal sealed class RecordingReviewWindow : Window
     {
         if (_closing || _player is not { } player) return;
         if (player.IsPlaying) player.Pause();
-        else { if (player.State == VLCState.Ended) await Task.Run(player.Stop); if (!_closing) player.Play(); }
+        else
+        {
+            var range = _track.Range;
+            var restart = player.State == VLCState.Ended || player.Time < (long)range.Start.TotalMilliseconds ||
+                player.Time >= (long)range.End.TotalMilliseconds - 50;
+            if (player.State == VLCState.Ended) await Task.Run(player.Stop);
+            if (_closing) return;
+            player.Play();
+            // Playback stays between the handles: once the end handle is reached, play again from the start handle.
+            if (restart) player.Time = (long)range.Start.TotalMilliseconds;
+        }
         UpdatePlayback();
     }
 
     private void UpdatePlayback()
     {
         if (_closing || _player is not { } player) return;
-        var total = player.Length > 0 ? player.Length : _duration.TotalMilliseconds;
-        _updating = true; _position.Maximum = Math.Max(1, total); _position.Value = Math.Max(0, player.Time); _updating = false;
-        _time.Text = $"{FormatTime(TimeSpan.FromMilliseconds(Math.Max(0, player.Time)))} / {FormatTime(TimeSpan.FromMilliseconds(total))}";
+        if (player.Length > 0 && Math.Abs(player.Length - _track.Duration.TotalMilliseconds) > 1)
+        { _track.Duration = TimeSpan.FromMilliseconds(player.Length); UpdateRange(); }
+        var now = TimeSpan.FromMilliseconds(Math.Max(0, player.Time));
+        if (player.IsPlaying && now >= _track.Range.End && !_track.Range.IsFull(_track.Duration)) { player.Pause(); now = _track.Range.End; }
+        if (!_track.IsDragging) _track.Position = now;
+        UpdateTime(now);
         _play.Content = new LineIcon(player.IsPlaying ? IconKind.Pause : IconKind.Play, brush: Brush.Parse("#1A1B22")) { Width = 18, Height = 18 };
     }
+
+    private void UpdateTime(TimeSpan now) => _time.Text = $"{FormatTime(now)} / {FormatTime(_track.Duration)}";
 
     private async Task SaveAsync()
     {
@@ -150,20 +346,28 @@ internal sealed class RecordingReviewWindow : Window
         if (_saved) await RequestCloseAsync();
     }
 
+    private void SetEditable(bool on)
+    {
+        _save.IsEnabled = on; _enableFormat(on); _rerecord.IsEnabled = on; _track.IsHitTestVisible = on; _resetRange.IsEnabled = on;
+        FrameRate.IsEnabled = Size.IsEnabled = CustomWidth.IsEnabled = on;
+    }
+
     private async Task SaveCoreAsync()
     {
         _saving = true; _exportCancellation = new CancellationTokenSource();
-        var format = Formats[_formatIndex()];
-        var profile = RecordingExportProfiles.Get(format);
+        var options = Options();
+        var profile = RecordingExportProfiles.Get(options.Format);
         try
         {
             IStorageFile? file;
             _selectingSavePath = true;
             try
             {
+                var stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
                 file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
                 {
-                    Title = "保存录屏", SuggestedFileName = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss") + profile.Extension,
+                    Title = "保存录屏",
+                    SuggestedFileName = (options.Format == RecordingExportFormat.ContactSheet ? stamp + "_六宫格" : stamp) + profile.Extension,
                     DefaultExtension = profile.Extension.TrimStart('.'), ShowOverwritePrompt = true,
                     FileTypeChoices = [new FilePickerFileType(profile.DisplayName) { Patterns = ["*" + profile.Extension] }]
                 });
@@ -172,10 +376,12 @@ internal sealed class RecordingReviewWindow : Window
             _exportCancellation.Token.ThrowIfCancellationRequested();
             if (file is null) return;
             if (file.TryGetLocalPath() is not { } path) throw new InvalidOperationException("请选择本机可写入的文件位置。");
-            _save.IsEnabled = false; _enableFormat(false); _rerecord.IsEnabled = false;
+            SetEditable(false);
             _cancelExport.IsVisible = true; _progress.IsVisible = true; _progress.Value = 0;
-            _status.Text = format == RecordingExportFormat.Mp4 ? "正在保存…" : "正在转换图像…";
-            var exported = await RecordingExporter.ExportAsync(_output.FilePath, _workspace.ExportPath(format), format, _duration,
+            var detail = options.Format == RecordingExportFormat.ContactSheet ? $"{ContactSheetPolicy.SheetSize(options.Size).Width} × {ContactSheetPolicy.SheetSize(options.Size).Height}"
+                : $"{options.Size.Width} × {options.Size.Height} · {options.FramesPerSecond} FPS";
+            _status.Text = $"正在保存 {FormatNames[_formatIndex()]} · {detail}";
+            var exported = await RecordingExporter.ExportAsync(_output.FilePath, _workspace.ExportPath(options.Format), options, _source, _track.Duration,
                 new Progress<double>(value => _progress.Value = value), _exportCancellation.Token);
             await RecordingExporter.SaveAtomicallyAsync(exported, path, _exportCancellation.Token);
             _saved = true;
@@ -185,7 +391,7 @@ internal sealed class RecordingReviewWindow : Window
         finally
         {
             _saving = false; _exportCancellation.Dispose(); _exportCancellation = null;
-            _save.IsEnabled = true; _enableFormat(true); _rerecord.IsEnabled = true;
+            SetEditable(true);
             _cancelExport.IsVisible = false; _progress.IsVisible = false;
         }
     }
@@ -220,7 +426,7 @@ internal sealed class RecordingReviewWindow : Window
             finally { _discardConfirmation = null; }
         }
         if (_closing) { await _released.Task; return true; }
-        _closing = true; _timer.Stop();
+        _closing = true; _timer.Stop(); _thumbnailLoad?.Cancel(); ThumbnailPopup.IsOpen = false;
         try
         {
             await _initialization;
@@ -234,6 +440,8 @@ internal sealed class RecordingReviewWindow : Window
             _allowClose = true; Close(); await _closed.Task;
             await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             await Task.Run(() => { _player?.Dispose(); _media?.Dispose(); _engine?.Dispose(); });
+            foreach (var picture in _thumbnails.Values) picture.Dispose();
+            _thumbnails.Clear();
             _workspace.Dispose();
         }
         // If native release fails, leave the session for startup cleanup rather than remove an in-use file.

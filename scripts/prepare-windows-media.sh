@@ -34,9 +34,10 @@ tar -xf "$SOURCE/libwebp-1.6.0.tar.gz" -C "$BUILD"
     --enable-cross-compile --cross-prefix=x86_64-w64-mingw32- --arch=x86_64 --target-os=mingw32 \
     --pkg-config=pkg-config --pkg-config-flags=--static --extra-ldflags=-static \
     --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-ffplay --disable-ffprobe --disable-network \
-    --enable-static --disable-shared --enable-libwebp --enable-protocol=file,pipe \
-    --enable-demuxer=mov --enable-muxer=gif,webp --enable-decoder=h264,aac \
-    --enable-parser=h264,aac --enable-encoder=gif,libwebp,libwebp_anim \
+    --enable-static --disable-shared --enable-libwebp --enable-mediafoundation --enable-d3d11va --enable-protocol=file,pipe \
+    --enable-demuxer=mov --enable-muxer=gif,webp,mp4,rawvideo --enable-decoder=h264,aac \
+    --enable-parser=h264,aac --enable-encoder=gif,libwebp,libwebp_anim,h264_mf,rawvideo \
+    --enable-bsf=aac_adtstoasc,h264_mp4toannexb,extract_extradata \
     --enable-filter=fps,scale,split,palettegen,paletteuse,format,null,anull
   make -j"$(nproc)"
   make install
