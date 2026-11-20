@@ -47,7 +47,7 @@ Windows 包装脚本只在一次性的 GitHub 托管 runner 导入指定证书�
 
 `GITHUB_TOKEN` 仅在 `xsddpx/Tbox` 内读取源码、创建并上传同仓库草稿 Release、推送发布记录分支和尝试创建 PR；不再使用跨仓库写入令牌。
 
-当前仓库不允许 Actions 创建 PR。流程会保留已推送的发布记录分支并输出提醒，公开发布仍可继续。若希望自动创建记录 PR，可在 Actions → General → Workflow permissions 开启 “Allow GitHub Actions to create and approve pull requests”；不需要开启默认全仓库写权限。流程不会自行修改此设置或自动合并记录 PR。
+2026-11-20：按用户要求，仓库已在 Actions → General → Workflow permissions 开启 “Allow GitHub Actions to create and approve pull requests”，默认工作流权限仍为只读。发布流程推送发布记录分支后会自动创建记录 PR；创建失败时仍保留记录分支并输出提醒，公开发布照常继续。流程不会自行修改此设置，也不会自动合并记录 PR。
 
 ## 每次发布
 

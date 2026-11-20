@@ -80,6 +80,8 @@ public interface IPlatformServices : IDisposable
     IStartupRegistration CreateStartupRegistration();
     // 速览 is Windows only; other platforms keep their own file previews.
     IQuickLookSource? CreateQuickLook() => null;
+    // stateDirectory holds the lid-setting backup that undoes a change left by an abnormal exit.
+    IKeepAwake CreateKeepAwake(string stateDirectory);
 
     async Task<string?> PickFolderAsync(Window owner, string title)
     {

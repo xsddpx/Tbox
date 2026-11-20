@@ -62,6 +62,15 @@ public sealed class MainWindow : Window
     private readonly ComboBox _quickLookMethod = new() { MinWidth = 160, Items = { "空格键", "自定义快捷方式" } };
     private readonly SettingsLine _quickLookMethodLine;
     private readonly Dictionary<string, ToggleSwitch> _quickLookSwitches = [];
+    // 保持唤醒
+    private readonly ToggleSwitch _awakeToggle = Switch("保持唤醒");
+    private readonly ToggleSwitch _awakeDisplayToggle = Switch("保持屏幕常亮");
+    private readonly ToggleSwitch _awakeLidToggle = Switch("合上盖子时保持唤醒");
+    private readonly SettingsLine _awakeLid = new("合上盖子时保持唤醒", "");
+    private readonly TextBlock _awakeTitle = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong };
+    private readonly ContentControl _awakeStatus = new() { Margin = new Thickness(0, 4, 0, 0) };
+    private readonly TextBlock _awakeHint = Ui.Description("");
+    private readonly Border _awakeScreen = new() { Width = 64, Height = 38, CornerRadius = new CornerRadius(3), Margin = new Thickness(4) };
     // 通用
     private readonly ToggleSwitch _startupToggle = Switch("开机时启动");
     private readonly ToggleSwitch _failureToggle = Switch("失败时提示");
@@ -263,8 +272,34 @@ public sealed class MainWindow : Window
         _startup.SetDescription(_controller.Startup.Message ?? "启动后只在托盘运行，不打开窗口");
         _cancelStartup.IsVisible = _controller.Startup.RequiresApproval;
 
+        RefreshKeepAwake();
         RefreshDots();
         RefreshRecent();
+    }
+
+    // Switches show the saved choice; a refusal switches the saved choice back off. A Mac lid change only shows as on
+    // once the password was accepted (UI spec §5: never pretend to be on).
+    private void RefreshKeepAwake()
+    {
+        var settings = _controller.Settings;
+        var applied = _controller.KeepAwake;
+        var authorizing = _controller.KeepAwakeAuthorizing;
+        _updating = true;
+        _awakeToggle.IsChecked = settings.KeepAwakeEnabled;
+        _awakeDisplayToggle.IsChecked = settings.KeepAwakeDisplay;
+        _awakeLidToggle.IsChecked = _controller.KeepAwakeHasLid && settings.KeepAwakeLidClosed
+            && (!_controller.KeepAwakeLidNeedsAuthorization || !settings.KeepAwakeEnabled || applied.Lid);
+        _updating = false;
+        _awakeLidToggle.IsEnabled = _controller.KeepAwakeHasLid && !authorizing;
+        _awakeLid.SetDescription(!_controller.KeepAwakeHasLid ? "这台电脑没有可合上的盖子"
+            : authorizing ? "请在系统窗口中输入管理员密码"
+            : _controller.KeepAwakeLidNeedsAuthorization ? "开启和关闭时需要输入 Mac 管理员密码。放进包里前请关闭，以免过热"
+            : "笔记本合盖后继续运行。放进包里前请关闭，以免过热");
+        _awakeTitle.Text = applied.System ? "电脑保持唤醒中" : "电脑会按系统设置睡眠";
+        _awakeStatus.Content = authorizing ? Ui.Status("等待管理员授权合盖唤醒…", DesignTokens.AttentionDot)
+            : Ui.Status(applied.Summary, applied.System ? DesignTokens.Ready : DesignTokens.Hint);
+        _awakeHint.Text = applied.System ? "关闭右上角开关即可恢复。" : "打开右上角开关后，电脑在你关闭之前一直保持唤醒。";
+        _awakeScreen.Background = Brush.Parse(applied.System && applied.Display ? "#EEEAFE" : "#FFFFFF");
     }
 
     // Red = hotkey conflict, yellow = permission needed or an update is available.
@@ -297,6 +332,9 @@ public sealed class MainWindow : Window
         };
         foreach (var (key, toggle) in _quickLookSwitches)
             On(toggle, value => _controller.SetQuickLookAsync(WithQuickLookFlag(_controller.Settings.QuickLook, key, value)));
+        On(_awakeToggle, _controller.SetKeepAwakeAsync);
+        On(_awakeDisplayToggle, _controller.SetKeepAwakeDisplayAsync);
+        On(_awakeLidToggle, _controller.SetKeepAwakeLidAsync);
     }
 
     private Control Sidebar()
@@ -310,7 +348,7 @@ public sealed class MainWindow : Window
         void Item(MainPage page, IconKind icon, string title) { var item = new NavItem(icon, title, () => Navigate(page)); _nav[page] = item; items.Children.Add(item); }
         Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
         if (_controller.SupportsQuickLook) Item(MainPage.QuickLook, IconKind.QuickLook, "速览");
-        Item(MainPage.Translation, IconKind.Translate, "翻译");
+        Item(MainPage.Translation, IconKind.Translate, "翻译"); Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒");
         Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.About, IconKind.Update, "关于");
         var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
         DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(version, Dock.Bottom);
@@ -340,6 +378,11 @@ public sealed class MainWindow : Window
         if (_controller.SupportsQuickLook)
             AddPage(MainPage.QuickLook, PageHeader(IconKind.QuickLook, "速览", "在资源管理器中选中文件后按空格，快速查看内容", _quickLookToggle),
                 Spaced(_quickLookOff, 16), _quickLookSettings);
+        _awakeLid.Trailing = _awakeLidToggle;
+        AddPage(MainPage.KeepAwake, PageHeader(IconKind.Awake, "保持唤醒", "让电脑暂时不自动睡眠", _awakeToggle),
+            KeepAwakeHero(),
+            Ui.GroupHeader("行为"), Ui.Rows(new SettingsLine("保持屏幕常亮", "关闭后屏幕可按系统设置熄灭，电脑不睡眠", _awakeDisplayToggle), _awakeLid),
+            Spaced(Ui.Note("开关状态会被记住，下次启动 Tbox 时自动恢复。退出 Tbox 后，电脑恢复系统原来的睡眠设置。"), 18));
 
         AddPage(MainPage.General, PageHeader(IconKind.Sliders, "通用", "启动与提示", null),
             Spaced(Ui.GroupHeader("启动"), 8), _startup,
@@ -496,6 +539,21 @@ public sealed class MainWindow : Window
             Spaced(Ui.Description($"在任意软件的打开 / 保存对话框里，直接跳到{(mac ? "访达" : "资源管理器")}里最近打开的文件夹。"), 2)
         } };
         var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children = { text, Ui.Column(FolderIllustration(), 1) } });
+        hero.Padding = new Thickness(20, 16, 16, 16); hero.Margin = new Thickness(0, 16, 0, 0);
+        return hero;
+    }
+
+    private Control KeepAwakeHero()
+    {
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { _awakeTitle, _awakeStatus, Spaced(_awakeHint, 6) } };
+        _awakeStatus.HorizontalAlignment = HorizontalAlignment.Left;
+        var laptop = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Children =
+        {
+            new Border { CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(2), BorderBrush = Brush.Parse("#C9CDDB"), Background = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center, Child = _awakeScreen },
+            new Border { Width = 96, Height = 6, CornerRadius = new CornerRadius(3), Background = Brush.Parse("#C9CDDB") }
+        } };
+        var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children = { text, Ui.Column(Scene(laptop), 1) } });
         hero.Padding = new Thickness(20, 16, 16, 16); hero.Margin = new Thickness(0, 16, 0, 0);
         return hero;
     }

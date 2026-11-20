@@ -10,7 +10,8 @@ internal enum IconKind
     Back, Settings, Folder, Capture, Pin, Ocr, Chevron, Record, Long, Eye, EyeOff, Jump, Gear, Copy, Model, Translate, Grip,
     Rectangle, Ellipse, Line, Polyline, Arrow, Number, Pen, Highlighter, Mosaic, Text, Eraser,
     Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute,
-    QuickLook, OpenFile, Unpin, File
+    QuickLook, OpenFile, Unpin, File,
+    Awake, Display, Laptop
 }
 
 // 24-unit line icons drawn with one stroke weight. Filled glyphs (record dot, play, stop) set Fill.
@@ -81,6 +82,10 @@ internal sealed class LineIcon : Control
             IconKind.Unpin => "M8 3 L16 3 L15 10 L19 14 L13 14 L12 21 L11 14 L5 14 L9 10 Z M3 3 L21 21",
             IconKind.File => "M6 3 H14 L19 8 V21 H6 Z M14 3 V8 H19",
             IconKind.Image => "M4 5 H20 V19 H4 Z M4 16 L9 11 L13 15 L16 12 L20 16 M15.5 8.5 A1 1 0 1 1 15.49 8.5 Z",
+            // A cup with steam, as in PowerToys Awake.
+            IconKind.Awake => "M4 10 H16 V13 A6 6 0 0 1 4 13 Z M16 11 H17.5 A2.5 2.5 0 0 1 17.5 16 H15.5 M5 21 H15 M8 3.5 Q9 4.75 8 6 Q7 7.25 8 8.5 M12 3.5 Q13 4.75 12 6 Q11 7.25 12 8.5",
+            IconKind.Display => "M3 5 H21 V16 H3 Z M9 20 H15 M12 16 V20",
+            IconKind.Laptop => "M5 6 H19 V16 H5 Z M2.5 19 H21.5",
             _ => "M9 5 L16 12 L9 19"
         });
         ActualThemeVariantChanged += (_, _) => InvalidateVisual();
