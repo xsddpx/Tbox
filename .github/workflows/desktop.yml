@@ -23,7 +23,7 @@ on:
         default: false
         type: boolean
       verify_remote_engine:
-        description: 'Type-check the patched RustDesk client on macOS'
+        description: 'Build native RustDesk authorization tests on Windows and macOS'
         default: false
         type: boolean
 
@@ -79,7 +79,43 @@ jobs:
           cd "$engine"
           "$VCPKG_ROOT/vcpkg" install aom libjpeg-turbo libvpx libyuv opus \
             --triplet arm64-osx --classic
-          cargo +stable check --lib
+          cargo +stable test --lib tbox_remote::tests
+
+  remote-engine-windows:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_remote_engine
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+          path: TEMP/vcpkg
+          persist-credentials: false
+      - uses: actions/cache@v4
+        with:
+          path: TEMP/vcpkg/installed
+          key: rustdesk-x64-windows-static-9e593bb1-aom-jpeg-vpx-yuv-opus
+      - name: Prepare the patched client sources
+        shell: bash
+        run: echo "TBOX_REMOTE_SOURCE=$(cygpath -wa "$(bash scripts/prepare-remote-engine.sh)")" >> "$GITHUB_ENV"
+      - name: Build and test the patched client
+        shell: pwsh
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          CARGO_TARGET_DIR: ${{ github.workspace }}/TEMP/rustdesk-target
+          VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
+        run: |
+          rustup update stable --no-self-update
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Set-Location $env:TBOX_REMOTE_SOURCE
+          & "$env:VCPKG_ROOT\vcpkg.exe" install aom libjpeg-turbo libvpx libyuv opus --triplet x64-windows-static --classic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +stable test --lib tbox_remote::tests
 
   cloud:
     runs-on: ubuntu-latest

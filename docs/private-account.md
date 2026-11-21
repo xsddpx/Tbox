@@ -66,3 +66,5 @@ tbox.xsddpx.com {
 `cargo test --locked --manifest-path src/Tbox.Remote/Cargo.toml` 验证独立握手逻辑。`bash scripts/prepare-remote-engine.sh` 检出固定 RustDesk 客户端和协议子模块，并将 Tbox 补丁应用到 `TEMP/` 的独立目录。控制端在已加密的流上比对服务器登记的被控端公钥。被控端生成新挑战，并调用账号服务兑换票据。引擎只处理桌面画面和键鼠消息。宿主使用单独的凭据报告就绪、兑换及续期。开发入口通过继承管道与 Tbox 交换登记信息和挑战签名。
 
 当前补丁已通过固定源码应用检查。Tbox 账号「我的设备」已接入启动、授权和握手。桌面应用只在安装包包含引擎并配置对应账号的中继时显示功能入口。打包配置 `TBOX_REMOTE_RENDEZVOUS` 和 `TBOX_REMOTE_RENDEZVOUS_KEY` 分别指定自建会合地址和公钥。完整引擎构建、Windows 签名服务注册、Mac 授权和中继部署按 REM-001 验收后进入安装包。
+
+定制客户端通过 macOS 原生类型检查。固定版本的 `hbbs` 和 `hbbr` 已在本机分别编译，使用新建测试密钥启动并接受回环 TCP 连接。此结果验证启动和监听，画面经中继传输仍需双端验收。[macOS 原生检查](https://github.com/xsddpx/Tbox/actions/runs/44890546117/job/136805192496)

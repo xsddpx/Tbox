@@ -71,6 +71,15 @@ pub(crate) fn setup_name() {
 pub(crate) fn start_host() -> Result<()> {
     let bootstrap: HostBootstrap = read_control()?;
     configure_network(&bootstrap.network)?;
+    #[cfg(target_os = "macos")]
+    {
+        let screen = crate::platform::is_can_screen_recording(true);
+        let input = crate::platform::is_process_trusted(true);
+        ensure!(
+            screen && input,
+            "Tbox remote host requires Screen Recording and Accessibility permissions"
+        );
+    }
     let host =
         HostAuthorization::new(&bootstrap.origin, bootstrap.device_id, bootstrap.credential)?;
     let (_, key) = Config::get_key_pair();
@@ -331,4 +340,54 @@ fn read_control<T: serde::de::DeserializeOwned>() -> Result<T> {
         "Invalid Tbox remote startup message"
     );
     serde_json::from_slice(&bytes).context("Invalid Tbox remote startup message")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base::message_proto::{KeyEvent, OSLogin, PortForwardChannel, TerminalAction};
+    use hbb_common::{
+        sodiumoxide::crypto::secretbox,
+        tcp,
+        tokio::net::{TcpListener, TcpStream},
+    };
+
+    #[tokio::test]
+    async fn tbox_packets_traverse_the_native_encrypted_stream() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let sender = TcpStream::connect(address).await?;
+        let (receiver, peer) = listener.accept().await?;
+        let mut sender = Stream::from(sender, address);
+        let mut receiver = Stream::from(receiver, peer);
+        hbb_common::sodiumoxide::init().map_err(|_| anyhow!("Could not initialize test crypto"))?;
+        let key = secretbox::gen_key();
+        let transcript = tcp::KxTranscript {
+            initiator_pk: &[1_u8; 32],
+            responder_pk: &[2_u8; 32],
+            advertised: tcp::KX_VERSION_LATEST,
+            picked: tcp::KX_VERSION_LATEST,
+        };
+        sender.set_negotiated_key(key.clone(), true, &transcript)?;
+        receiver.set_negotiated_key(key, false, &transcript)?;
+        let mut sender = RustDeskStream(&mut sender);
+        let mut receiver = RustDeskStream(&mut receiver);
+        assert!(sender.encrypted() && receiver.encrypted());
+        sender.send_packet(b"tbox handshake".to_vec()).await?;
+        assert_eq!(receiver.receive_packet(4096).await?, b"tbox handshake");
+        Ok(())
+    }
+
+    #[test]
+    fn desktop_stream_drops_other_control_protocols() {
+        let mut message = Message::new();
+        message.set_key_event(KeyEvent::new());
+        assert!(allows_desktop_message(&message));
+        message.set_os_login(OSLogin::new());
+        assert!(!allows_desktop_message(&message));
+        message.set_port_forward_channel(PortForwardChannel::new());
+        assert!(!allows_desktop_message(&message));
+        message.set_terminal_action(TerminalAction::new());
+        assert!(!allows_desktop_message(&message));
+    }
 }
