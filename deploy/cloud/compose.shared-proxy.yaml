@@ -1,0 +1,6 @@
+services:
+  proxy:
+    profiles: [standalone-proxy]
+  cloud:
+    ports:
+      - "127.0.0.1:18984:8080"

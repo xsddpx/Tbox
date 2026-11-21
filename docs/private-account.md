@@ -5,11 +5,35 @@
 ## 部署
 
 - 将域名指向 Linux 服务器，开放 HTTPS 和 Caddy 获取证书所需的 HTTP 端口。PostgreSQL 和应用容器只通过内部网络访问。
-- 打包前将该 HTTPS 根地址写入 GitHub Actions 变量 `TBOX_ACCOUNT_ORIGIN`。本地打包使用同名环境变量。升级已手动配置过的安装沿用已保存的地址。全新安装若未指定地址，「账号」页会提示服务尚未配置。
+- 桌面包默认使用 `https://tbox.xsddpx.com/`。面向独立部署的打包可用 GitHub Actions 变量或同名环境变量 `TBOX_ACCOUNT_ORIGIN` 指定 HTTPS 根地址。升级已手动配置过的安装沿用已保存的地址。
 - 单独为 Tbox 创建 GitHub OAuth 应用，将回调地址设为 `https://你的域名/v1/auth/github/callback`。将允许登录者的 GitHub 数字用户 ID 写入部署配置。Tbox OAuth 应用独立于 NAV 和发布流程。
 - 从 [部署示例](../deploy/cloud/.env.example) 创建本机 `deploy/cloud/.env`，限制文件访问权限。注入 OAuth 应用密钥、独立数据库密码以及 32 字节随机截图加密密钥，以 base64 表示后两项可避免连接字符串的分隔符。例如用 `openssl rand -base64 32` 生成各自独立的值。
 - 在 `deploy/cloud` 运行 `docker compose up -d --build`，确认 `/health` 返回 HTTP 200。用同账号的两台设备分别登录，再用非许可账号验证拒绝行为。
 - 每次升级前运行 `docker compose exec -T db pg_dump -U tbox -Fc tbox` 并将输出保存到受限备份位置。截图加密密钥分开备份。用隔离数据库执行 `pg_restore`，以相同截图密钥验证账号偏好和样图可读取。留意数据库容量、证书续期和服务错误。
+
+### 复用现有 Caddy
+
+Tbox 的域名为 `tbox.xsddpx.com`，独立 GitHub OAuth 应用使用精确回调 `https://tbox.xsddpx.com/v1/auth/github/callback`。
+如果 Linux 主机已有 Caddy 监听公网端口，在 `deploy/cloud` 运行以下命令。Tbox 使用独立 Compose 项目，账号服务只监听主机回环接口。
+
+```sh
+docker compose -p tbox --env-file .env -f compose.yaml -f compose.shared-proxy.yaml up -d --build
+curl -fsS http://127.0.0.1:18984/health
+```
+
+在现有 Caddy 中新增该域名的站点块。验证 Caddy 配置后重载，用公网上的 HTTPS 地址检查 `/health`。
+
+```caddyfile
+tbox.xsddpx.com {
+    log {
+        output discard
+    }
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy 127.0.0.1:18984
+}
+```
+
+目前 NAV 所在 VPS 复用系统 Caddy，并以 [systemd 单元](../deploy/cloud/tbox-cloud.service)运行自包含的 Tbox 云服务。应用通过本机 PostgreSQL 16 的独立数据库保存账号与同步数据，两项服务只监听回环接口。配置分别保存至 `/etc/tbox/cloud.env` 和 `/etc/tbox/oauth.env`，仅 root 可读。部署产物位于 `/opt/tbox/releases/<源码提交>`，`/opt/tbox/current` 指向当前版本。升级前使用 `sudo -u postgres pg_dump -Fc tbox` 备份数据库，并分开备份受限配置。
 
 ## 同步行为
 
@@ -34,3 +58,5 @@
 源代码初查采用 RustDesk 客户端 1.5.3 和开源服务器 1.1.16。客户端源码包含固定的协议子模块，客户端与服务器仓库均提供 AGPL-3.0 许可。发行验收需核对组件改动、对应源码、依赖及构建材料，包含可从网络使用的修改后服务。[客户端源码](https://github.com/rustdesk/rustdesk/tree/95cca3f661f635b3cc85c04935fe8d96d8f432ef) · [服务器源码](https://github.com/rustdesk/rustdesk-server/tree/73523b31cfd25d77dee862e6fc9f5e1fb5e485ef)
 
 上游 Windows 安装器自行注册自动启动服务，运行时还检查上游安装布局。Tbox 签名包需要在应用扩展中声明服务，用随包位置解析服务与子进程路径，并在宿主通过本机授权前保持远控关闭。管理员安装、从重启到登录界面连接、撤销及升级后的服务连续性均需实际运行验证。[上游 Windows 实现](https://github.com/rustdesk/rustdesk/blob/95cca3f661f635b3cc85c04935fe8d96d8f432ef/src/platform/windows.rs) · [MSIX 服务文档](https://learn.microsoft.com/en-us/windows/msix/packaging-tool/convert-an-installer-with-services)
+
+2026-11-21，GitHub Windows 2025 运行器安装并覆盖升级独立签名夹具 `Tbox.RemoteServiceFixture`。两个版本的包系列一致，自动服务以 LocalSystem 启动并达到 Running。夹具验证 MSIX 服务注册与覆盖升级，RustDesk 宿主接入、Windows 重启至登录界面后的连接及双机操作仍待验收。[Windows MSIX 服务验证](https://github.com/xsddpx/Tbox/actions/runs/44871636834/job/136747239256)
