@@ -129,16 +129,16 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
     {
         if (!_showBorder || NativeMethods.IsIconic(window) || !NativeMethods.IsWindowVisible(window) || NativeMethods.IsWindowCloaked(window) ||
             !(NativeMethods.TryGetExtendedFrameBounds(window, out var bounds) || NativeMethods.GetWindowRect(window, out bounds)) ||
-            bounds.Right <= bounds.Left || bounds.Bottom <= bounds.Top)
+            bounds.right <= bounds.left || bounds.bottom <= bounds.top)
         {
             if (entry.BorderVisible) ShowWindow(entry.Border, 0);
             entry.BorderVisible = false;
             return;
         }
         var thickness = Math.Max(2, (int)Math.Round(3 * NativeMethods.GetDpiForWindow(window) / 96.0));
-        var width = bounds.Right - bounds.Left + 2 * thickness;
-        var height = bounds.Bottom - bounds.Top + 2 * thickness;
-        var geometry = (bounds.Left - thickness, bounds.Top - thickness, width, height, thickness);
+        var width = bounds.right - bounds.left + 2 * thickness;
+        var height = bounds.bottom - bounds.top + 2 * thickness;
+        var geometry = (Left: bounds.left - thickness, Top: bounds.top - thickness, width, height, thickness);
         _border ??= new WindowTopmostBorder();
         if (entry.Border == 0) entry.Border = _border.Create();
         if (entry.Border == 0) return;
@@ -149,9 +149,9 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
         }
         // Stay directly behind the source in the same band, so another topmost window can cover both.
         if (!entry.BorderVisible || GetWindow(window, 2) != entry.Border ||
-            !NativeMethods.GetWindowRect(entry.Border, out var shown) || shown.Left != geometry.Item1 || shown.Top != geometry.Item2 ||
-            shown.Right - shown.Left != width || shown.Bottom - shown.Top != height)
-            entry.BorderVisible = SetWindowPos(entry.Border, window, geometry.Item1, geometry.Item2, width, height, 0x0010 | 0x0040 | 0x0200);
+            !NativeMethods.GetWindowRect(entry.Border, out var shown) || shown.left != geometry.Left || shown.top != geometry.Top ||
+            shown.right - shown.left != width || shown.bottom - shown.top != height)
+            entry.BorderVisible = SetWindowPos(entry.Border, window, geometry.Left, geometry.Top, width, height, 0x0010 | 0x0040 | 0x0200);
     }
 
     public void Dispose()
