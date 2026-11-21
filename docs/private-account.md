@@ -90,3 +90,5 @@ Windows 1.1.132 诊断将超时定位到工作进程启动，控制台会话存�
 Windows 1.1.134 完成 MSIX 签名、安装和 LocalSystem 服务启动。服务读取待确认授权并复制自身令牌，系统拒绝设置目标控制台会话，返回 Windows 错误 5。微软文档要求跨会话分配具备 `SeTcbPrivilege`，签名运行器中拒绝的具体原因仍待核查。工作进程没有启动，未发布身份。失败运行未保留可交付 MSIX。[Windows 1.1.134](https://github.com/xsddpx/Tbox/actions/runs/44908576376/job/136866701993) · [Windows TokenSessionId 文档](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class)
 
 Mac 1.1.134 的签名引擎取得屏幕录制及辅助功能权限后，两次冷启动返回相同的有效传输身份。用设备页授权后，Windows 11 上的 1.1.130 显示 Mac 可远程控制，独立窗口收到 Mac 测试画面。点击和键入均未触发 Mac 测试窗口的回执。关闭 Mac 被控后，Windows 在 2.3 秒内进入重连。反向测试中，Mac 能看到 Windows 就绪并打开控制窗口，随后显示无法通过注册服务器建立连接。Windows 1.1.130 没有安装无人值守服务。
+
+Windows 2025 的独立签名 MSIX 服务夹具已在首次安装和覆盖安装后读取自身有效令牌。两次均为 LocalSystem、Running，`SeTcbPrivilege` 均为 enabled。该结果排除了签名 MSIX 服务一律缺少此权限的推测；1.1.134 产品进程发生错误 5 时的令牌尚无直接测量。[权限夹具](https://github.com/xsddpx/Tbox/actions/runs/44917972136/job/136887569157)

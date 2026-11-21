@@ -66,7 +66,7 @@ try {
         Start-Service -Name $serviceName
         (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(25))
         $running = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
-        $tcbPrivilege = Get-Content -LiteralPath (Join-Path $diagnostics ($running.ProcessId.ToString() + '.txt')) -Raw
+        $tcbPrivilege = [IO.File]::ReadAllText((Join-Path $diagnostics ($running.ProcessId.ToString() + '.txt')))
         if ($tcbPrivilege -notin 'enabled', 'disabled', 'absent') { throw 'The fixture did not report its own privilege state.' }
         $results += [pscustomobject]@{
             TcbPrivilege = $tcbPrivilege
