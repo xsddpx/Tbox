@@ -536,6 +536,8 @@ Windows MSIX 签名通过，覆盖安装后的贴图冒烟检查因样图超出�
 
 桌面源码已接入「我的设备」的远控入口与本机授权。候选包未内置 RustDesk 引擎，远控入口仍隐藏。Windows 托管环境通过签名 MSIX 安装、包身份、OCR、像素裁剪、渲染、桌面取帧和录屏。Mac ZIP 通过 SHA-256 核对，在本机现有位置从 1.1.127 覆盖至 1.1.128，沿用持久签名身份及屏幕录制权限，并通过 3024 × 1964 像素取帧。[双平台签名构建](https://github.com/xsddpx/Tbox/actions/runs/44890317971)
 
+`Tbox Windows 11 Test` 中从 1.1.123.0 原位覆盖至 1.1.128.0，沿用包系列 `Tbox_kz23ttq7aw48a`，状态为 `Ok`。下载包和来宾均核对 SHA-256，来宾通过签名、包身份、OCR、像素裁剪、窗口渲染及桌面取帧验证。证据在 `%LOCALAPPDATA%\Tbox\vm-verification\account-20261121-100859`。
+
 | 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
 | --- | --- | --- | --- |
 | 1.1.128 | macOS osx-arm64 | 2026-11-21 17:41:14 +0800 | `8bad92eb62d94272f651f06f4d87f82fa1451f0c37daf0f642e7b9ed236fef30` |

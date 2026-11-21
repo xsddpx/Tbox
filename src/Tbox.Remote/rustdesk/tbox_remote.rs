@@ -278,11 +278,14 @@ impl SecureStream for RustDeskStream<'_> {
     }
 
     async fn send_packet(&mut self, bytes: Vec<u8>) -> Result<()> {
-        self.0.send_bytes(bytes.into()).await
+        ensure!(self.0.is_secured(), "Tbox remote channel is not encrypted");
+        // send_bytes writes already-encoded transport bytes. send_raw applies the negotiated key.
+        self.0.send_raw(bytes).await
     }
 
     async fn receive_packet(&mut self, maximum: usize) -> Result<Vec<u8>> {
-        self.0.set_max_packet_length(maximum);
+        self.0
+            .set_max_packet_length(maximum + hbb_common::sodiumoxide::crypto::secretbox::MACBYTES);
         Ok(self
             .0
             .next()
