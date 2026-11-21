@@ -2,8 +2,10 @@
 
 所有平台的正式安装文件统一从 [xsddpx/Tbox Releases](https://github.com/xsddpx/Tbox/releases) 下载。GitHub 自动显示的两个 `Source code` 压缩包不是安装包。
 
-- Windows：Windows 11 x64，下载 `Tbox_<版本>.0_win-x64.msix`。
-- Mac：macOS 14 或以上的 Apple Silicon（M 系列），下载 `Tbox_<版本>_osx-arm64.zip`，解压后将 Tbox.app 放到 `~/Applications` 或 `/Applications`。Intel Mac 暂无安装包。
+- Windows：最低 Windows 11 x64（build 22000），下载 `Tbox_<版本>.0_win-x64.msix`。
+- Mac：从 1.1.112 起仅支持搭载 Apple 芯片、运行 macOS 26 或以上版本的 Mac。下载 `Tbox_<版本>_osx-arm64.zip`，解压后将 Tbox.app 放到 `~/Applications` 或 `/Applications`。
+
+macOS 14 至 15 上可以选择 [Tbox 1.1.109](https://github.com/xsddpx/Tbox/releases/tag/v1.1.109)。请先升级到 macOS 26，再安装新版。
 
 先阅读对应版本的发布正文，里面有两个安装包的 SHA-256 和第三方对应源码链接。包内附第三方许可。旧版本的校验值在 `SHA256SUMS` 附件中。Windows 可用 `Get-FileHash <文件> -Algorithm SHA256`，Mac 可用 `shasum -a 256 <文件>` 检查下载完整性。
 

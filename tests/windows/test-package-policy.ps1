@@ -28,7 +28,12 @@ try {
     Expect-Rejection 'legacy executable'
     Set-Content -Encoding UTF8 $manifest ($originalManifest -replace 'Name="Tbox"', 'Name="Tbox.New"')
     Expect-Rejection 'changed package family'
+    Set-Content -Encoding UTF8 $manifest ($originalManifest -replace 'MinVersion="10.0.22000.0"', 'MinVersion="10.0.19045.0"')
+    Expect-Rejection 'Windows 10 minimum'
     Set-Content -Encoding UTF8 $manifest $originalManifest
+    Set-Content -Encoding UTF8 $project ($originalProject -replace '>10.0.22000.0</SupportedOSPlatformVersion>', '>10.0.22621.0</SupportedOSPlatformVersion>')
+    Expect-Rejection 'Windows minimum mismatch'
+    Set-Content -Encoding UTF8 $project $originalProject
     Set-Content -Encoding UTF8 $history "| $version | 2026-01-01 | hash |"
     Expect-Rejection 'previously packaged version'
     Set-Content -Encoding UTF8 $history '# Test history'

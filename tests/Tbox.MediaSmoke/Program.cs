@@ -53,7 +53,9 @@ var (gifFrames, gifDuration) = GifFrames(gifBytes);
 if (gifFrames != 24 || Math.Abs(gifDuration - 2000) > 100) throw new InvalidOperationException("GIF 帧率或时长错误。");
 var copy = Path.Combine(output, "copy.mp4");
 await RecordingExporter.SaveAtomicallyAsync(source, copy, CancellationToken.None);
-if (!SHA256.HashData(await File.ReadAllBytesAsync(source)).SequenceEqual(SHA256.HashData(await File.ReadAllBytesAsync(copy))))
+var sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(source));
+var copyHash = SHA256.HashData(await File.ReadAllBytesAsync(copy));
+if (!sourceHash.SequenceEqual(copyHash))
     throw new InvalidOperationException("MP4 直接复制改变了母版内容。");
 // An unchanged MP4 is the master itself; trimming, rate or size changes re-encode with the platform's hardware encoder.
 var masterOptions = new RecordingExportOptions(RecordingExportFormat.Mp4, 30, fixtureSize, whole);

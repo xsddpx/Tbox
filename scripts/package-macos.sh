@@ -20,8 +20,9 @@ bash scripts/build-macos.sh "$RID"
 APP="$ROOT/TEMP/build/$RID/Tbox.app"
 ACTUAL_VERSION="$("$APP/Contents/MacOS/Tbox.Desktop" --version)"
 [[ "$ACTUAL_VERSION" == "$VERSION.0" ]] || { echo "Release 二进制版本过期" >&2; exit 1; }
-SMOKE="$ROOT/TEMP/package-smoke/$VERSION"
-"$APP/Contents/MacOS/Tbox.Desktop" --smoke-test "$SMOKE"
+mkdir -p "$ROOT/TEMP/package-smoke"
+SMOKE="$(mktemp -d "$ROOT/TEMP/package-smoke/$VERSION.XXXXXX")"
+/usr/bin/open -n -W "$APP" --args --smoke-test "$SMOKE"
 python3 - "$SMOKE/result.json" <<'PY'
 import json,sys
 with open(sys.argv[1]) as f: result=json.load(f)

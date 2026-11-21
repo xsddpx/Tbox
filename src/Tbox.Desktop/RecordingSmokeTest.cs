@@ -86,8 +86,9 @@ internal static class RecordingSmokeTest
                 throw new InvalidOperationException("实采 WebP 格式或尺寸错误。");
             var copy = Path.Combine(directory, "recording-copy.mp4");
             await RecordingExporter.SaveAtomicallyAsync(source, copy, cancellation);
-            if (!SHA256.HashData(await File.ReadAllBytesAsync(source, cancellation)).SequenceEqual(
-                    SHA256.HashData(await File.ReadAllBytesAsync(copy, cancellation))))
+            var sourceHash = SHA256.HashData(await File.ReadAllBytesAsync(source, cancellation));
+            var copyHash = SHA256.HashData(await File.ReadAllBytesAsync(copy, cancellation));
+            if (!sourceHash.SequenceEqual(copyHash))
                 throw new InvalidOperationException("保存 MP4 改变了录屏母版。");
             return new { verified = true, systemAudioTested = false, width = 320, height = 240, requestedFps = RecordingFrameRatePolicy.RecordingFrameRate,
                 decoded, gifBytes = gifBytes.Length, webpBytes = webpBytes.Length, sheetBytes = sheetBytes.Length, mp4CopyIdentical = true };

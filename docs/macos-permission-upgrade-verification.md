@@ -27,3 +27,14 @@ designated => identifier "com.xsddpx.tbox" and certificate root = H"fa0f60b5d7c8
 Windows 交付流程共用版本升级（2026-11-07）：1.1.5 → 1.1.6 覆盖安装、独立启动后，进程 53695 的屏幕权限与 3024×1964 实际取帧均通过，未重新授权。诊断原文：本地 `TEMP/permission-upgrade/1.1.6-authorized.json`。
 
 公开更新入口升级（2026-11-07）：1.1.6 → 1.1.7 通过本地安装脚本覆盖安装，独立启动后进程 61528 返回 `screenPermission=true`、`captureVerified=true`、3024×1964，未重新申请授权。诊断原文：本地 `TEMP/permission-upgrade/1.1.7-authorized.json`。本次验证是本地覆盖升级，不是公开渠道下载与安装的端到端验收。
+
+## .NET 10 迁移覆盖升级
+
+2026-11-21 在 Apple Silicon、macOS 27.2.1 上将 `~/Downloads/Tbox.app` 从 1.1.109 原位升级到 1.1.112。两个版本的 Bundle ID 和指定签名要求一致。经系统正常启动后，由应用进程取得屏幕帧。升级期间未重新申请屏幕录制权限。
+
+| 应用版本 | 权限/实际取帧 | 主程序 SHA-256 |
+| --- | --- | --- |
+| 1.1.109 | 已允许；3024×1964 | `9efa8c4174dddd2dda772424b256470741750343f42138ce2d4e8d87b71e838b` |
+| 1.1.112 | 已允许；3024×1964 | `c6dd48af0f18447f2e2dbff8c811200a7074b4c5c2c9e1942b8a411a5d730a0d` |
+
+签名 ZIP 来自 [macOS 26 验证流程](https://github.com/xsddpx/Tbox/actions/runs/44854222732/job/136692484166)。本机诊断保存在 `TEMP/platform-minima-delivery/permission-before.json` 和 `TEMP/platform-minima-delivery/permission-after.json`。
