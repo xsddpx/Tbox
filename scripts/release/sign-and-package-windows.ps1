@@ -1,4 +1,4 @@
-param([switch]$VerifyIdentityOnly, [switch]$VerifyCapture, [switch]$VerifyRecording)
+param([switch]$VerifyIdentityOnly, [switch]$VerifyCapture, [switch]$VerifyRecording, [switch]$VerifyRemoteService)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
@@ -25,6 +25,10 @@ try {
     Export-Certificate -Cert $signer[0] -FilePath $public | Out-Null
     # Trust only this leaf certificate on the disposable runner; never install a root CA.
     $trusted = @(Import-Certificate -FilePath $public -CertStoreLocation Cert:\LocalMachine\TrustedPeople)
+    if ($VerifyRemoteService) {
+        & "$PSScriptRoot/../../tests/windows/test-packaged-remote-service.ps1" -CertificateThumbprint $signer[0].Thumbprint
+        return
+    }
     if ($VerifyIdentityOnly) {
         $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Directory |
             Sort-Object { try { [Version]$_.Name } catch { [Version]'0.0' } } -Descending |

@@ -1,2 +1,3 @@
 # Build recipes are hashed on Linux and verified on Windows.
 *.sh text eol=lf
+src/Tbox.Remote/rustdesk/*.patch whitespace=-blank-at-eol

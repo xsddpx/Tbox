@@ -33,6 +33,8 @@ public sealed record AppSettings
     public bool KeepAwakeDisplay { get; init; } = true;
     public bool KeepAwakeLidClosed { get; init; }
     public string AppTheme { get; init; } = "system";
+    public string TranslationLanguage { get; init; } = "zh-Hans";
+    public Accounts.LocalCloudPreferences Cloud { get; init; } = new();
     public HotkeySettings FolderJumpHotkey { get; init; } = new();
     // Shared desktop app: global shortcuts chosen in the main window; unset entries use the platform defaults.
     public HotkeyBindings? Hotkeys { get; init; }

@@ -4,7 +4,8 @@
     "VLC": "3.0.24",
     "LibVLCSharp": "3.10.2",
     "FFmpeg": "8.1.2",
-    "libwebp": "1.6.0"
+    "libwebp": "1.6.0",
+    "RustDesk": "1.5.3"
   },
   "archives": [
     {
@@ -1192,6 +1193,23 @@
       "commit": "3082c09ca955131c705fc4767fde03e9c4a14999",
       "prefix": "libvlcsharp/",
       "sha256": "f59fc105b1f7b62aff134c7a37b3caad8767cfe3c2522b66f252b696e42c1c6f"
+    },
+    {
+      "path": "git/rustdesk-client-95cca3f661f635b3cc85c04935fe8d96d8f432ef.tar.gz",
+      "sha256": "eea5e3ec7194d0d6971359efef0d0996c1f45242406543a25c85f853f8b4d1a5",
+      "url": "https://github.com/rustdesk/rustdesk.git",
+      "commit": "95cca3f661f635b3cc85c04935fe8d96d8f432ef",
+      "prefix": "rustdesk-client-95cca3f661f635b3cc85c04935fe8d96d8f432ef/",
+      "submodules": {
+        "libs/hbb_common": "fae47e024dd83cef6aaecde0aa7d11731df11649"
+      }
+    },
+    {
+      "path": "git/rustdesk-protocol-fae47e024dd83cef6aaecde0aa7d11731df11649.tar.gz",
+      "sha256": "2788133b0fc87090af6f20f9401cb94d13d03e694922056a82e1fdf7e13ee8a3",
+      "url": "https://github.com/rustdesk/hbb_common.git",
+      "commit": "fae47e024dd83cef6aaecde0aa7d11731df11649",
+      "prefix": "rustdesk-protocol-fae47e024dd83cef6aaecde0aa7d11731df11649/"
     }
   ],
   "excludedBuildTools": [

@@ -3,9 +3,9 @@ name: Shared desktop checks
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'deploy/cloud/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
   pull_request:
-    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'deploy/cloud/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
   workflow_dispatch:
     inputs:
       verify_installer:
@@ -18,11 +18,142 @@ on:
         required: true
         default: false
         type: boolean
+      verify_remote_service:
+        description: 'Verify Windows MSIX service registration and upgrade with an isolated fixture'
+        default: false
+        type: boolean
+      verify_remote_engine:
+        description: 'Build native RustDesk authorization tests on Windows and macOS'
+        default: false
+        type: boolean
+      build_remote_viewer:
+        description: 'Build the patched RustDesk viewers for package integration'
+        default: false
+        type: boolean
+      remote_rendezvous:
+        description: 'Rendezvous address for a signed remote desktop test package'
+        type: string
+      remote_rendezvous_key:
+        description: 'Public rendezvous key for a signed remote desktop test package'
+        type: string
 
 permissions:
   contents: read
 
+env:
+  TBOX_ACCOUNT_ORIGIN: ${{ vars.TBOX_ACCOUNT_ORIGIN }}
+
 jobs:
+  remote-authorization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate Tbox remote authorization
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/TEMP/remote-target
+        run: |
+          rustup update stable --no-self-update
+          cargo +stable test --locked --manifest-path src/Tbox.Remote/Cargo.toml
+      - name: Apply the authorization patch to the pinned RustDesk sources
+        run: bash scripts/prepare-remote-engine.sh
+
+  remote-engine-macos:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_remote_engine
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+          path: TEMP/vcpkg
+          persist-credentials: false
+      - uses: actions/cache@v4
+        with:
+          path: TEMP/vcpkg/installed
+          key: rustdesk-arm64-osx-9e593bb1-aom-jpeg-vpx-yuv-opus
+      - name: Prepare and type-check the patched client
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          CARGO_TARGET_DIR: ${{ github.workspace }}/TEMP/rustdesk-target
+          VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
+        run: |
+          rustup update stable --no-self-update
+          engine="$(bash scripts/prepare-remote-engine.sh)"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          cd "$engine"
+          "$VCPKG_ROOT/vcpkg" install aom libjpeg-turbo libvpx libyuv opus \
+            --triplet arm64-osx --classic
+          cargo +stable test --lib tbox_remote::tests
+
+  remote-engine-windows:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_remote_engine
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+          path: TEMP/vcpkg
+          persist-credentials: false
+      - uses: actions/cache@v4
+        with:
+          path: TEMP/vcpkg/installed
+          key: rustdesk-x64-windows-static-9e593bb1-aom-jpeg-vpx-yuv-opus
+      - name: Prepare the patched client sources
+        shell: bash
+        run: echo "TBOX_REMOTE_SOURCE=$(cygpath -wa "$(bash scripts/prepare-remote-engine.sh)")" >> "$GITHUB_ENV"
+      - name: Build and test the patched client
+        shell: pwsh
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          CARGO_TARGET_DIR: ${{ github.workspace }}/TEMP/rustdesk-target
+          VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
+        run: |
+          rustup update stable --no-self-update
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Set-Location $env:TBOX_REMOTE_SOURCE
+          & "$env:VCPKG_ROOT\vcpkg.exe" install aom libjpeg-turbo libvpx libyuv opus --triplet x64-windows-static --classic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +stable test --lib tbox_remote::tests
+
+  remote-viewers:
+    if: github.event_name == 'workflow_dispatch' && inputs.build_remote_viewer
+    uses: ./.github/workflows/remote-viewers.yml
+    with:
+      windows: ${{ !inputs.verify_macos_installer || inputs.verify_installer }}
+      macos: ${{ !inputs.verify_installer || inputs.verify_macos_installer }}
+
+  cloud:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432/tcp
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Validate private account and synchronization
+        env:
+          TBOX_TEST_POSTGRES: Host=127.0.0.1;Port=${{ job.services.postgres.ports['5432'] }};Database=postgres;Username=postgres
+        run: dotnet test tests/Tbox.Cloud.Tests/Tbox.Cloud.Tests.csproj -c Release
+
   windows-media:
     uses: ./.github/workflows/windows-media.yml
 
@@ -67,11 +198,19 @@ jobs:
       - name: Test shared core
         run: dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
       - name: Test shared desktop
+        env:
+          TBOX_UI_PREVIEWS: ${{ github.workspace }}/TEMP/account-preview
         timeout-minutes: 5
         run: >-
           dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
           --logger "console;verbosity=normal"
           --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type none
+      - name: Preserve rendered account page
+        uses: actions/upload-artifact@v4
+        with:
+          name: account-preview-${{ runner.os }}
+          path: TEMP/account-preview/main-Account-800.png
+          if-no-files-found: error
       - name: Test Windows playback and exports
         if: runner.os == 'Windows'
         run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/windows/bin/ffmpeg.exe
@@ -148,11 +287,14 @@ jobs:
         run: bash scripts/release/sign-and-package-macos.sh --verify-identity-only
 
   windows-installed-package:
-    needs: windows-media
+    needs: [windows-media, remote-viewers]
     # Opt-in acceptance of the actual installer on a disposable Windows runner.
     # Artifacts are accessible from this public repository; never include secrets.
     # This job does not create a Release.
-    if: github.event_name == 'workflow_dispatch' && inputs.verify_installer
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && inputs.verify_installer &&
+      needs.windows-media.result == 'success' &&
+      (!inputs.build_remote_viewer || needs.remote-viewers.outputs.windows_sha256 != '')
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -170,12 +312,21 @@ jobs:
         with:
           name: windows-media-runtime
           path: TEMP/media-runtime/windows
+      - uses: actions/download-artifact@v4
+        if: inputs.build_remote_viewer
+        with:
+          name: tbox-remote-windows-viewer
+          path: TEMP/remote-viewer
       - name: Build, sign, install and launch the actual Windows MSIX
         shell: powershell
         env:
           TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
           TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
           TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+          TBOX_REMOTE_WINDOWS_VIEWER_ZIP: ${{ inputs.build_remote_viewer && format('{0}/TEMP/remote-viewer/tbox-remote-windows.zip', github.workspace) || '' }}
+          TBOX_REMOTE_WINDOWS_VIEWER_SHA256: ${{ needs.remote-viewers.outputs.windows_sha256 }}
+          TBOX_REMOTE_RENDEZVOUS: ${{ inputs.remote_rendezvous }}
+          TBOX_REMOTE_RENDEZVOUS_KEY: ${{ inputs.remote_rendezvous_key }}
         run: ./scripts/release/sign-and-package-windows.ps1 -VerifyCapture -VerifyRecording
       - name: Preserve verified installer and package history
         uses: actions/upload-artifact@v4
@@ -199,9 +350,34 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  windows-remote-service:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_remote_service
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify the isolated signed Windows service package and upgrade
+        shell: powershell
+        env:
+          TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
+          TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
+          TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+        run: ./scripts/release/sign-and-package-windows.ps1 -VerifyRemoteService
+      - name: Preserve service verification results
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-remote-service-fixture
+          path: TEMP/remote-service-fixture/result.json
+          if-no-files-found: error
+
   macos-signed-package:
+    needs: remote-viewers
     # Build a development package with the existing release identity without creating a Release.
-    if: github.event_name == 'workflow_dispatch' && inputs.verify_macos_installer
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && inputs.verify_macos_installer &&
+      (!inputs.build_remote_viewer || needs.remote-viewers.outputs.macos_sha256 != '')
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -212,6 +388,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/download-artifact@v4
+        if: inputs.build_remote_viewer
+        with:
+          name: tbox-remote-macos-viewer
+          path: TEMP/remote-viewer
       - name: Check Apple Silicon runner and media tools
         run: |
           test "$(uname -m)" = arm64
@@ -222,6 +403,10 @@ jobs:
           TBOX_MAC_P12_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD }}
           TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
           TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
+          TBOX_REMOTE_MACOS_VIEWER_ZIP: ${{ inputs.build_remote_viewer && format('{0}/TEMP/remote-viewer/tbox-remote-macos.zip', github.workspace) || '' }}
+          TBOX_REMOTE_MACOS_VIEWER_SHA256: ${{ needs.remote-viewers.outputs.macos_sha256 }}
+          TBOX_REMOTE_RENDEZVOUS: ${{ inputs.remote_rendezvous }}
+          TBOX_REMOTE_RENDEZVOUS_KEY: ${{ inputs.remote_rendezvous_key }}
         run: bash scripts/release/sign-and-package-macos.sh
       - name: Preserve verified installer and package history
         uses: actions/upload-artifact@v4

@@ -12,3 +12,7 @@ TEMP/
 *.p12
 *.key
 __pycache__/
+
+.env
+.env.*
+!.env.example

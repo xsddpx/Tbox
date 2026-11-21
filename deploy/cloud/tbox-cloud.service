@@ -1,0 +1,28 @@
+[Unit]
+Description=Tbox private account and synchronization
+After=network-online.target postgresql@16-main.service
+Wants=network-online.target
+Requires=postgresql@16-main.service
+
+[Service]
+Type=exec
+DynamicUser=yes
+StateDirectory=tbox-cloud
+StateDirectoryMode=0700
+Environment=ASPNETCORE_URLS=http://127.0.0.1:18984
+Environment=Cloud__KeyDirectory=/var/lib/tbox-cloud/auth-keys
+EnvironmentFile=/etc/tbox/cloud.env
+EnvironmentFile=/etc/tbox/oauth.env
+WorkingDirectory=/opt/tbox/current
+ExecStart=/opt/tbox/current/Tbox.Cloud
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

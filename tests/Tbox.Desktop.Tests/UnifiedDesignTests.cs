@@ -21,6 +21,28 @@ namespace Tbox.Desktop.Tests;
 public sealed class UnifiedDesignTests
 {
     [AvaloniaFact]
+    public void MacAccessibilityPressHonorsTheCurrentEnabledStateOfAnAccountAction()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+        var clicks = 0;
+        var button = Ui.Button("我的设备", () => clicks++);
+        var window = new Window { Content = button };
+        window.Show();
+        try
+        {
+            var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(button);
+            var action = Assert.IsAssignableFrom<Avalonia.Automation.Provider.IInvokeProvider>(peer);
+            button.IsEnabled = false;
+            action.Invoke();
+            Assert.Equal(0, clicks);
+            button.IsEnabled = true;
+            action.Invoke();
+            Assert.Equal(1, clicks);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void ResultWindowsShareTheLightFrameAndPutThePrimaryActionLast()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
@@ -41,7 +63,7 @@ public sealed class UnifiedDesignTests
                 // 16 px app mark in the title strip, 40 px tool icon in the header.
                 Assert.Contains(window.GetVisualDescendants().OfType<Image>(), i => i.Width == 16);
                 Assert.Contains(window.GetVisualDescendants().OfType<Border>(), b => b.Width == 40 && b.Child is LineIcon);
-                var buttons = window.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible && b.GetType() == typeof(Button)).ToArray();
+                var buttons = window.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible && b.StyleKey == typeof(Button)).ToArray();
                 Assert.All(buttons, b => Assert.Equal(DesignTokens.ControlRadius, b.CornerRadius.TopLeft));
                 var accent = Assert.Single(buttons, b => b.Classes.Contains("accent"));
                 Assert.Equal(primary, AutomationProperties.GetName(accent));
@@ -117,7 +139,7 @@ public sealed class UnifiedDesignTests
                 Assert.True(buttons.Count(b => b.Classes.Contains("accent")) <= 1, page.ToString());
                 // Page titles are 20 px (spec ①).
                 Assert.Contains(main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>(), t => t.FontSize == 20);
-                Assert.All(buttons.Where(b => b.GetType() == typeof(Button)), b => Assert.True(b.MinHeight <= 36, AutomationProperties.GetName(b)));
+                Assert.All(buttons.Where(b => b.StyleKey == typeof(Button)), b => Assert.True(b.MinHeight <= 36, AutomationProperties.GetName(b)));
                 Preview(main, $"main-{page}");
             }
         }

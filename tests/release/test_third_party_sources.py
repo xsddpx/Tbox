@@ -89,6 +89,30 @@ class ThirdPartySourceTests(unittest.TestCase):
         self.assertEqual(sources.fetch_archive(self.manifest['archives'][0], self.cache), self.cache / 'upstream/example.tar.gz')
         self.assertEqual(sources.fetch_git(self.manifest['git'][0], self.cache), self.cache / 'git/example.tar.gz')
 
+    def test_gitlinks_require_a_separately_declared_source_revision(self):
+        client = self.manifest['git'][0]
+        protocol = client.copy()
+        protocol.update(path='git/protocol.tar.gz', commit='b' * 40)
+        self.manifest['git'].append(protocol)
+        client['submodules'] = {'libs/protocol': protocol['commit']}
+        self.save()
+        self.assertEqual(sources.load_manifest(self.manifest_path), self.manifest)
+        client['submodules'] = {'libs/protocol': 'c' * 40}
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'Each source submodule'):
+            sources.load_manifest(self.manifest_path)
+
+    def test_remote_build_sources_join_the_existing_public_bundle(self):
+        self.manifest['components']['RustDesk'] = '1.5.3'
+        self.save()
+        for name in sources.REMOTE_BUILD_FILES:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name, encoding='utf-8')
+        self.build()
+        with tarfile.open(self.output / sources.ARCHIVE_NAME) as archive:
+            self.assertTrue(all('tbox-third-party-source/' + name in archive.getnames() for name in sources.REMOTE_BUILD_FILES))
+
     def test_github_release_falls_back_to_the_api_and_still_checks_the_hash(self):
         content = b'release asset'
         item = dict(path='upstream/asset.tar.gz', sha256=hashlib.sha256(content).hexdigest(),
@@ -117,7 +141,8 @@ class ThirdPartySourceTests(unittest.TestCase):
     def test_runtime_upgrade_requires_corresponding_source_update(self):
         repository = Path(__file__).resolve().parents[2]
         manifest = sources.load_manifest(repository / 'assets/third-party/media-sources.json')
-        for name in ['src/Tbox.Desktop/Tbox.Desktop.csproj', 'scripts/prepare-windows-media.sh', 'scripts/prepare-macos-media.sh']:
+        for name in ['src/Tbox.Desktop/Tbox.Desktop.csproj', 'scripts/prepare-windows-media.sh', 'scripts/prepare-macos-media.sh',
+                     'scripts/prepare-remote-engine.sh', '.github/workflows/remote-viewers.yml']:
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(repository / name, target)

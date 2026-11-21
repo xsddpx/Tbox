@@ -38,6 +38,10 @@
 | Variable | `TBOX_WINDOWS_CERT_SHA1` | 已固定的 Windows 签名证书的 40 位指纹，无空格/冒号 |
 | Variable | `TBOX_MAC_CERT_SHA1` | 原 Mac 签名证书的 40 位指纹，无空格/冒号 |
 | Variable | `TBOX_MAC_SIGN_IDENTITY` | 可选；默认 `Tbox Local Development` |
+| Variable | `TBOX_REMOTE_RENDEZVOUS` | 远控会合服务器的域名或 IPv4 地址，可附端口 |
+| Variable | `TBOX_REMOTE_RENDEZVOUS_KEY` | 会合服务器的 32 字节公钥，使用 Base64 |
+
+正式发布与签名验收共用同一套远控引擎构建。正式发布配置齐全时，两个平台都使用当前提交构建引擎并核对 SHA-256 后签名。任一项缺失或格式错误时，发布预检失败。两项均留空时生成常规桌面安装包。验收工作流使用手动输入的会合配置。
 
 2026-11-08：用户确认没有原 Windows PFX；本机及项目相关下载目录未找到可恢复副本，已一次性建立 Windows 持久开发签名身份并存入 Actions Secrets。Windows 指纹为 `10859D3FDA689CC8CCC92143C79DA6CCFCDA5D92`。发布者仍为 `CN=Tbox Development`，旧 Windows 用户需首次信任新的公钥证书；原电脑覆盖升级尚未验证，不能承诺无提示升级。以后不得逐轮生成新证书。
 
@@ -105,6 +109,6 @@ Windows 安装及正式发布作业还启用 `-VerifyRecording`：安装版通�
 
 正常双平台 CI 和 Release 均调用 `windows-media.yml` 构建并传递该产物；构建缓存按完整脚本哈希隔离，消费前核对源码、配方和二进制哈希。Windows 打包需要 Python 3，并拒绝缺失许可、旧 DLL 混入或文件被改写。若在本地 Windows 开发，从对应成功 CI 下载 `windows-media-runtime` 到 `TEMP/media-runtime/windows`，运行 `python scripts/verify-windows-media.py` 后再构建；也可在 Linux 执行 `bash scripts/prepare-windows-media.sh` 自行构建。对应源码归档作为同次 CI 的 `windows-media-source` 保存；正式公开发布由独立源码材料任务汇总 VLC、其 contrib 输入及 LibVLCSharp 固定提交。
 
-第三方源码发布门槛：`third-party-sources.yml` 读取版本化清单，校验 128 个归档/头文件输入及 7 个 Git 固定提交材料；其中包括 125 个 VLC contrib 输入（排除两个未分发的 WiX 安装工具）、3 个顶层源码归档。版本必须与共用项目和构建配方一致，源码归档必须匹配原始哈希。它将许可、上游源码、补丁/配方和构建说明汇成 `Tbox_third-party-sources.tar.gz`。发布汇总缺少该归档、清单变更或哈希不符时拒绝继续；公共校验清单覆盖源码包。具体范围及重建方式见 [第三方材料说明](third-party-sources.md)。[独立 CI](https://github.com/xsddpx/Tbox/actions/runs/42397291104) 已通过，135 项输入生成的归档为 700588719 字节；云端与本机 SHA-256 均为 `b6b5d388281f9c8a4d447075dc2ea4f00a079b877fcbc5ed51a69e97dd5b541c`。独立逐项读取归档再次核对全部输入通过。
+第三方源码发布门槛：`third-party-sources.yml` 读取版本化清单，校验 128 个归档与头文件输入及 9 个 Git 固定提交材料，其中包括 RustDesk 客户端与协议子模块。版本、提交和 SHA-256 必须与安装包构建一致。流程将许可、上游源码、补丁、配方和构建说明汇成 `Tbox_third-party-sources.tar.gz`，并在发布前核对归档与清单。原 135 项媒体及回放输入曾完成逐项核验。当前范围及重建方式见 [第三方材料说明](third-party-sources.md) · [原独立 CI](https://github.com/xsddpx/Tbox/actions/runs/42397291104)
 
 1.1.10 实际安装包离线发布演练通过：使用已验收的 Mac ZIP、Windows 签名 MSIX、公钥证书及上述源码包，生成完整的 7 个公开资产和校验清单；原始打包时间与哈希均与发布历史相符。演练只在 `TEMP/release-rehearsal/1.1.10/` 生成文件，没有创建 GitHub Release 或触发客户端升级；已打包版本仍不可再次打包发布。

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Release policy and transaction. No network calls at import time; stdlib only."""
 import argparse
+import base64
 from datetime import datetime, timezone, timedelta
 import hashlib
 import json
@@ -16,6 +17,21 @@ import xml.etree.ElementTree as ET
 REPOSITORY = 'xsddpx/Tbox'
 NS = {'m': 'http://schemas.microsoft.com/appx/manifest/foundation/windows10'}
 SUPPORT_FILES = ('Tbox-Development.cer', 'Tbox_third-party-sources.tar.gz')
+
+
+def remote_desktop_enabled(address, public_key):
+    if not address and not public_key:
+        return False
+    host, separator, port = address.partition(':')
+    valid_host = len(host) <= 253 and all(
+        re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in host.split('.'))
+    valid_port = not separator or re.fullmatch(r'[0-9]{1,5}', port) and 1 <= int(port) <= 65535
+    if not valid_host or not valid_port:
+        raise ValueError('Set TBOX_REMOTE_RENDEZVOUS to a host name or IPv4 address, with an optional port.')
+    if (not re.fullmatch(r'[A-Za-z0-9+/]{43}=', public_key)
+            or base64.b64encode(base64.b64decode(public_key)).decode('ascii') != public_key):
+        raise ValueError('Set TBOX_REMOTE_RENDEZVOUS_KEY to the base64-encoded 32-byte public key.')
+    return True
 
 
 def version_from_tag(tag):
@@ -364,15 +380,21 @@ def main():
     parser.add_argument('--directory', type=Path, default=Path('TEMP/release-assets'))
     parser.add_argument('--prerelease', action='store_true')
     parser.add_argument('--platform', choices=['osx-arm64', 'win-x64'])
+    parser.add_argument('--github-output', type=Path)
     args = parser.parse_args()
     root = Path.cwd()
     if args.action == 'preflight':
         print(preflight(root, args.tag))
+        remote = remote_desktop_enabled(os.environ.get('TBOX_REMOTE_RENDEZVOUS', ''),
+                                        os.environ.get('TBOX_REMOTE_RENDEZVOUS_KEY', ''))
         if os.environ.get('GITHUB_ACTIONS') == 'true':
             remote_preflight()
             source_commit(args.tag)
             if args.tag in releases():
                 raise ValueError('Release already exists. Rerun failed jobs to reuse the signed builds and draft.')
+        if args.github_output:
+            with args.github_output.open('a', encoding='utf-8') as output:
+                output.write(f'remote_desktop={str(remote).lower()}\n')
     elif args.action == 'build-record':
         if not args.platform:
             raise ValueError('Choose a build platform.')

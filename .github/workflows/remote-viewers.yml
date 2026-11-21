@@ -1,0 +1,214 @@
+name: Build Tbox remote desktop viewers
+
+on:
+  workflow_call:
+    inputs:
+      windows:
+        type: boolean
+        required: true
+      macos:
+        type: boolean
+        required: true
+    outputs:
+      windows_sha256:
+        value: ${{ jobs.remote-viewer-windows.outputs.sha256 }}
+      macos_sha256:
+        value: ${{ jobs.remote-viewer-macos.outputs.sha256 }}
+
+permissions:
+  contents: read
+
+jobs:
+  remote-viewer-bridge:
+    if: inputs.windows || inputs.macos
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: rustdesk/rustdesk
+          ref: 95cca3f661f635b3cc85c04935fe8d96d8f432ef
+          submodules: recursive
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.8'
+          channel: stable
+          cache: true
+      - name: Generate the pinned upstream Flutter bindings
+        shell: bash
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang libclang-dev libgtk-3-dev llvm-dev nasm
+          rustup toolchain install 1.75.0 --profile minimal --component rustfmt
+          export RUSTUP_TOOLCHAIN=1.75.0
+          cargo install cargo-expand --version 1.0.95 --locked
+          cargo install flutter_rust_bridge_codegen --version 1.80.1 --features uuid --locked
+          bash .github/patches/apply_flutter_3.44_source_patches.sh
+          (cd flutter && flutter pub get)
+          flutter_rust_bridge_codegen --rust-input src/flutter_ffi.rs \
+            --dart-output flutter/lib/generated_bridge.dart \
+            --c-output flutter/macos/Runner/bridge_generated.h
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tbox-remote-flutter-bridge
+          path: |
+            src/bridge_generated.rs
+            src/bridge_generated.io.rs
+            flutter/lib/generated_bridge.dart
+            flutter/lib/generated_bridge.freezed.dart
+            flutter/macos/Runner/bridge_generated.h
+          if-no-files-found: error
+          retention-days: 7
+
+  remote-viewer-macos:
+    if: inputs.macos
+    needs: remote-viewer-bridge
+    runs-on: macos-26
+    timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.viewer.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+          path: TEMP/vcpkg
+          persist-credentials: false
+      - name: Prepare the patched client
+        run: echo "TBOX_REMOTE_SOURCE=$(bash scripts/prepare-remote-engine.sh)" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: tbox-remote-flutter-bridge
+          path: ${{ env.TBOX_REMOTE_SOURCE }}
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+      - uses: actions/cache@v4
+        with:
+          path: TEMP/vcpkg/installed
+          key: rustdesk-arm64-osx-9e593bb1-aom-jpeg-vpx-yuv-opus
+      - name: Build the macOS viewer
+        id: viewer
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
+        run: |
+          brew install gnu-sed
+          export PATH="$(brew --prefix gnu-sed)/libexec/gnubin:$PATH"
+          flutter config --no-enable-swift-package-manager
+          rustup update stable --no-self-update
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          cd "$TBOX_REMOTE_SOURCE"
+          "$VCPKG_ROOT/vcpkg" install aom libjpeg-turbo libvpx libyuv opus --triplet arm64-osx --classic
+          bash .github/patches/apply_flutter_3.44_source_patches.sh
+          rustup override set stable
+          cargo check --lib --features flutter
+          python3 build.py --flutter
+          viewer=flutter/build/macos/Build/Products/Release/RustDesk.app
+          test -x "$viewer/Contents/MacOS/RustDesk"
+          cp LICENCE "$viewer/Contents/Resources/RustDesk-LICENCE.txt"
+          printf 'RustDesk %s\nProtocol %s\nTbox modifications https://github.com/%s/tree/%s/src/Tbox.Remote\n' \
+            "$(git rev-parse HEAD)" "$(git -C libs/hbb_common rev-parse HEAD)" "$GITHUB_REPOSITORY" "$GITHUB_SHA" \
+            > "$viewer/Contents/Resources/RustDesk-source.txt"
+          ditto -c -k --keepParent "$viewer" "$RUNNER_TEMP/tbox-remote-macos.zip"
+          echo "sha256=$(shasum -a 256 "$RUNNER_TEMP/tbox-remote-macos.zip" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tbox-remote-macos-viewer
+          path: ${{ runner.temp }}/tbox-remote-macos.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  remote-viewer-windows:
+    if: inputs.windows
+    needs: remote-viewer-bridge
+    runs-on: windows-2025
+    timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.viewer.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+          path: TEMP/vcpkg
+          persist-credentials: false
+      - name: Prepare the patched client sources
+        shell: bash
+        run: echo "TBOX_REMOTE_SOURCE=$(cygpath -wa "$(bash scripts/prepare-remote-engine.sh)")" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@v4
+        with:
+          name: tbox-remote-flutter-bridge
+          path: ${{ env.TBOX_REMOTE_SOURCE }}
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.9'
+          channel: stable
+          cache: true
+      - uses: actions/cache@v4
+        with:
+          path: TEMP/vcpkg/installed
+          key: rustdesk-x64-windows-static-9e593bb1-aom-jpeg-vpx-yuv-opus
+      - name: Apply the Flutter source compatibility changes
+        shell: bash
+        working-directory: ${{ env.TBOX_REMOTE_SOURCE }}
+        run: bash .github/patches/apply_flutter_3.44_source_patches.sh
+      - name: Build the Windows viewer
+        id: viewer
+        shell: pwsh
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
+        run: |
+          flutter config --no-enable-swift-package-manager
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup update stable --no-self-update
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:VCPKG_ROOT\bootstrap-vcpkg.bat" -disableMetrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Set-Location $env:TBOX_REMOTE_SOURCE
+          & "$env:VCPKG_ROOT\vcpkg.exe" install aom libjpeg-turbo libvpx libyuv opus --triplet x64-windows-static --classic
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup override set stable
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo check --lib --features flutter
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release --lib --features flutter
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The MSIX packages the Flutter runtime and the authorization library.
+          # The upstream portable installer also builds a virtual display library.
+          Push-Location flutter
+          flutter build windows --release
+          Pop-Location
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $viewer = 'flutter/build/windows/x64/runner/Release'
+          foreach ($payload in 'rustdesk.exe', 'librustdesk.dll', 'flutter_windows.dll', 'data/flutter_assets') {
+            if (-not (Test-Path "$viewer/$payload")) { throw "Missing Windows viewer payload: $payload" }
+          }
+          Rename-Item "$viewer/rustdesk.exe" TboxRemote.exe
+          Copy-Item LICENCE "$viewer/RustDesk-LICENCE.txt"
+          $client = git rev-parse HEAD
+          $protocol = git -C libs/hbb_common rev-parse HEAD
+          @("RustDesk $client", "Protocol $protocol", "Tbox modifications https://github.com/$env:GITHUB_REPOSITORY/tree/$env:GITHUB_SHA/src/Tbox.Remote") |
+            Set-Content -LiteralPath "$viewer/RustDesk-source.txt" -Encoding utf8
+          tar.exe -a -cf "$env:RUNNER_TEMP/tbox-remote-windows.zip" -C $viewer .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hash = (Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP/tbox-remote-windows.zip").Hash
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tbox-remote-windows-viewer
+          path: ${{ runner.temp }}/tbox-remote-windows.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

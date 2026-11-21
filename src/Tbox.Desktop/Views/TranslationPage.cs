@@ -17,6 +17,7 @@ internal sealed class TranslationPage : UserControl, IDisposable
     private readonly Func<Task<string?>> _readClipboard;
     private readonly Func<string, Task> _writeClipboard;
     internal TranslationSession Session { get; }
+    internal event Action<string>? LanguageChanged;
     internal TextBox Source { get; } = Editor("翻译原文", "输入或主动粘贴需要翻译的文字");
     internal TextBox Result { get; } = Editor("翻译译文", "译文将在这里逐步显示");
     internal ComboBox Target { get; } = new() { MinWidth = 100, FontSize = 13 };
@@ -35,6 +36,17 @@ internal sealed class TranslationPage : UserControl, IDisposable
     private ModelReference? _chosen;
     private bool _loading, _disposed;
     private long _openRevision;
+
+    internal void ApplyLanguage(string id)
+    {
+        var language = TranslationPolicy.Languages.FirstOrDefault(item => item.Id == id) ?? TranslationPolicy.Languages[0];
+        if (Equals(language, Target.SelectedItem)) return;
+        var wasLoading = _loading;
+        _loading = true;
+        try { Target.SelectedItem = language; }
+        finally { _loading = wasLoading; }
+        Session.Invalidate();
+    }
 
     public TranslationPage(ITextModelService capability, Func<Task<ModelConfiguration>> configuration, Action configure,
         Func<Task<string?>>? readClipboard = null, Func<string, Task>? writeClipboard = null)
@@ -88,7 +100,12 @@ internal sealed class TranslationPage : UserControl, IDisposable
             heading, _unconfigured, languages, _editors, _footer, _status
         } };
         Source.PropertyChanged += (_, args) => { if (args.Property == TextBox.TextProperty && !_loading) Session.Invalidate(); };
-        Target.SelectionChanged += (_, _) => { if (!_loading) Session.Invalidate(); };
+        Target.SelectionChanged += (_, _) =>
+        {
+            if (_loading) return;
+            Session.Invalidate();
+            if (Target.SelectedItem is TranslationLanguage language) LanguageChanged?.Invoke(language.Id);
+        };
         Model.SelectionChanged += (_, _) =>
         {
             if (_loading) return;

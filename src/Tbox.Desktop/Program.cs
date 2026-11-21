@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop;
 
@@ -9,6 +10,8 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (OperatingSystem.IsWindows() && args.FirstOrDefault() == WindowsRemoteHost.HelperArgument)
+            return WindowsRemoteHost.RunHelper(args);
         if (args.Contains("--quit")) { SingleInstance.RequestExit(); return 0; }
         if (args.Contains("--version"))
         {

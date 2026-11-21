@@ -15,6 +15,20 @@ from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 ARCHIVE_NAME = 'Tbox_third-party-sources.tar.gz'
+REMOTE_BUILD_FILES = (
+    '.github/workflows/remote-viewers.yml',
+    'scripts/prepare-remote-engine.sh',
+    'scripts/stage-remote-viewer-macos.sh',
+    'tests/macos/RemoteHostLaunchTests.swift',
+    'scripts/package-desktop-windows.ps1',
+    'src/Tbox.Remote/Cargo.toml',
+    'src/Tbox.Remote/Cargo.lock',
+    'src/Tbox.Remote/src/lib.rs',
+    'src/Tbox.Remote/src/tests.rs',
+    'src/Tbox.Remote/rustdesk/rustdesk-tbox.patch',
+    'src/Tbox.Remote/rustdesk/tbox_remote.rs',
+    'src/Tbox.Remote/rustdesk/tbox_windows_service.rs',
+)
 
 
 def sha256(path):
@@ -30,6 +44,7 @@ def load_manifest(path):
     if manifest.get('schemaVersion') != 1 or not manifest.get('archives') or not manifest.get('git'):
         raise ValueError('Incomplete source manifest.')
     seen = set()
+    commits = {item.get('commit') for item in manifest['git']}
     for item in manifest['archives'] + manifest['git']:
         name = item['path']; relative = PurePosixPath(name)
         if relative.is_absolute() or '..' in relative.parts or '\\' in name or name != relative.as_posix() or name in seen:
@@ -42,6 +57,14 @@ def load_manifest(path):
             raise ValueError('Only public HTTPS sources are accepted.')
         if 'commit' in item and (not re.fullmatch('[a-f0-9]{40}', item['commit']) or not re.fullmatch('[a-zA-Z0-9_.-]+/', item['prefix'])):
             raise ValueError('Git sources require a full commit and safe archive prefix.')
+        submodules = item.get('submodules', {})
+        if not isinstance(submodules, dict) or any(
+            not name or PurePosixPath(name).is_absolute() or '..' in PurePosixPath(name).parts
+            or '\\' in name or name != PurePosixPath(name).as_posix()
+            or not isinstance(commit, str) or commit not in commits
+            for name, commit in submodules.items()
+        ):
+            raise ValueError('Each source submodule requires its own pinned archive.')
     return manifest
 
 
@@ -68,6 +91,16 @@ def validate_versions(root, manifest):
             recipe = (root / 'scripts' / script).read_text(encoding='utf-8')
             if not item or name not in recipe or item['sha256'] not in recipe:
                 raise ValueError('Source version/hash differs from the build recipe: ' + script)
+    if 'RustDesk' in versions:
+        recipe = (root / 'scripts/prepare-remote-engine.sh').read_text(encoding='utf-8')
+        workflow = (root / '.github/workflows/remote-viewers.yml').read_text(encoding='utf-8')
+        client = next((item for item in manifest['git'] if item['path'].startswith('git/rustdesk-client-')), None)
+        protocol = next((item for item in manifest['git'] if item['path'].startswith('git/rustdesk-protocol-')), None)
+        if (not client or not protocol or f"CLIENT={client['commit']}\n" not in recipe
+                or f"PROTOCOL={protocol['commit']}\n" not in recipe
+                or f"ref: {client['commit']}\n" not in workflow
+                or client.get('submodules', {}).get('libs/hbb_common') != protocol['commit']):
+            raise ValueError('RustDesk source revisions differ from the remote viewer builds.')
 
 
 GITHUB_RELEASE = re.compile(r'https://github\.com/([\w.-]+)/([\w.-]+)/releases/download/([^/]+)/([^/]+)')
@@ -125,8 +158,13 @@ def fetch_git(item, cache):
         git('fetch', '--depth=1', item['url'], item['commit'])
         if git('rev-parse', 'FETCH_HEAD') != item['commit']:
             raise ValueError('Fetched another Git revision.')
-        if any(line.startswith('160000 ') for line in git('ls-tree', '-r', 'FETCH_HEAD').splitlines()):
-            raise ValueError('Submodules require explicit source entries.')
+        submodules = {}
+        for line in git('ls-tree', '-r', 'FETCH_HEAD').splitlines():
+            if line.startswith('160000 '):
+                metadata, name = line.split('\t', 1)
+                submodules[name] = metadata.split()[2]
+        if submodules != item.get('submodules', {}):
+            raise ValueError('Git submodules differ from the reviewed source manifest: ' + item['path'])
         raw = working / 'source.tar'
         git('archive', '--format=tar', '--prefix=' + item['prefix'], '--output=' + str(raw), 'FETCH_HEAD')
         candidate = working / 'source.tar.gz'
@@ -155,6 +193,9 @@ def build_bundle(root, manifest_path, cache, output):
     files['README.md'] = root / 'docs/third-party-sources.md'
     for name in ['prepare-windows-media.sh', 'prepare-macos-media.sh', 'verify-macos-deployment-target.py']:
         files['scripts/' + name] = root / 'scripts' / name
+    if 'RustDesk' in manifest['components']:
+        for name in REMOTE_BUILD_FILES:
+            files[name] = root / name
     for path in (root / 'src/Tbox.Desktop/ThirdParty').glob('*.txt'):
         files['licenses/' + path.name] = path
     temporary = archive.with_suffix('.partial')
