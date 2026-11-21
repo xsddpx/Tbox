@@ -77,7 +77,7 @@ tbox.xsddpx.com {
 
 同日，Tbox 验收站点更新至 `6546fc2` 的服务端。切换前已备份并回读数据库，切换后公网 `/health` 返回 200，数据库为架构 3，现有 Windows 和 Mac 会话仍有效。
 
-固定版会合和中继已在 VPS 启动。Mac 经现有 Stash 的 Tailscale 路由完成会合和双向中继协议探测。Mac 经代理访问公网时使用另一个出口，测试服务加入实际出口后，通过 `tbox.xsddpx.com` 收到会合响应、确认中继拒绝错误密钥并双向传送合成数据。VPS 日志确认请求配对。服务使用独立受限账号，仅允许本地、Tailscale 和验收出口接入，双端桌面会话仍待验收。
+固定版会合和中继已在 VPS 启动。Mac 经现有 Stash 的 Tailscale 路由完成会合和双向中继协议探测。Mac 经代理访问公网时使用另一个出口，测试服务加入实际出口后，通过 `tbox.xsddpx.com` 收到 TCP 会合响应和 UDP 设备探测响应，并确认中继拒绝错误密钥、双向传送合成数据。VPS 日志确认请求配对。服务使用独立受限账号，仅允许本地、Tailscale 和验收出口接入，双端桌面会话仍待验收。
 
 包含 `--tbox-service` 启动参数的两个签名 MSIX 夹具通过原位覆盖、进程参数、LocalSystem 身份和 Running 状态检查。此结果覆盖包服务的启动契约。[服务夹具复测](https://github.com/xsddpx/Tbox/actions/runs/44896274398/job/136822500770)
 
