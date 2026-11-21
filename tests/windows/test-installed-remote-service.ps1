@@ -61,6 +61,20 @@ try {
     [ordered]@{ disabledByDefault = $true; differentOriginRejected = $true; localSystemConsoleWorker = $true; pendingConsentDidNotActivate = $true;
         cancelStoppedWorker = $true } | ConvertTo-Json |
         Set-Content (Join-Path $ResultDirectory 'remote-console.json') -Encoding UTF8
+} catch {
+    $failure = $_
+    try {
+        [ordered]@{
+            workerSessions = @(Get-ConsoleWorkers | ForEach-Object SessionId)
+            winlogonSessions = @(Get-Process -Name winlogon | ForEach-Object SessionId)
+            identityPublished = Test-Path -LiteralPath $identityPath
+            serviceStage = Get-Content -LiteralPath (Join-Path $directory 'service-status.txt') -Raw -ErrorAction SilentlyContinue
+            consoleStage = Get-Content -LiteralPath (Join-Path $directory 'console-status.txt') -Raw -ErrorAction SilentlyContinue
+        } | ConvertTo-Json | Set-Content (Join-Path $ResultDirectory 'remote-console-failure.json') -Encoding UTF8
+    } catch {
+        Write-Warning 'Could not collect Windows console worker diagnostics.'
+    }
+    throw $failure
 } finally {
     Remove-Item -LiteralPath $draft, $pending, $identityPath -Force -ErrorAction SilentlyContinue
 }

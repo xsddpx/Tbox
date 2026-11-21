@@ -553,8 +553,16 @@ Mac 签名包包含 `com.xsddpx.tbox.remote`。下载包通过 SHA-256 核对，
 
 ### 1.1.130 带远控引擎的 Windows 候选
 
-x64 签名 MSIX 在 Windows 2025 运行器通过安装、启动、OCR、裁剪、渲染、取帧和录屏。下载包的 SHA-256 与构建记录一致，包内的窗口程序、Flutter 运行库、授权库和对应源码记录通过核对。已准备 `Tbox Windows 11 Test` 的覆盖升级镜像，来宾安装和双端会话待验收。[Windows 签名构建](https://github.com/xsddpx/Tbox/actions/runs/44897496077/job/136834003467)
+x64 签名 MSIX 在 Windows 2025 运行器通过安装、启动、OCR、裁剪、渲染、取帧和录屏。下载包的 SHA-256 与构建记录一致，包内的窗口程序、Flutter 运行库、授权库和对应源码记录通过核对。在 `Tbox Windows 11 Test` 从 1.1.128.0 原位覆盖至 1.1.130.0。来宾核对了 SHA-256、签名和包系列 `Tbox_kz23ttq7aw48a`，包状态为 `Ok`。取帧及远控组件文件检查通过，应用保留原账号会话并能发现同账号 Mac。远控默认关闭，取消本机授权后保持关闭。来宾记录位于 `%LOCALAPPDATA%\Tbox\vm-verification\account-20261121-122206`。[Windows 签名构建](https://github.com/xsddpx/Tbox/actions/runs/44897496077/job/136834003467)
 
 | 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
 | --- | --- | --- | --- |
 | 1.1.130.0 | Windows win-x64 | 2026-11-21 19:42:49 +0800 | `ae3e2e50575b8e48375be874b83789e54c01b50e167053fdeafd00e81add798d` |
+
+### 1.1.131 远控签名候选
+
+Mac ZIP 通过 SHA-256 核对，在原路径从 1.1.129 覆盖至 1.1.131。主应用与远控引擎沿用原签名，主应用保留屏幕录制权限并取帧 3024 × 1964。嵌入引擎拒绝空的宿主和控制端启动请求。Windows 2025 运行器通过 MSIX 验签、安装、OCR、裁剪、取帧和录屏，`TboxRemote` 以 LocalSystem 启动并达到 Running。等待控制台进程发布传输身份超时，Windows 构建未保留可交付 MSIX。[双平台签名构建](https://github.com/xsddpx/Tbox/actions/runs/44901112084)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.131 | macOS osx-arm64 | 2026-11-21 20:28:26 +0800 | `b168b4918bc3ffd027a0ae4f0af65696e50f392e2957e62bb4b1e4969ae6f69b` |

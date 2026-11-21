@@ -112,6 +112,10 @@ fn state_directory() -> Result<PathBuf> {
         .join("config/systemprofile/AppData/Local/TboxRemoteHost"))
 }
 
+fn write_status(directory: &Path, name: &str, status: &str) -> io::Result<()> {
+    fs::write(directory.join(name), status)
+}
+
 fn requested_consent(directory: &Path) -> Option<Consent> {
     if let Ok(active) = read_json(&directory.join("active.json")) {
         return Some(active);
@@ -197,6 +201,7 @@ fn supervise() -> Result<()> {
     status.set_service_status(ServiceStatus { ..state })?;
 
     let mut worker: Option<Worker> = None;
+    let mut last_launch = None;
     loop {
         let session = get_current_session_id(false);
         let attempt = requested_consent(&directory)
@@ -209,16 +214,26 @@ fn supervise() -> Result<()> {
         }) {
             worker = None;
         }
-        if let (None, Some(attempt), false) = (&worker, attempt, session == u32::MAX) {
-            match launch_privileged_process(session, &command) {
-                Ok(process) if !process.is_null() => {
-                    worker = Some(Worker {
-                        process: Process(process),
-                        session,
-                        attempt,
-                    });
+        if let (None, Some(attempt)) = (&worker, attempt) {
+            let stage = if session == u32::MAX || session == 0 {
+                "Waiting for a console session"
+            } else {
+                match launch_privileged_process(session, &command) {
+                    Ok(process) if !process.is_null() => {
+                        worker = Some(Worker {
+                            process: Process(process),
+                            session,
+                            attempt,
+                        });
+                        "Started the console worker"
+                    }
+                    _ => "Windows did not start the console worker",
                 }
-                _ => {}
+            };
+            if last_launch != Some((attempt, session, stage))
+                && write_status(&directory, "service-status.txt", stage).is_ok()
+            {
+                last_launch = Some((attempt, session, stage));
             }
         }
         if controls.recv_timeout(POLL) != Err(mpsc::RecvTimeoutError::Timeout) {
@@ -237,9 +252,30 @@ pub(crate) fn start_console(service_pid: u32) -> Result<()> {
         is_root() && service_pid != 0,
         "Tbox remote console requires the system service"
     );
+    let directory = state_directory()?;
+    let result = prepare_console(&directory, service_pid);
+    if let Err(error) = &result {
+        // Persist the fixed stage and the Windows error code without recording enrollment data.
+        let code = error
+            .downcast_ref::<io::Error>()
+            .and_then(io::Error::raw_os_error);
+        let _ = write_status(
+            &directory,
+            "console-status.txt",
+            &match code {
+                Some(code) => format!("{error} (Windows error {code})"),
+                None => error.to_string(),
+            },
+        );
+    }
+    result
+}
+
+fn prepare_console(directory: &Path, service_pid: u32) -> Result<()> {
     let service = unsafe { OpenProcess(SYNCHRONIZE, 0, service_pid) };
     if service.is_null() {
-        return Err(io::Error::last_os_error().into());
+        return Err(io::Error::last_os_error())
+            .context("Could not monitor the Tbox remote service");
     }
     // A service crash must also close the console host and any existing session.
     let service = service as usize;
@@ -250,30 +286,36 @@ pub(crate) fn start_console(service_pid: u32) -> Result<()> {
     });
     drop(monitor);
 
-    let directory = state_directory()?;
-    let policy_path = std::env::current_exe()?.with_file_name("tbox-host-policy.json");
-    let policy: Policy = read_json(&policy_path)?;
-    let consent = requested_consent(&directory).context("Tbox remote host consent is absent")?;
+    let policy_path = std::env::current_exe()
+        .context("Could not locate the Tbox remote console worker")?
+        .with_file_name("tbox-host-policy.json");
+    let policy: Policy =
+        read_json(&policy_path).context("Could not read the installed remote policy")?;
+    let consent = requested_consent(directory).context("Tbox remote host consent is absent")?;
     ensure!(
         consent.policy == policy,
         "Tbox remote host needs consent for the installed policy"
     );
     let authorization =
-        tbox_remote::HostAuthorization::new(&policy.origin, consent.device_id, consent.credential)?;
-    configure_network(&policy.network)?;
-    let identity = host_identity()?;
+        tbox_remote::HostAuthorization::new(&policy.origin, consent.device_id, consent.credential)
+            .context("Could not initialize the console authorization")?;
+    configure_network(&policy.network).context("Could not configure the console connection")?;
+    let identity = host_identity().context("Could not load the console identity")?;
     let active_path = directory.join("active.json");
     let is_approved =
         || read_json::<Consent>(&active_path).is_ok_and(|active| active.attempt == consent.attempt);
     if !is_approved() {
         let identity_path = directory.join(format!("identity-{}.json", consent.attempt));
         let temporary = identity_path.with_extension("pending");
-        fs::write(&temporary, serde_json::to_vec(&identity)?)?;
-        fs::rename(&temporary, &identity_path)?;
+        let identity_json =
+            serde_json::to_vec(&identity).context("Could not encode the console identity")?;
+        fs::write(&temporary, identity_json)
+            .context("Could not write the pending console identity")?;
+        fs::rename(&temporary, &identity_path).context("Could not publish the console identity")?;
         // The signed account registration completes before the helper commits local consent.
         while !is_approved() {
             ensure!(
-                requested_consent(&directory)
+                requested_consent(directory)
                     .is_some_and(|current| current.attempt == consent.attempt),
                 "Tbox remote host consent was cancelled"
             );
