@@ -1,11 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using Tbox.Core;
 using Tbox.Core.Accounts;
 using Tbox.Desktop.Accounts;
 using Tbox.Desktop.Platform;
+using Tbox.Desktop.Views;
 using Xunit;
 
 namespace Tbox.Desktop.Tests;
@@ -81,14 +85,24 @@ public sealed class AccountCoordinatorTests
             return Task.CompletedTask;
         }, new FixtureVault(JsonSerializer.Serialize(account)), Path.GetTempPath(), timeout.Token, http);
         await coordinator.RefreshAsync();
-        var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pending = coordinator.SetCaptureSyncAsync(true, () => answer.Task);
-        await coordinator.RefreshAsync();
-        Assert.False(settings.Cloud.SyncCaptures);
-        Assert.False(coordinator.CanQueueCapture);
+        var owner = new Window();
+        var dialog = new ConfirmWindow("同步此电脑的后续截图？", "开启同步");
+        owner.Show();
+        try
+        {
+            var pending = coordinator.SetCaptureSyncAsync(true, () => dialog.ShowDialog<bool>(owner));
+            await coordinator.RefreshAsync();
+            Assert.True(dialog.IsVisible);
+            Assert.False(pending.IsCompleted);
+            Assert.False(settings.Cloud.SyncCaptures);
+            Assert.False(coordinator.CanQueueCapture);
 
-        answer.SetResult(accepted);
-        await pending.WaitAsync(timeout.Token);
+            var label = accepted ? "开启同步" : "返回";
+            var choice = Assert.Single(dialog.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, label));
+            choice.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await pending.WaitAsync(timeout.Token);
+        }
+        finally { owner.Close(); }
         Assert.Equal(accepted, settings.Cloud.SyncCaptures);
         Assert.Equal(accepted, coordinator.CanQueueCapture);
         await coordinator.SetCaptureSyncAsync(false, () => throw new InvalidOperationException("Disabling must not ask for consent."));
