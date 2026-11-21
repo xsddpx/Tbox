@@ -15,7 +15,7 @@
 - `Platform/windows`：Win32 原始像素捕获、窗口位置与全局快捷键（默认 F6/F7/F8/Ctrl+G）；系统 OCR 使用 Windows.Media.Ocr，仍要求 MSIX 包身份和已安装语言。共用工程在 Windows 自动选择 Windows TFM，也可在 Mac 以 `-p:TboxWindows=true` 编译检查。
 - `tests/Tbox.Core.Tests`、`tests/Tbox.Desktop.Tests`：两平台共用规则和实际渲染测试；系统权限及真实桌面集成另做本机验证。
 
-采用 Avalonia 是为了延续 C# 核心并共用桌面交互，不另写 SwiftUI 或 WinUI 业务界面。已有 .NET 8 和 SDK 9 构建基线暂不同时升级，框架升级应作为独立变更。
+采用 Avalonia 是为了延续 C# 核心并共用桌面交互。应用和检查项目使用 .NET 10 LTS。Mac Bundle、Swift 桥接、合盖唤醒组件与媒体构建以 macOS 26 为最低部署版本，主程序仅含 arm64 架构。Windows 托管程序集和 MSIX 使用相同的 Windows 11 x64 最低系统版本（build 22000）。
 
 ## 平台依赖选择
 
@@ -71,7 +71,7 @@ CI 的 `-VerifyOnly` 不签名、不导入证书、不安装、不发布完成�
 
 ## 本地开发与打包
 
-在仓库根目录运行命令。使用 `global.json` 固定的 .NET SDK、.NET 8 运行时和 Python 3。交付安装包自带 .NET 运行时。
+在仓库根目录运行命令。使用 `global.json` 固定的 .NET 10 SDK 和 Python 3。交付安装包自带 .NET 10 运行时。
 
 ```sh
 dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release

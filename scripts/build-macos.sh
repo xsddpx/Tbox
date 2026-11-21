@@ -3,18 +3,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 RID="${1:-osx-arm64}"
+if [[ "$RID" != osx-arm64 || "$(uname -m)" != arm64 ]]; then
+  echo "仅支持在 Apple Silicon 上构建 osx-arm64。" >&2; exit 1
+fi
 SIGN_IDENTITY="${TBOX_SIGN_IDENTITY:-Tbox Local Development}"
 if [[ "$SIGN_IDENTITY" == "-" ]]; then echo "禁止使用临时签名，以免升级丢失权限。" >&2; exit 1; fi
 if ! security find-certificate -c "$SIGN_IDENTITY" >/dev/null 2>&1; then
   echo "缺少持久签名证书。首次运行 bash scripts/setup-macos-signing.sh；不要每轮重新生成证书。" >&2; exit 1
-fi
-case "$RID" in
-  osx-arm64) ARCH=arm64 ;;
-  osx-x64) ARCH=x86_64 ;;
-  *) echo "仅支持 osx-arm64 / osx-x64" >&2; exit 1 ;;
-esac
-if [[ "$RID" != osx-arm64 || "$(uname -m)" != arm64 ]]; then
-  echo "录屏媒体依赖当前仅验证 Apple Silicon；其他架构必须先补齐对应媒体构建。" >&2; exit 1
 fi
 bash scripts/prepare-macos-media.sh
 DOTNET="${TBOX_DOTNET:-$(command -v dotnet || true)}"
@@ -22,6 +17,9 @@ if [[ -z "$DOTNET" && -x "$ROOT/TEMP/dotnet/dotnet" ]]; then DOTNET="$ROOT/TEMP/
 if [[ ! -x "$DOTNET" ]]; then echo "请安装 global.json 指定的 .NET SDK，或设置 TBOX_DOTNET。" >&2; exit 1; fi
 BUILD="$ROOT/TEMP/build/$RID"
 APP="$BUILD/Tbox.app"
+NATIVE=src/Tbox.Desktop/Platform/macos
+MINIMUM_MACOS="$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$NATIVE/Info.plist")"
+SWIFT_TARGET="arm64-apple-macosx$MINIMUM_MACOS"
 mkdir -p "$BUILD"
 python3 - <<'PY'
 import plistlib, xml.etree.ElementTree as ET
@@ -37,8 +35,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # macOS treats files in this directory as code when sealing the bundle.
 "$DOTNET" publish src/Tbox.Desktop/Tbox.Desktop.csproj -c Release -r "$RID" --self-contained true \
   -p:PublishSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o "$APP/Contents/MacOS"
+[[ "$(/usr/bin/lipo -archs "$APP/Contents/MacOS/Tbox.Desktop")" == arm64 ]] || {
+  echo "Mac 安装包必须使用 arm64 主程序。" >&2; exit 1
+}
 rm -rf "$APP/Contents/MacOS/ThirdParty"
-NATIVE=src/Tbox.Desktop/Platform/macos
 LID_SERVICE=com.xsddpx.tbox.lid-sleep
 # Both ends authenticate the actual code signature, including the stable local signing certificate.
 CERT_SHA1="$(security find-certificate -c "$SIGN_IDENTITY" -p | openssl x509 -noout -fingerprint -sha1 | cut -d= -f2 | tr -d ':')"
@@ -48,16 +48,16 @@ cat > "$REQUIREMENTS" <<EOF
 let lidSleepAppRequirement = #"identifier "com.xsddpx.tbox" and certificate leaf = H"$CERT_SHA1""#
 let lidSleepDaemonRequirement = #"identifier "$LID_SERVICE" and certificate leaf = H"$CERT_SHA1""#
 EOF
-swiftc -swift-version 5 -O -emit-library -target "$ARCH-apple-macosx14.0" \
+swiftc -swift-version 5 -O -emit-library -target "$SWIFT_TARGET" \
   "$NATIVE"/*.swift "$NATIVE/lid/LidSleepClient.swift" "$NATIVE/lid/LidSleepService.swift" "$REQUIREMENTS" -o "$APP/Contents/MacOS/libTboxNative.dylib"
 LID_DAEMON="$APP/Contents/MacOS/TboxLidSleep"
-swiftc -swift-version 5 -O -target "$ARCH-apple-macosx14.0" \
+swiftc -swift-version 5 -O -target "$SWIFT_TARGET" \
   "$NATIVE/lid/main.swift" "$NATIVE/lid/LidSleepService.swift" "$REQUIREMENTS" -o "$LID_DAEMON"
 codesign --force --sign "$SIGN_IDENTITY" --identifier "$LID_SERVICE" --options runtime --timestamp=none "$LID_DAEMON"
 mkdir -p "$APP/Contents/Library/LaunchDaemons"
 cp "$NATIVE/lid/$LID_SERVICE.plist" "$APP/Contents/Library/LaunchDaemons/"
 
-cp src/Tbox.Desktop/Platform/macos/Info.plist "$APP/Contents/Info.plist"
+cp "$NATIVE/Info.plist" "$APP/Contents/Info.plist"
 mkdir -p "$APP/Contents/Resources/Licenses"
 cp src/Tbox.Desktop/ThirdParty/*.txt "$APP/Contents/Resources/Licenses/"
 cp src/Tbox.Desktop/ThirdParty/THIRD-PARTY-NOTICES.md "$APP/Contents/Resources/Licenses/"
@@ -65,7 +65,7 @@ cp TEMP/media-runtime/Licenses/*.txt "$APP/Contents/Resources/Licenses/"
 mkdir -p "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin"
 cp TEMP/media-runtime/FFmpeg/bin/ffmpeg "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin/"
 ditto TEMP/media-runtime/VLC "$APP/Contents/MacOS/ThirdParty/VLC"
-python3 scripts/verify-macos-deployment-target.py "$APP"
+python3 scripts/verify-macos-deployment-target.py --deployment-target "$MINIMUM_MACOS" "$APP"
 ICONSET="$BUILD/Tbox.iconset"
 mkdir -p "$ICONSET"
 for SIZE in 16 32 128 256 512; do

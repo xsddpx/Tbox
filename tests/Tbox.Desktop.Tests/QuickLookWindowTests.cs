@@ -140,7 +140,16 @@ public sealed class QuickLookWindowTests
         Assert.Contains(window.GetVisualDescendants().OfType<SelectableTextBlock>(), text => text.Inlines?.Text == "值");
 
         await Next();
-        var image = window.GetVisualDescendants().OfType<Image>().Single(image => image.Source is Avalonia.Media.Imaging.WriteableBitmap);
+        Assert.Equal(svg, window.CurrentPath);
+        Image? image = null;
+        for (var attempt = 0; attempt < 30; attempt++)
+        {
+            image = window.GetVisualDescendants().OfType<Image>()
+                .SingleOrDefault(preview => preview.Source is Avalonia.Media.Imaging.WriteableBitmap);
+            if (image is not null) break;
+            await scope.SettleAsync();
+        }
+        Assert.NotNull(image);
         Assert.Equal(new PixelSize(120, 60), ((Avalonia.Media.Imaging.Bitmap)image.Source!).PixelSize);
 
         // A file without an extension is sniffed: text opens in the editor, binary shows the information page.

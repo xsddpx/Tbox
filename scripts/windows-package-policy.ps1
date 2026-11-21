@@ -17,6 +17,12 @@ function Assert-DesktopPackageVersion {
         $manifestXml.Package.Applications.Application.Executable -ne 'Tbox.Desktop.exe') {
         throw 'Windows package identity or shared desktop entry point changed.'
     }
+    $desktop = $manifestXml.Package.Dependencies.TargetDeviceFamily
+    $minimum = [version]$desktop.MinVersion
+    if ($desktop.Name -ne 'Windows.Desktop' -or $minimum -lt [version]'10.0.22000.0' -or
+        $minimum -ne [version]$properties.SupportedOSPlatformVersion.InnerText) {
+        throw 'The project and MSIX must agree on a Windows 11 or newer minimum.'
+    }
     if (-not $VerificationOnly -and (Test-Path -LiteralPath $PackagePath)) { throw "Package already exists: $PackagePath" }
     if (-not $VerificationOnly -and (Get-Content -LiteralPath $History -Raw -Encoding UTF8) -match "(?m)^\|\s*$([regex]::Escape($version))\s*\|") {
         throw "Version $version was already packaged. Increase the version."

@@ -20,9 +20,16 @@ select_destination() {
   fi
 }
 
+macos_version_supported() {
+  local minimum="$1" current="$2"
+  local version_pattern='^[0-9]+\.[0-9]+(\.[0-9]+)?$'
+  [[ "$minimum" =~ $version_pattern && "$current" =~ $version_pattern ]] &&
+    /bin/zsh -fc 'autoload -Uz is-at-least; is-at-least "$1" "$2"' -- "$minimum" "$current"
+}
+
 main() {
   local ROOT SOURCE DESTINATION ALLOW_MIGRATION="" requested=""
-  local IDENTIFIER EXISTING_ID REQUIREMENT BACKUP=""
+  local IDENTIFIER EXISTING_ID REQUIREMENT MINIMUM_MACOS BACKUP=""
   local system_app="/Applications/Tbox.app" user_app="$HOME/Applications/Tbox.app"
   ROOT="$(cd "$(dirname "$0")/.." && pwd)"
   SOURCE="$ROOT/TEMP/build/osx-arm64/Tbox.app"
@@ -51,6 +58,11 @@ main() {
   echo "Tbox 安装目标：$DESTINATION"
   [[ -d "$SOURCE" ]] || { echo "先执行 Mac 构建。" >&2; exit 1; }
   bash "$ROOT/scripts/check-macos-identity.sh" "$SOURCE" >/dev/null
+  [[ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null)" == 1 ]] ||
+    { echo "Tbox Mac 安装包仅支持 Apple Silicon。" >&2; exit 1; }
+  MINIMUM_MACOS="$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$SOURCE/Contents/Info.plist")"
+  macos_version_supported "$MINIMUM_MACOS" "$(/usr/bin/sw_vers -productVersion)" ||
+    { echo "此安装包需要 macOS $MINIMUM_MACOS 或更高版本。" >&2; exit 1; }
   IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$SOURCE/Contents/Info.plist")"
   [[ "$IDENTIFIER" == "com.xsddpx.tbox" ]] || { echo "应用标识发生变化，停止安装。" >&2; exit 1; }
   if [[ -d "$DESTINATION" ]]; then
