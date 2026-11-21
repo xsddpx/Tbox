@@ -28,8 +28,13 @@ public sealed class RemoteAccessTests
         Assert.Null(await remote.InviteAsync(controller.Id, host.Id, default));
         Assert.False(await remote.HeartbeatAsync(hostAccount.AccessToken, default));
         Assert.False(await remote.RegisterHostAsync(host.Id, controller.Register(credential), default));
+        var validRegistration = host.Register(credential);
+        Assert.False(await remote.RegisterHostAsync(host.Id, validRegistration with { Transport = otherHost.Transport }, default));
+        var invalidTransport = host.Transport with { PeerId = "123456@other.example" };
+        Assert.False(await remote.RegisterHostAsync(host.Id, host.Register(credential, invalidTransport), default));
         Assert.True(await remote.RegisterHostAsync(host.Id, host.Register(credential), default));
         Assert.False(await remote.RegisterHostAsync(otherHost.Id, otherHost.Register(credential), default));
+        Assert.False(await remote.RegisterHostAsync(otherHost.Id, otherHost.Register(otherCredential, host.Transport), default));
         Assert.True(await remote.RegisterHostAsync(otherHost.Id, otherHost.Register(otherCredential), default));
         Assert.Empty(await remote.ListHostsAsync(controller.Id, default));
 
@@ -41,6 +46,8 @@ public sealed class RemoteAccessTests
         Assert.Null(await remote.InviteAsync(host.Id, host.Id, default));
         Assert.Null(await remote.InviteAsync(Guid.NewGuid(), host.Id, default));
         var grant = Assert.IsType<RemoteInvitation>(await remote.InviteAsync(controller.Id, host.Id, default));
+        Assert.Equal(host.Id, grant.HostId);
+        Assert.Equal(host.Transport, grant.Transport);
         Assert.Null(await remote.RenewAsync(credential, grant.SessionId, default));
         var challenge = CloudProtocol.RandomSecret();
         var validClaim = controller.Claim(host.Id, grant.Ticket, challenge);
@@ -112,6 +119,49 @@ public sealed class RemoteAccessTests
         Assert.Null(await remote.ClaimAsync(rotated, controller.Claim(host.Id, previous.Ticket, challenge), default));
     }
 
+    [PostgresFact]
+    public async Task TransportRotationRequiresFreshReadinessAndInvalidatesPreviousGrants()
+    {
+        var database = Environment.GetEnvironmentVariable("TBOX_TEST_POSTGRES")!;
+        await using var source = NpgsqlDataSource.Create(database);
+        var db = TestDatabase(source, database);
+        await db.InitializeAsync(default);
+        var devices = new DeviceSessions(db);
+        var remote = new RemoteAccess(db);
+        using var controller = new TestDevice("Controller", "macOS");
+        using var host = new TestDevice("Host", "Windows");
+        await controller.SignInAsync(devices);
+        await host.SignInAsync(devices);
+        var credential = CloudProtocol.RandomSecret();
+
+        // A registration stored by the older cloud service has no transport identity.
+        await using (var connection = await db.ConnectAsync(default))
+        await using (var insert = db.Command(connection, """
+            INSERT INTO remote_host (owner, device_id, credential_hash, ready_until)
+            VALUES (@owner, @id, @hash, statement_timestamp() + interval '1 minute')
+            """, ("id", host.Id), ("hash", DeviceSessions.Hash(credential))))
+            await insert.ExecuteNonQueryAsync();
+        Assert.Empty(await remote.ListHostsAsync(controller.Id, default));
+        Assert.False(await remote.HeartbeatAsync(credential, default));
+        Assert.Null(await remote.InviteAsync(controller.Id, host.Id, default));
+
+        Assert.True(await remote.RegisterHostAsync(host.Id, host.Register(credential), default));
+        Assert.True(await remote.HeartbeatAsync(credential, default));
+        var challenge = CloudProtocol.RandomSecret();
+        var active = Assert.IsType<RemoteInvitation>(await remote.InviteAsync(controller.Id, host.Id, default));
+        Assert.NotNull(await remote.ClaimAsync(credential, controller.Claim(host.Id, active.Ticket, challenge), default));
+        var unused = Assert.IsType<RemoteInvitation>(await remote.InviteAsync(controller.Id, host.Id, default));
+
+        var updated = host.Transport with { PublicKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)) };
+        Assert.True(await remote.RegisterHostAsync(host.Id, host.Register(credential, updated), default));
+        Assert.Null(await remote.InviteAsync(controller.Id, host.Id, default));
+        Assert.True(await remote.HeartbeatAsync(credential, default));
+        Assert.Null(await remote.RenewAsync(credential, active.SessionId, default));
+        Assert.Null(await remote.ClaimAsync(credential, controller.Claim(host.Id, unused.Ticket, challenge), default));
+        var current = Assert.IsType<RemoteInvitation>(await remote.InviteAsync(controller.Id, host.Id, default));
+        Assert.Equal(updated, current.Transport);
+    }
+
     private static Database TestDatabase(NpgsqlDataSource source, string database) =>
         new(source, new CloudOptions(new Uri("https://tbox.test/"), RandomNumberGenerator.GetInt32(1, int.MaxValue),
             "fixture", "fixture", database, RandomNumberGenerator.GetBytes(32)));
@@ -120,6 +170,8 @@ public sealed class RemoteAccessTests
     {
         private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         internal Guid Id { get; } = Guid.NewGuid();
+        internal RemoteTransportIdentity Transport { get; } = new(Guid.NewGuid().ToString("N"),
+            Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)));
 
         internal async Task<CloudSession> SignInAsync(DeviceSessions sessions)
         {
@@ -136,8 +188,11 @@ public sealed class RemoteAccessTests
         internal RemoteClaim Claim(Guid host, string ticket, string challenge) =>
             new(ticket, challenge, Sign(RemoteAccessProtocol.ClaimProof(Id, host, ticket, challenge)));
 
-        internal RemoteHostRegistration Register(string credential) =>
-            new(credential, Sign(RemoteAccessProtocol.HostRegistrationProof(Id, credential)));
+        internal RemoteHostRegistration Register(string credential, RemoteTransportIdentity? identity = null)
+        {
+            var transport = identity ?? Transport;
+            return new(credential, transport, Sign(RemoteAccessProtocol.HostRegistrationProof(Id, credential, transport)));
+        }
 
         private string Sign(byte[] bytes) => Convert.ToBase64String(_key.SignData(bytes, HashAlgorithmName.SHA256));
         public void Dispose() => _key.Dispose();

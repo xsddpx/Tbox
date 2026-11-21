@@ -13,24 +13,30 @@ internal sealed class RemoteAccess(Database db)
     internal async Task<bool> RegisterHostAsync(Guid deviceId, RemoteHostRegistration registration, CancellationToken ct)
     {
         var credential = registration.Credential;
-        if (!CloudProtocol.IsSecret(credential)) return false;
+        var transport = registration.Transport;
+        if (!CloudProtocol.IsSecret(credential) || !RemoteAccessProtocol.IsTransportIdentity(transport)) return false;
         await using var connection = await db.ConnectAsync(ct);
         await using var transaction = await db.LockAccountAsync(connection, ct);
         var hash = DeviceSessions.Hash(credential);
         await using var eligible = Command(transaction, $"""
             SELECT d.public_key FROM device d WHERE d.owner=@owner AND d.id=@id AND {ActiveDevice}
             AND NOT EXISTS(
-                SELECT 1 FROM remote_host WHERE owner=@owner AND credential_hash=@hash AND device_id<>@id
+                SELECT 1 FROM remote_host WHERE owner=@owner AND device_id<>@id
+                  AND (credential_hash=@hash OR transport_id=@peer OR transport_key=@key)
             )
-            """, ("id", deviceId), ("hash", hash));
+            """, ("id", deviceId), ("hash", hash), ("peer", transport.PeerId), ("key", transport.PublicKey));
         if (await eligible.ExecuteScalarAsync(ct) is not byte[] key ||
-            !DeviceSessions.Verify(key, registration.Signature, RemoteAccessProtocol.HostRegistrationProof(deviceId, credential)))
+            !DeviceSessions.Verify(key, registration.Signature, RemoteAccessProtocol.HostRegistrationProof(deviceId, credential, transport)))
             return false;
         await using var update = Command(transaction, """
-            INSERT INTO remote_host (owner, device_id, credential_hash) VALUES (@owner,@id,@hash)
-            ON CONFLICT (owner, device_id) DO UPDATE SET credential_hash=EXCLUDED.credential_hash, ready_until=NULL
-            WHERE remote_host.credential_hash<>EXCLUDED.credential_hash
-            """, ("id", deviceId), ("hash", hash));
+            INSERT INTO remote_host (owner, device_id, credential_hash, transport_id, transport_key)
+            VALUES (@owner,@id,@hash,@peer,@key)
+            ON CONFLICT (owner, device_id) DO UPDATE
+            SET credential_hash=EXCLUDED.credential_hash, transport_id=EXCLUDED.transport_id,
+              transport_key=EXCLUDED.transport_key, ready_until=NULL
+            WHERE (remote_host.credential_hash,remote_host.transport_id,remote_host.transport_key)
+                  IS DISTINCT FROM (EXCLUDED.credential_hash,EXCLUDED.transport_id,EXCLUDED.transport_key)
+            """, ("id", deviceId), ("hash", hash), ("peer", transport.PeerId), ("key", transport.PublicKey));
         if (await update.ExecuteNonQueryAsync(ct) != 0)
         {
             await using var previous = Command(transaction,
@@ -59,7 +65,7 @@ internal sealed class RemoteAccess(Database db)
         await using var command = Command(transaction, $"""
             UPDATE remote_host h SET ready_until={Deadline}
             FROM device d WHERE d.owner=h.owner AND d.id=h.device_id
-                AND h.owner=@owner AND h.credential_hash=@hash AND {ActiveDevice}
+                AND h.owner=@owner AND h.credential_hash=@hash AND h.transport_key IS NOT NULL AND {ActiveDevice}
             """, ("hash", DeviceSessions.Hash(credential)), LeasePeriod);
         var ready = await command.ExecuteNonQueryAsync(ct) == 1;
         await transaction.CommitAsync(ct);
@@ -72,7 +78,8 @@ internal sealed class RemoteAccess(Database db)
         await using var command = db.Command(connection, $"""
             SELECT h.device_id,d.name,d.platform
             FROM remote_host h JOIN device d ON d.owner=h.owner AND d.id=h.device_id
-            WHERE h.owner=@owner AND h.device_id<>@controller AND h.ready_until>statement_timestamp() AND {ActiveDevice}
+            WHERE h.owner=@owner AND h.device_id<>@controller AND h.ready_until>statement_timestamp()
+              AND h.transport_key IS NOT NULL AND {ActiveDevice}
             ORDER BY d.name,h.device_id
             """, ("controller", controller));
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -93,18 +100,28 @@ internal sealed class RemoteAccess(Database db)
             "DELETE FROM remote_session WHERE owner=@owner AND expires_at<=statement_timestamp()");
         await expired.ExecuteNonQueryAsync(ct);
         await using var command = Command(transaction, $"""
-            INSERT INTO remote_session (owner,id,host_id,controller_id,ticket_hash,expires_at)
-            SELECT @owner,@id,h.device_id,@controller,@hash,{Deadline}
-            FROM remote_host h JOIN device d ON d.owner=h.owner AND d.id=h.device_id
-            WHERE h.owner=@owner AND h.device_id=@host AND h.ready_until>statement_timestamp() AND {ActiveDevice}
-              AND EXISTS (SELECT 1 FROM device d WHERE d.owner=@owner AND d.id=@controller AND {ActiveDevice})
-              AND (SELECT COUNT(*) FROM remote_session s WHERE s.owner=@owner AND s.controller_id=@controller
-                   AND s.ticket_hash IS NOT NULL AND s.expires_at>statement_timestamp()) < 4
-            RETURNING expires_at
+            WITH target AS (
+                SELECT h.device_id,h.transport_id,h.transport_key
+                FROM remote_host h JOIN device d ON d.owner=h.owner AND d.id=h.device_id
+                WHERE h.owner=@owner AND h.device_id=@host AND h.ready_until>statement_timestamp()
+                  AND h.transport_key IS NOT NULL AND {ActiveDevice}
+                  AND EXISTS (SELECT 1 FROM device d WHERE d.owner=@owner AND d.id=@controller AND {ActiveDevice})
+                  AND (SELECT COUNT(*) FROM remote_session s WHERE s.owner=@owner AND s.controller_id=@controller
+                       AND s.ticket_hash IS NOT NULL AND s.expires_at>statement_timestamp()) < 4
+            ), invitation AS (
+                INSERT INTO remote_session (owner,id,host_id,controller_id,ticket_hash,expires_at)
+                SELECT @owner,@id,device_id,@controller,@hash,{Deadline} FROM target
+                RETURNING expires_at
+            )
+            SELECT expires_at,transport_id,transport_key FROM invitation CROSS JOIN target
             """, ("id", id), ("host", host), ("controller", controller), ("hash", DeviceSessions.Hash(ticket)), LeasePeriod);
-        var expiration = await command.ExecuteScalarAsync(ct);
+        RemoteInvitation? invitation = null;
+        await using (var reader = await command.ExecuteReaderAsync(ct))
+            if (await reader.ReadAsync(ct))
+                invitation = new RemoteInvitation(id, ticket, reader.GetFieldValue<DateTimeOffset>(0), host,
+                    new RemoteTransportIdentity(reader.GetString(1), reader.GetString(2)));
         await transaction.CommitAsync(ct);
-        return expiration is DateTime expiry ? new RemoteInvitation(id, ticket, expiry) : null;
+        return invitation;
     }
 
     internal async Task<RemoteLease?> ClaimAsync(string credential, RemoteClaim claim, CancellationToken ct)
@@ -179,7 +196,8 @@ internal sealed class RemoteAccess(Database db)
     {
         await using var command = Command(transaction, $"""
             SELECT h.device_id FROM remote_host h JOIN device d ON d.owner=h.owner AND d.id=h.device_id
-            WHERE h.owner=@owner AND h.credential_hash=@hash AND h.ready_until>statement_timestamp() AND {ActiveDevice}
+            WHERE h.owner=@owner AND h.credential_hash=@hash AND h.ready_until>statement_timestamp()
+              AND h.transport_key IS NOT NULL AND {ActiveDevice}
             """, ("hash", DeviceSessions.Hash(credential)));
         return await command.ExecuteScalarAsync(ct) as Guid?;
     }

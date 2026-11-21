@@ -57,6 +57,11 @@ internal sealed class Database(NpgsqlDataSource source, CloudOptions options)
             CREATE INDEX IF NOT EXISTS remote_session_host ON remote_session (owner, host_id);
             CREATE INDEX IF NOT EXISTS remote_session_controller ON remote_session (owner, controller_id);
             INSERT INTO cloud_schema VALUES (2) ON CONFLICT DO NOTHING;
+            ALTER TABLE remote_host ADD COLUMN IF NOT EXISTS transport_id text;
+            ALTER TABLE remote_host ADD COLUMN IF NOT EXISTS transport_key text;
+            CREATE UNIQUE INDEX IF NOT EXISTS remote_host_transport_id ON remote_host (owner, transport_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS remote_host_transport_key ON remote_host (owner, transport_key);
+            INSERT INTO cloud_schema VALUES (3) ON CONFLICT DO NOTHING;
             """, connection, transaction);
         await command.ExecuteNonQueryAsync(ct);
         await transaction.CommitAsync(ct);
