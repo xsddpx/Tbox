@@ -10,9 +10,9 @@ namespace Tbox.Desktop.Accounts;
 
 internal sealed class AccountCoordinator(
     Func<AppSettings> settings, Func<Func<AppSettings, AppSettings>, Task> save,
-    IAccountCredentialVault vault, string dataDirectory, CancellationToken lifetime) : IDisposable
+    IAccountCredentialVault vault, string dataDirectory, CancellationToken lifetime, HttpClient? http = null) : IDisposable
 {
-    private readonly HttpClient _http = CloudClient.CreateHttpClient();
+    private readonly HttpClient _http = http ?? CloudClient.CreateHttpClient();
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _outboxGate = new(1, 1);
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(20) };
@@ -71,6 +71,7 @@ internal sealed class AccountCoordinator(
             var answer = await Client.ExchangeAsync(_account!, code, verifier, cancel.Token);
             await WriteAsync(_account! with { RefreshToken = answer.RefreshToken, Login = answer.Login }, ct);
             _session = answer;
+            _capturePaused = false;
             await SynchronizeAsync(ct);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -82,16 +83,20 @@ internal sealed class AccountCoordinator(
 
     internal void CancelSignIn() => _loginCancellation?.Cancel();
 
-    internal Task SignOutAsync() => RunAsync(async ct =>
+    internal Task SignOutAsync()
     {
-        if (_account is not { RefreshToken: not null } account) return;
-        await WriteAsync(account with { SignOutPending = true, Login = null }, ct);
-        ResetView();
-        await save(current => current with { Cloud = new LocalCloudPreferences { Origin = account.Origin } });
-        await ClearOutboxAsync(account, ct);
-        await FinishSignOutAsync(ct);
-        Status = "已退出账号。";
-    });
+        PauseCaptureSync();
+        return RunAsync(async ct =>
+        {
+            if (_account is not { RefreshToken: not null } account) return;
+            await WriteAsync(account with { SignOutPending = true, Login = null }, ct);
+            ResetView();
+            await save(current => current with { Cloud = new LocalCloudPreferences { Origin = account.Origin } });
+            await ClearOutboxAsync(account, ct);
+            await FinishSignOutAsync(ct);
+            Status = "已退出账号。";
+        });
+    }
 
     private async Task FinishSignOutAsync(CancellationToken ct)
     {
@@ -120,14 +125,17 @@ internal sealed class AccountCoordinator(
 
     internal async Task SetCaptureSyncAsync(bool enabled)
     {
-        _capturePaused = !enabled;
-        if (!enabled) StopCaptureSync();
+        if (!enabled) PauseCaptureSync();
         await RunAsync(async ct =>
         {
             var account = _account;
             if (!SignedIn || account is null) return;
             await save(current => current with { Cloud = current.Cloud with { SyncCaptures = enabled } });
-            if (enabled) StartCaptureSync();
+            if (enabled)
+            {
+                _capturePaused = false;
+                StartCaptureSync();
+            }
             else await ClearOutboxAsync(account, ct);
         }, skipIfBusy: false);
     }
@@ -290,12 +298,13 @@ internal sealed class AccountCoordinator(
     {
         try
         {
-            if (await Client.WatchAsync(account, token, ct))
-                await RunAsync(async lifetimeToken =>
-                {
-                    if (_session?.AccessToken == token && SignedIn)
-                        await InvalidateAsync(account, lifetimeToken);
-                }, reportBusy: false);
+            if (!await Client.WatchAsync(account, token, ct) || _session?.AccessToken != token || !SignedIn) return;
+            PauseCaptureSync();
+            await RunAsync(async lifetimeToken =>
+            {
+                if (_session?.AccessToken == token && SignedIn)
+                    await InvalidateAsync(account, lifetimeToken);
+            }, reportBusy: false);
         }
         catch (Exception error) when (error is HttpRequestException or IOException or OperationCanceledException or ObjectDisposedException) { }
     }
@@ -319,6 +328,12 @@ internal sealed class AccountCoordinator(
 
     private void StartCaptureSync() =>
         _captureCancellation ??= CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+
+    private void PauseCaptureSync()
+    {
+        _capturePaused = true;
+        StopCaptureSync();
+    }
 
     private void StopCaptureSync()
     {
