@@ -5,6 +5,14 @@ namespace Tbox.Desktop.Platform;
 
 internal static class BgraCapturePixels
 {
+    internal static byte[] CopyBaseline(nint source, int byteCount)
+    {
+        var bytes = new byte[byteCount];
+        Marshal.Copy(source, bytes, 0, byteCount);
+        for (var index = 3; index < byteCount; index += 4) bytes[index] = 255;
+        return bytes;
+    }
+
     public static byte[] CopyOpaque(ReadOnlySpan<uint> source)
     {
         const uint opaque = 0xff000000;

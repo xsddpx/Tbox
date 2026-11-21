@@ -34,12 +34,7 @@ public sealed class CapturePerformanceTests
         var handle = GCHandle.Alloc(source, GCHandleType.Pinned);
         try
         {
-            void CopyBaseline()
-            {
-                baseline = new byte[source.Length];
-                Marshal.Copy(handle.AddrOfPinnedObject(), baseline, 0, source.Length);
-                for (var i = 3; i < baseline.Length; i += 4) baseline[i] = 255;
-            }
+            void CopyBaseline() => baseline = BgraCapturePixels.CopyBaseline(handle.AddrOfPinnedObject(), source.Length);
             byte[] CopyCandidate() => BgraCapturePixels.CopyOpaque(MemoryMarshal.Cast<byte, uint>(source.AsSpan()));
             for (var i = 0; i < 3; i++) { CopyBaseline(); _ = CopyCandidate(); }
             Assert.True(baseline.AsSpan().SequenceEqual(CopyCandidate()));

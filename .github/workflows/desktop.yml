@@ -199,6 +199,32 @@ jobs:
           name: windows-capture-pixel-benchmark
           path: TEMP/capture-pixel-benchmark.json
           if-no-files-found: error
+      - name: Compare installed screenshot latency
+        shell: powershell
+        run: |
+          $package = Get-AppxPackage -Name Tbox
+          $exe = Join-Path $package.InstallLocation 'Tbox.Desktop.exe'
+          foreach ($mode in 'baseline', 'candidate', 'candidate-repeat', 'baseline-repeat') {
+            $result = Join-Path $PWD "TEMP/capture-pixel-timing/$mode"
+            $arguments = "--smoke-test `"$result`" --benchmark-screenshot"
+            if ($mode.StartsWith('baseline')) { $arguments += ' --benchmark-screenshot-baseline' }
+            Invoke-CommandInDesktopPackage -PackageFamilyName $package.PackageFamilyName -AppId App -Command $exe -Args $arguments -PreventBreakaway
+            $file = Join-Path $result 'result.json'
+            $deadline = [DateTime]::UtcNow.AddSeconds(120)
+            while (-not (Test-Path -LiteralPath $file)) {
+              if ([DateTime]::UtcNow -gt $deadline) { throw "Screenshot probe timed out: $mode" }
+              Start-Sleep -Milliseconds 250
+            }
+            $report = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+            if (-not $report.success -or -not $report.colorsVerified) { throw "Screenshot probe failed: $($report.error)" }
+          }
+      - name: Preserve installed screenshot timing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-screenshot-timing
+          path: TEMP/capture-pixel-timing/**/result.json
+          if-no-files-found: ignore
       - name: Preserve installed application verification
         if: always()
         uses: actions/upload-artifact@v4
