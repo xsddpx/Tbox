@@ -26,10 +26,12 @@ internal sealed record LocalAccount(string Origin, Guid DeviceId, string Private
             Convert.ToBase64String(key.ExportSubjectPublicKeyInfo()));
     }
 
-    internal string Sign(string purpose, string secret)
+    internal string Sign(string purpose, string secret) => Sign(CloudProtocol.Proof(purpose, DeviceId, secret));
+
+    internal string Sign(byte[] proof)
     {
         using var key = OpenKey();
-        return Convert.ToBase64String(key.SignData(CloudProtocol.Proof(purpose, DeviceId, secret), HashAlgorithmName.SHA256));
+        return Convert.ToBase64String(key.SignData(proof, HashAlgorithmName.SHA256));
     }
 
     private ECDsa OpenKey()

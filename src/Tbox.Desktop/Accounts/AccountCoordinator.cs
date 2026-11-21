@@ -9,7 +9,7 @@ using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop.Accounts;
 
-internal sealed class AccountCoordinator(
+internal sealed partial class AccountCoordinator(
     Func<AppSettings> settings, Func<Func<AppSettings, AppSettings>, Task> save,
     IAccountCredentialVault vault, string dataDirectory, CancellationToken lifetime, HttpClient? http = null,
     string? packagedOrigin = null, Action<Uri>? openBrowser = null) : IDisposable
@@ -97,6 +97,7 @@ internal sealed class AccountCoordinator(
     internal Task SignOutAsync()
     {
         PauseCaptureSync();
+        StopRemoteEngine();
         return RunAsync(async ct =>
         {
             if (_account is not { RefreshToken: not null } account) return;
@@ -257,6 +258,8 @@ internal sealed class AccountCoordinator(
     {
         Devices = await RequestAsync<List<CloudDevice>>(HttpMethod.Get, "/v1/devices", null, ct);
         Captures = await RequestAsync<List<CaptureListing>>(HttpMethod.Get, "/v1/captures", null, ct);
+        if (RemoteAvailable)
+            RemoteHosts = await RequestAsync<List<RemoteHost>>(HttpMethod.Get, "/v1/remote/hosts", null, ct);
     }
 
     private async Task<T> RequestAsync<T>(HttpMethod method, string path, object? body, CancellationToken ct)
@@ -299,9 +302,11 @@ internal sealed class AccountCoordinator(
     {
         StopWatching();
         StopCaptureSync();
+        StopRemoteEngine();
         _session = null;
         Devices = [];
         Captures = [];
+        RemoteHosts = [];
         _conflict = null;
     }
 
@@ -412,6 +417,7 @@ internal sealed class AccountCoordinator(
         _timer.Tick -= OnTick;
         StopWatching();
         StopCaptureSync();
+        StopRemoteEngine();
         _http.Dispose();
     }
 }

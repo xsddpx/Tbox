@@ -8,9 +8,9 @@
     <SupportedOSPlatformVersion Condition="'$(TboxWindows)' == 'true'">10.0.22000.0</SupportedOSPlatformVersion>
     <Platform Condition="'$(TboxWindows)' == 'true' and ('$(Platform)' == '' or '$(Platform)' == 'AnyCPU')">x64</Platform>
     <PlatformTarget Condition="'$(TboxWindows)' == 'true'">$(Platform)</PlatformTarget>
-    <Version>1.1.127</Version>
-    <AssemblyVersion>1.1.127.0</AssemblyVersion>
-    <FileVersion>1.1.127.0</FileVersion>
+    <Version>1.1.128</Version>
+    <AssemblyVersion>1.1.128.0</AssemblyVersion>
+    <FileVersion>1.1.128.0</FileVersion>
     <TBOX_ACCOUNT_ORIGIN Condition="'$(TBOX_ACCOUNT_ORIGIN)' == ''">https://tbox.xsddpx.com/</TBOX_ACCOUNT_ORIGIN>
     <TboxWindowsFfmpegRoot>$(MSBuildThisFileDirectory)../../TEMP/media-runtime/windows</TboxWindowsFfmpegRoot>
     <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">Assets/Tbox.ico</ApplicationIcon>
@@ -22,6 +22,8 @@
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="TboxAccountOrigin" Value="$(TBOX_ACCOUNT_ORIGIN)" Condition="'$(TBOX_ACCOUNT_ORIGIN)' != ''" />
+    <AssemblyMetadata Include="TboxRemoteRendezvous" Value="$(TBOX_REMOTE_RENDEZVOUS)" Condition="'$(TBOX_REMOTE_RENDEZVOUS)' != ''" />
+    <AssemblyMetadata Include="TboxRemoteRendezvousKey" Value="$(TBOX_REMOTE_RENDEZVOUS_KEY)" Condition="'$(TBOX_REMOTE_RENDEZVOUS_KEY)' != ''" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />

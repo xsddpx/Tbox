@@ -91,6 +91,7 @@ pub(crate) fn start_host() -> Result<()> {
         identity,
     })
     .map_err(|_| anyhow!("Tbox remote host already initialized"))?;
+    watch_parent_pipe();
     crate::start_server(true, false);
     Ok(())
 }
@@ -196,7 +197,17 @@ pub(crate) async fn authorize_controller(
     )
     .await?;
     stream.set_max_packet_length(usize::MAX);
+    send_control(&serde_json::json!({ "connected": true }))?;
+    watch_parent_pipe();
     Ok(())
+}
+
+fn watch_parent_pipe() {
+    // When Tbox exits abruptly, the inherited input handle closes as well.
+    std::thread::spawn(|| {
+        let _ = io::stdin().read(&mut [0_u8; 1]);
+        std::process::exit(0);
+    });
 }
 
 pub(crate) fn controller_key(peer_id: &str) -> Result<&'static str> {

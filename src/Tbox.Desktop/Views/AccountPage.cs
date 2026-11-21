@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Tbox.Core.Accounts;
 using Tbox.Desktop.Accounts;
 using Tbox.Desktop.Models;
 
@@ -109,19 +110,58 @@ internal sealed class AccountPage : StackPanel
     private void RenderDevices()
     {
         _deviceRows.Children.Clear();
-        foreach (var device in _account.Devices)
+        var remote = _account.RemoteAvailable;
+        var hosts = _account.RemoteHosts.Select(host => host.DeviceId).ToHashSet();
+        IEnumerable<CloudDevice> devices = _account.Devices;
+        if (remote) devices = devices.OrderBy(device => device.Id != _account.LocalDevice);
+        var showedOtherDevices = false;
+        foreach (var device in devices)
         {
-            var self = device.Id == _account.LocalDevice;
+            var available = remote && hosts.Contains(device.Id);
             var online = device.LastSeen is { } seen && DateTimeOffset.UtcNow - seen < TimeSpan.FromMinutes(1);
-            var platform = device.Platform + (online ? " · 在线" : " · 离线");
-            var label = self ? device.Name + "（本机）" : device.Name;
-            Control action = self ? new Border() : Ui.Button("移除", () => _controller.Run(async () =>
+            var platform = device.Platform + (available ? " · 可远程控制" : online ? " · 在线" : " · 离线");
+            if (device.Id == _account.LocalDevice)
             {
-                if (await new ConfirmWindow("移除此设备？", "移除", device.Name + " 将退出此账号并停止同步。", destructive: true)
+                if (remote) _deviceRows.Children.Add(Ui.GroupHeader("此设备"));
+                var state = _account.RemoteHostEnabled ? "已允许同账号设备远程控制" : "远程控制已关闭";
+                _deviceRows.Children.Add(new SettingsLine(device.Name + "（本机）", remote ? state : platform,
+                    remote ? LocalRemoteAction() : new Border()));
+                continue;
+            }
+            if (remote && !showedOtherDevices)
+            {
+                _deviceRows.Children.Add(Ui.GroupHeader("其他设备"));
+                showedOtherDevices = true;
+            }
+            var remove = Ui.Button("移除", () => _controller.Run(async () =>
+            {
+                var effect = remote ? " 将退出此账号并停止同步和远程控制。" : " 将退出此账号并停止同步。";
+                if (await new ConfirmWindow("移除此设备？", "移除", device.Name + effect, destructive: true)
                     .ShowDialog<bool>(_owner())) await _account.RemoveDeviceAsync(device.Id);
             }));
-            _deviceRows.Children.Add(new SettingsLine(label, platform, action));
+            Control actions = remove;
+            if (remote)
+            {
+                var connect = Ui.Primary("远程控制", () => _controller.Run(() => _account.ConnectRemoteHostAsync(device.Id)));
+                connect.IsEnabled = available && !_account.Busy;
+                actions = Ui.Row(connect, remove);
+            }
+            _deviceRows.Children.Add(new SettingsLine(device.Name, platform, actions));
         }
+    }
+
+    private Button LocalRemoteAction()
+    {
+        var action = _account.RemoteHostEnabled
+            ? Ui.Button("关闭远程控制", () => _controller.Run(_account.DisableRemoteHostAsync))
+            : Ui.Button("允许此设备被控", () => _controller.Run(async () =>
+            {
+                if (await new ConfirmWindow("允许无人值守控制？", "允许远程控制",
+                    "登录同一 Tbox 账号且仍获授权的设备可以查看此电脑画面并操作键鼠。关闭授权会结束进行中的连接。")
+                    .ShowDialog<bool>(_owner())) await _account.EnableRemoteHostAsync();
+            }));
+        action.IsEnabled = !_account.Busy;
+        return action;
     }
 
     private void RenderCaptures()
