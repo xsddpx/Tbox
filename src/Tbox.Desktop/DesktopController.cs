@@ -43,6 +43,7 @@ public sealed class DesktopController : IDisposable
     private bool _installingUpdate;
     private OcrWindow? _ocr;
     private readonly IQuickLookSource? _quickLook;
+    internal IWindowTopmost? WindowTopmost { get; }
     private QuickLookWindow? _quickLookWindow;
     private AppSettings _settings = new();
     private CaptureCache _cache;
@@ -76,9 +77,11 @@ public sealed class DesktopController : IDisposable
     public bool KeepAwakeRequiresLidApproval { get; private set; }
     public bool KeepAwakeHasLid => _keepAwake.HasLid;
     public bool KeepAwakeLidNeedsAuthorization => _keepAwake.LidNeedsAuthorization;
-    public bool HasHotkeyConflict => HasConflictIn(capture: true) || HasConflictIn(capture: false);
+    public bool HasHotkeyConflict => _hotkeys.Conflicts.Count != 0;
     // Capture, pin and toggle belong to the capture page; folder jump to its own page.
-    public bool HasConflictIn(bool capture) => _hotkeys.Conflicts.Any(action => (action != HotkeyAction.Folder) == capture);
+    public bool HasConflictIn(bool capture) => capture
+        ? _hotkeys.Conflicts.Any(action => action is HotkeyAction.Capture or HotkeyAction.Pin or HotkeyAction.Toggle)
+        : HasHotkeyConflictFor(HotkeyAction.Folder);
     public bool HasHotkeyConflictFor(HotkeyAction action) => _hotkeys.Conflicts.Contains(action);
     internal bool SupportsQuickLook => _quickLook is not null;
     internal QuickLookWindow? QuickLookWindow => _quickLookWindow;
@@ -97,6 +100,8 @@ public sealed class DesktopController : IDisposable
         _folderBar = new(this, _folders, _stop.Token);
         _startup = platform.CreateStartupRegistration();
         _quickLook = platform.CreateQuickLook();
+        WindowTopmost = platform.CreateWindowTopmost();
+        if (WindowTopmost is not null) WindowTopmost.Changed += OnWindowTopmostChanged;
         _hotkeys = new HotkeyConfiguration(binding => platform.RegisterHotkey(binding, action => OnHotkey(action)), platform.UnregisterHotkey);
         // Tooltips and labels across the windows read the shortcuts from this controller's settings.
         ShortcutLabels.Bindings = () => _settings.Hotkeys;
@@ -118,6 +123,7 @@ public sealed class DesktopController : IDisposable
         var migrationNotice = _legacySettingsPath is null || args.Contains("--smoke-test") ? null
             : await SettingsMigration.ImportIfMissingAsync(_settingsPath, _legacySettingsPath, _stop.Token);
         _settings = await _settingsStore.LoadAsync(_stop.Token);
+        WindowTopmost?.SetBorderVisible(_settings.WindowTopmostBorder);
         _cache = CreateCache(_settings.ScreenCaptureCacheDirectory);
         if (!args.Contains("--smoke-test"))
         {
@@ -172,14 +178,24 @@ public sealed class DesktopController : IDisposable
         if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
         if (action == HotkeyAction.Toggle) TogglePins();
         if (action == HotkeyAction.Folder) Run(JumpFolderAsync);
+        if (action == HotkeyAction.WindowTopmost && _settings.WindowTopmostEnabled && !IsQuitting && !_quitRequested && !_installingUpdate)
+            WindowTopmost?.ToggleForeground();
     }, DispatcherPriority.Send);
+
+    private bool IsShortcutEnabled(AppSettings settings, HotkeyAction action) => action switch
+    {
+        HotkeyAction.Folder => settings.FolderJumpEnabled,
+        HotkeyAction.QuickLook => settings.QuickLook.Enabled,
+        HotkeyAction.WindowTopmost => WindowTopmost is not null && settings.WindowTopmostEnabled,
+        _ => settings.ScreenPasteEnabled
+    };
 
     // Every shortcut whose module is on, at its saved or default combination.
     private void ApplyHotkeys(AppSettings settings)
     {
         if (_recordingShortcut) return;
         _hotkeys.Apply(ShortcutPolicy.Actions
-            .Where(action => action == HotkeyAction.Folder ? settings.FolderJumpEnabled : settings.ScreenPasteEnabled)
+            .Where(action => IsShortcutEnabled(settings, action))
             .OrderByDescending(action => settings.Hotkeys?.Get(action) is not null)
             .Select(action => new HotkeyBinding(action, ShortcutPolicy.Effective(settings.Hotkeys, action, OperatingSystem.IsMacOS())))
             .Where(binding => !UsesSystemScreenshotShortcut(binding.Action, binding.Shortcut)));
@@ -198,8 +214,8 @@ public sealed class DesktopController : IDisposable
     private bool CanTakeOverSystemScreenshotShortcutWith(AppSettings settings) =>
         Platform.SupportsSystemScreenshotShortcutTakeover && settings.ScreenPasteEnabled &&
         ShortcutPolicy.Effective(settings.Hotkeys, HotkeyAction.Toggle, mac: true) == SystemScreenshotShortcut &&
-        !ShortcutPolicy.Actions.Any(action => action != HotkeyAction.Toggle &&
-            (action != HotkeyAction.Folder || settings.FolderJumpEnabled) && settings.Hotkeys?.Get(action) == SystemScreenshotShortcut);
+        !ShortcutPolicy.Actions.Any(action => action != HotkeyAction.Toggle && IsShortcutEnabled(settings, action) &&
+            settings.Hotkeys?.Get(action) == SystemScreenshotShortcut);
 
     private bool StartSystemScreenshotShortcutTakeover(bool requestPermission) =>
         Platform.IsSystemScreenshotShortcutTakeoverActive ||
@@ -268,10 +284,7 @@ public sealed class DesktopController : IDisposable
                     return $"已被“{ShortcutPolicy.Name(other)}”使用。";
 
             var previous = _settings;
-            var enabled = action switch
-            {
-                HotkeyAction.Folder => previous.FolderJumpEnabled, HotkeyAction.QuickLook => previous.QuickLook.Enabled, _ => previous.ScreenPasteEnabled
-            };
+            var enabled = IsShortcutEnabled(previous, action);
             var current = ShortcutFor(action);
             // 速览 is read by its keyboard hook, so no other application can hold its shortcut.
             if (action != HotkeyAction.QuickLook && !UsesSystemScreenshotShortcut(action, target) &&
@@ -332,6 +345,44 @@ public sealed class DesktopController : IDisposable
     }
 
     // Starts or stops the 速览 keyboard hook to match the settings. The window is created on first use.
+    internal async Task SetWindowTopmostEnabledAsync(bool enabled)
+    {
+        if (WindowTopmost is null) return;
+        await _moduleChanges.WaitAsync(_stop.Token);
+        try
+        {
+            if (_settings.WindowTopmostEnabled == enabled) return;
+            var updated = _settings with { WindowTopmostEnabled = enabled };
+            await _settingsStore.SaveAsync(updated, _stop.Token);
+            _settings = updated;
+            ApplyHotkeys(updated);
+            if (!enabled) WindowTopmost.Clear();
+            ShortcutsChanged?.Invoke();
+        }
+        finally { _moduleChanges.Release(); Main.Refresh(); }
+    }
+
+    internal async Task SetWindowTopmostBorderAsync(bool visible)
+    {
+        await UpdateSettingsAsync(settings => settings with { WindowTopmostBorder = visible });
+        WindowTopmost?.SetBorderVisible(_settings.WindowTopmostBorder);
+    }
+
+    internal void RequestTopmostAccessibilityPermission()
+    {
+        WindowTopmost?.RequestAccessibilityPermission();
+        Main.RefreshWindowTopmost();
+    }
+
+    private void OnWindowTopmostChanged(string? error)
+    {
+        if (IsQuitting) return;
+        Main.RefreshWindowTopmost();
+        if (error is null) return;
+        Main.SetStatus(error);
+        if (_settings.ShowFailureNotifications && !Main.IsActive) FailureNotificationWindow.ShowFailure(this, error);
+    }
+
     private void ApplyQuickLook()
     {
         if (_quickLook is null || IsQuitting) return;
@@ -414,6 +465,23 @@ public sealed class DesktopController : IDisposable
     public void RequestPermission()
     {
         if (Platform.HasScreenPermission) { _capturePermissionNeeded = false; Main.Refresh(); return; }
+        RequestScreenCaptureAccess();
+        Main.SetStatus("在系统设置中允许 Tbox；若已开启但仍不可截图，请退出并重新打开应用。");
+        Main.Refresh();
+    }
+
+    internal void RequestTopmostScreenPermission()
+    {
+        if (!Platform.HasScreenPermission)
+        {
+            RequestScreenCaptureAccess();
+            Main.SetStatus("在系统设置中允许 Tbox 屏幕录制权限，再重新打开应用。");
+        }
+        Main.RefreshWindowTopmost();
+    }
+
+    private void RequestScreenCaptureAccess()
+    {
         // This is the only permission-requesting UI action. Repeated clicks open settings;
         // capture hotkeys, activation, diagnostics and retries must never request access.
         if (_screenPermissionRequested) Platform.OpenScreenPermissionSettings();
@@ -422,8 +490,6 @@ public sealed class DesktopController : IDisposable
             _screenPermissionRequested = true;
             Platform.RequestScreenPermission();
         }
-        Main.SetStatus("在系统设置中允许 Tbox；若已开启但仍不可截图，请退出并重新打开应用。");
-        Main.Refresh();
     }
 
     public Task CaptureAsync() => CaptureAsync(null);
@@ -1003,6 +1069,11 @@ public sealed class DesktopController : IDisposable
         Models.Dispose();
         _folderBar.Dispose();
         _quickLookWindow?.Close(); _quickLook?.Dispose();
+        if (WindowTopmost is not null)
+        {
+            WindowTopmost.Changed -= OnWindowTopmostChanged;
+            WindowTopmost.Dispose();
+        }
         _capture?.Cancel(); _longCapture?.Stop(); _ocr?.Close();
         foreach (var pin in _pins.ToArray()) pin.Close();
         _folders.Dispose();

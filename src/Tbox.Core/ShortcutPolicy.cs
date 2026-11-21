@@ -1,7 +1,7 @@
 namespace Tbox.Core;
 
 // Global hotkeys Tbox registers. The values are the ids the native hotkey callbacks report.
-public enum HotkeyAction { Capture = 1, Pin = 2, Toggle = 3, Folder = 4, QuickLook = 5 }
+public enum HotkeyAction { Capture = 1, Pin = 2, Toggle = 3, Folder = 4, QuickLook = 5, WindowTopmost = 6 }
 
 // A key combination. Meta is the Windows key on Windows and Command on macOS. Key is a
 // platform-neutral name: "A"–"Z", "0"–"9", "F1"–"F12", "PrintScreen" or "Space".
@@ -26,18 +26,19 @@ public sealed record HotkeyBinding(HotkeyAction Action, Shortcut Shortcut);
 
 // Saved choices; a null entry means the platform default.
 public sealed record HotkeyBindings(Shortcut? Capture = null, Shortcut? Pin = null, Shortcut? Toggle = null, Shortcut? Folder = null,
-    Shortcut? QuickLook = null)
+    Shortcut? QuickLook = null, Shortcut? WindowTopmost = null)
 {
     public Shortcut? Get(HotkeyAction action) => action switch
     {
         HotkeyAction.Capture => Capture, HotkeyAction.Pin => Pin, HotkeyAction.Toggle => Toggle,
-        HotkeyAction.QuickLook => QuickLook, _ => Folder
+        HotkeyAction.QuickLook => QuickLook, HotkeyAction.WindowTopmost => WindowTopmost, _ => Folder
     };
 
     public HotkeyBindings With(HotkeyAction action, Shortcut? shortcut) => action switch
     {
         HotkeyAction.Capture => this with { Capture = shortcut }, HotkeyAction.Pin => this with { Pin = shortcut },
         HotkeyAction.Toggle => this with { Toggle = shortcut }, HotkeyAction.QuickLook => this with { QuickLook = shortcut },
+        HotkeyAction.WindowTopmost => this with { WindowTopmost = shortcut },
         _ => this with { Folder = shortcut }
     };
 }
@@ -46,12 +47,13 @@ public static class ShortcutPolicy
 {
     // Shortcuts registered with the system. 速览 is not among them: like PowerToys Peek it is read by a keyboard hook
     // only while Explorer or the desktop is in front, so Ctrl+Space keeps switching input methods everywhere else.
-    public static readonly HotkeyAction[] Actions = [HotkeyAction.Capture, HotkeyAction.Pin, HotkeyAction.Toggle, HotkeyAction.Folder];
+    public static readonly HotkeyAction[] Actions =
+        [HotkeyAction.Capture, HotkeyAction.Pin, HotkeyAction.Toggle, HotkeyAction.Folder, HotkeyAction.WindowTopmost];
 
     public static string Name(HotkeyAction action) => action switch
     {
         HotkeyAction.Capture => "截图", HotkeyAction.Pin => "贴出剪贴板", HotkeyAction.Toggle => "显隐贴图",
-        HotkeyAction.QuickLook => "速览", _ => "文件夹跳转"
+        HotkeyAction.QuickLook => "速览", HotkeyAction.WindowTopmost => "置顶 / 取消置顶", _ => "文件夹跳转"
     };
 
     // 速览 keeps PowerToys Peek's Ctrl+Space.
@@ -59,6 +61,7 @@ public static class ShortcutPolicy
     {
         HotkeyAction.Folder => new(true, false, false, false, "G"),
         HotkeyAction.QuickLook => new(true, false, false, false, "Space"),
+        HotkeyAction.WindowTopmost => new(true, false, mac, !mac, "T"),
         _ => new(!mac, false, true, mac, ((int)action).ToString())
     };
 

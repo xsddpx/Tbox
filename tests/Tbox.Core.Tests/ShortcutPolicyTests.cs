@@ -15,6 +15,8 @@ public sealed class ShortcutPolicyTests
     [InlineData(HotkeyAction.Pin, true, "⇧⌘2")]
     [InlineData(HotkeyAction.Toggle, true, "⇧⌘3")]
     [InlineData(HotkeyAction.Folder, true, "⌃G")]
+    [InlineData(HotkeyAction.WindowTopmost, false, "Ctrl+Win+T")]
+    [InlineData(HotkeyAction.WindowTopmost, true, "⌃⇧T")]
     public void DefaultsUseThePlatformModifiersAndCanBeRecorded(HotkeyAction action, bool mac, string expected)
     {
         var shortcut = ShortcutPolicy.Default(action, mac);
@@ -78,8 +80,13 @@ public sealed class ShortcutPolicyTests
     [Fact]
     public void SettingsWithoutShortcutsStillLoadAndRoundTrip()
     {
-        Assert.Null(JsonSerializer.Deserialize<AppSettings>("{\"ScreenPasteEnabled\":true}")!.Hotkeys);
-        var settings = new AppSettings { Hotkeys = new HotkeyBindings(Folder: new Shortcut(true, false, true, false, "J")) };
+        var older = JsonSerializer.Deserialize<AppSettings>("{\"ScreenPasteEnabled\":true}")!;
+        Assert.Null(older.Hotkeys);
+        Assert.False(older.WindowTopmostEnabled);
+        Assert.True(older.WindowTopmostBorder);
+        var settings = new AppSettings { WindowTopmostEnabled = true, WindowTopmostBorder = false,
+            Hotkeys = new HotkeyBindings(Folder: new Shortcut(true, false, true, false, "J"),
+                WindowTopmost: new Shortcut(true, true, false, false, "T")) };
         Assert.Equal(settings, JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings)));
     }
 }
