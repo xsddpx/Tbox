@@ -36,12 +36,15 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
                 AVVideoExpectedSourceFrameRateKey: fps, AVVideoMaxKeyFrameIntervalKey: fps * 2,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel]
         ])
+        // Preserve real-time interleaving while writing through the new receivers.
+        videoInput.expectsMediaDataInRealTime = true
         guard writer.canAdd(videoInput) else { throw mediaError("无法创建 H.264 编码器。") }
         // ScreenCaptureKit owns these buffers, so the writer needs no allocation pool.
         video = writer.inputPixelBufferReceiver(for: videoInput, pixelBufferAttributes: nil)
         if audioEnabled {
             let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: 48000, AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: 128000])
+            input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else { throw mediaError("系统声音编码不可用。") }
             audio = writer.inputReceiver(for: input)
         } else { audio = nil }
