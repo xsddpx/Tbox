@@ -615,3 +615,5 @@ Windows 参考 [PowerToys Always On Top](https://learn.microsoft.com/zh-cn/windo
 2026-11-21：CROSS-008 在 `Tbox Windows 11 Test` 通过 1.1.123.0 至 1.1.128.0 的签名覆盖升级，包身份、离线 OCR、像素裁剪、窗口渲染和桌面取帧均通过。REM-001 的原生流测试发现握手封包使用了底层写入接口。已修正为使用协商密钥加密的接口，原生回归测试复跑中。[交付记录](release-history.md#11128-远控入口候选)
 
 2026-11-21：ACC-001、ACC-002 在 Mac 和 `Tbox Windows 11 Test` 的 1.1.128 签名包验证系统浏览器登录。用户在 Windows Edge 完成 GitHub 登录，公网账号服务确认两台设备均完成会话登记。REM-001 的加密握手回归在 Windows 和 Mac 通过。签名验证工作流可将同一次构建的远控引擎按 SHA-256 核对后纳入候选包。[原生回归](https://github.com/xsddpx/Tbox/actions/runs/44893174757)
+
+2026-11-21：REM-001 的 Mac 1.1.129 签名候选包含远控引擎。已验证嵌入引擎启动后拒绝无授权请求，覆盖升级保留主应用屏幕录制权限。Windows 对应候选、两端远控及锁屏验收继续进行。[交付记录](release-history.md#11129-带远控引擎的-mac-候选)
