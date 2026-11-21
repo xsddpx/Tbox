@@ -21,6 +21,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     private readonly SemaphoreSlim _recognitionLock = new(1, 1);
     private WindowsHotkeys? _hotkeys;
     public bool HasScreenPermission => true;
+    public IWindowTopmost CreateWindowTopmost() => new WindowsWindowTopmost();
     public bool RequestScreenPermission() => true;
     public void OpenScreenPermissionSettings() { }
 

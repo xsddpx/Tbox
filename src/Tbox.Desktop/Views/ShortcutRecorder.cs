@@ -138,6 +138,7 @@ internal sealed class ShortcutRow : SettingsLine
         var enabled = _action switch
         {
             HotkeyAction.Folder => _controller.Settings.FolderJumpEnabled, HotkeyAction.QuickLook => _controller.Settings.QuickLook.Enabled,
+            HotkeyAction.WindowTopmost => _controller.Settings.WindowTopmostEnabled,
             _ => _controller.Settings.ScreenPasteEnabled
         };
         _reset.IsVisible = !_controller.IsDefaultShortcut(_action) && !Recorder.IsRecording;
@@ -156,6 +157,7 @@ internal sealed class ShortcutRow : SettingsLine
             HotkeyAction.Pin => "把剪贴板里的图片或文字贴到屏幕",
             HotkeyAction.Toggle => "隐藏或重新显示所有贴图",
             HotkeyAction.QuickLook => "自定义激活此模块的快捷键",
+            HotkeyAction.WindowTopmost => "对当前窗口按一次置顶，再按一次解除",
             _ => "只在打开 / 保存对话框里生效"
         });
     }

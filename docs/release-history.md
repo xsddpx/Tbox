@@ -437,3 +437,30 @@ Windows MSIX 签名通过，覆盖安装后的贴图冒烟检查因样图超出�
 | --- | --- | --- | --- |
 | 1.1.117 | macOS osx-arm64 | 2026-11-21 11:59:13 +0800 | `e59a1f16c1d04f45bd38bac0d3f878b83633dbc801104d63fbc66c109081c153` |
 | 1.1.117.0 | Windows win-x64 | 2026-11-21 11:53:23 +0800 | `aebe9489f1b567c824aa345c557e254c6250fa59baa4afcaddc4b6928f5432bd` |
+
+## 窗口置顶开发候选 v1.1.121
+
+[签名验证](https://github.com/xsddpx/Tbox/actions/runs/44873355973) 使用两平台既有的持久证书。两份下载副本已核对 SHA-256。Windows 在托管运行器通过 MSIX 安装、OCR、像素裁剪、屏幕取帧和录屏检查，窗口置顶专项待 Windows 实机验收。Mac ZIP 已核对指定签名要求与本机安装相同。
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.121 | macOS osx-arm64 | 2026-11-21 14:04:16 +0800 | `b980f2870aba22808b58c9fcdc3dd272e5e69a1a0eccaa11e3bfe7a129246301` |
+| 1.1.121.0 | Windows win-x64 | 2026-11-21 14:04:00 +0800 | `5f734be9ce57b99dcf60e70e7827fef0ebdddb99f5da82b524fd1b8992ddc701` |
+
+### 本机覆盖升级候选 v1.1.122
+
+[Mac 签名验证](https://github.com/xsddpx/Tbox/actions/runs/44873617583) 基于已安装的 1.1.120 源码保留账号功能，再加入窗口置顶。安装前核对原程序与 1.1.120 签名包一致，升级包沿用已安装应用的签名指定要求和安装路径。覆盖后从同一位置启动，账号和窗口置顶入口均可见，既有屏幕录制权限保留，实际取帧为 3024 × 1964。[覆盖验证源码](https://github.com/xsddpx/Tbox/commit/3305252b9409a677155d1a2933b275c24e87b880)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.122 | macOS osx-arm64 | 2026-11-21 14:09:21 +0800 | `17b81d21a2660251d289f8b01739873c62b968b6c0e9c26dd77b400b686345cf` |
+
+### 窗口置顶验证候选 v1.1.124 / v1.1.125
+
+- macOS 1.1.124 保留账号功能。已核对 ZIP 的 SHA-256，并从 1.1.122 以同一指定签名要求覆盖安装到 `~/Downloads/Tbox.app`。升级后账号与窗口置顶入口可见，既有屏幕录制权限可用，实际取帧 3024 × 1964。全局快捷键与实时浮窗待专项验收。[Mac 签名任务](https://github.com/xsddpx/Tbox/actions/runs/44878373307/job/136768016067) · [覆盖升级源码](https://github.com/xsddpx/Tbox/commit/f12caa70906bce0caba060ed9dbc315ac52cd395)
+- Windows 1.1.125.0 使用既有证书签名，已核对 MSIX 的 SHA-256。托管运行器通过签名验证、安装、启动、屏幕取帧和录屏。主从窗口恢复原始置顶状态的原生测试通过。Windows 11 UTM 虚拟机从签名 MSIX 提取运行并通过资源管理器和终端置顶专项，测试结束后重启该虚拟机原有的 1.1.119 安装版。[Windows 签名和回归](https://github.com/xsddpx/Tbox/actions/runs/44879409361)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.124 | macOS osx-arm64 | 2026-11-21 15:07:18 +0800 | `11ee5cb5622dfaec0ed0ae6f683b56114730b27bfcdda965673622526beb7214` |
+| 1.1.125.0 | Windows win-x64 | 2026-11-21 15:21:02 +0800 | `05d11aeb49bccb3fb0bd521b0de50223aed8d87e52640ffbc4f015fda280c872` |
