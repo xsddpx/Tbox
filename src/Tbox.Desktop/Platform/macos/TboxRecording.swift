@@ -11,15 +11,15 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
     let fps: Int
     let audioEnabled: Bool
     private let writer: AVAssetWriter
-    private let video: AVAssetWriterInput
-    private let audio: AVAssetWriterInput?
-    private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    private let video: AVAssetWriterInput.PixelBufferReceiver
+    private let audio: AVAssetWriterInput.SampleBufferReceiver?
     private let queue = DispatchQueue(label: "Tbox.recording.samples")
     private var stream: SCStream?
     private var timer: DispatchSourceTimer?
-    private var latest: CVPixelBuffer?
+    private var latest: CVReadOnlyPixelBuffer?
     private var origin: CMTime?
     private var pauseStart: CMTime?
+    private var resumedAt: CMTime?
     private var pausedDuration = CMTime.zero
     private var frames: Int64 = 0
     private var audioBuffers: Int64 = 0
@@ -30,25 +30,20 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
         self.path = path; self.fps = fps; self.audioEnabled = audioEnabled
         writer = try AVAssetWriter(outputURL: URL(fileURLWithPath: path), fileType: .mp4)
         writer.shouldOptimizeForNetworkUse = true
-        video = AVAssetWriterInput(mediaType: .video, outputSettings: [
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
             AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: min(20_000_000, max(2_000_000, Int(Double(width * height * fps) * 0.12))),
                 AVVideoExpectedSourceFrameRateKey: fps, AVVideoMaxKeyFrameIntervalKey: fps * 2,
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel]
         ])
-        video.expectsMediaDataInRealTime = true
-        adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: video, sourcePixelBufferAttributes: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height
-        ])
-        guard writer.canAdd(video) else { throw mediaError("无法创建 H.264 编码器。") }
-        writer.add(video)
+        guard writer.canAdd(videoInput) else { throw mediaError("无法创建 H.264 编码器。") }
+        // ScreenCaptureKit owns these buffers, so the writer needs no allocation pool.
+        video = writer.inputPixelBufferReceiver(for: videoInput, pixelBufferAttributes: nil)
         if audioEnabled {
             let input = AVAssetWriterInput(mediaType: .audio, outputSettings: [AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: 48000, AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: 128000])
-            input.expectsMediaDataInRealTime = true
             guard writer.canAdd(input) else { throw mediaError("系统声音编码不可用。") }
-            writer.add(input); audio = input
+            audio = writer.inputReceiver(for: input)
         } else { audio = nil }
         super.init()
     }
@@ -76,7 +71,7 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
         let capture = SCStream(filter: filter, configuration: config, delegate: self)
         try capture.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         if audioEnabled { try capture.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue) }
-        guard writer.startWriting() else { throw writer.error ?? mediaError("无法开始写入录屏文件。") }
+        try writer.start()
         writer.startSession(atSourceTime: .zero)
         stream = capture
         do { try await capture.startCapture() }
@@ -90,15 +85,15 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sample: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard !finished, failure == nil, sample.isValid else { return }
+        guard !finished, failure == nil, sample.isValid, pauseStart == nil else { return }
+        if let resumedAt = resumedAt, sample.presentationTimeStamp < resumedAt { return }
         if type == .screen {
             guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
                   let status = attachments.first?[.status] as? Int, status == SCFrameStatus.complete.rawValue,
                   let image = sample.imageBuffer else { return }
-            latest = image
+            latest = CVReadOnlyPixelBuffer(unsafeBuffer: image)
             if origin == nil { origin = sample.presentationTimeStamp }
-        } else if type == .audio, let audio = audio, audio.isReadyForMoreMediaData,
-                  let origin = origin, pauseStart == nil {
+        } else if type == .audio, let audio = audio, let origin = origin {
             let offset = origin + pausedDuration
             if sample.presentationTimeStamp < offset { return }
             var count = 0
@@ -114,9 +109,13 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
                 CMSampleBufferCreateCopyWithNewTiming(allocator: kCFAllocatorDefault, sampleBuffer: sample,
                     sampleTimingEntryCount: count, sampleTimingArray: values.baseAddress!, sampleBufferOut: &adjusted)
             }
-            if result == noErr, let adjusted = adjusted {
-                if audio.append(adjusted) { audioBuffers += 1 }
-                else { failure = writer.error?.localizedDescription ?? "系统声音写入失败。" }
+            if result == noErr, let adjusted = adjusted, CMSampleBufferDataIsReady(adjusted) {
+                do {
+                    let ready = CMReadySampleBuffer<CMSampleBuffer.DynamicContent>(unsafeBuffer: adjusted)
+                    if try audio.appendImmediately(ready) { audioBuffers += 1 }
+                } catch {
+                    failure = writer.error?.localizedDescription ?? error.localizedDescription
+                }
             }
         }
     }
@@ -131,16 +130,27 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
         let target = Int64(floor(elapsed * Double(fps)))
         if target - frames > Int64(fps * 5) { failure = "编码速度不足，请降低帧率或减小录制范围。"; return }
         // Duplicate a static screen at the chosen rate, including quiet periods at the end.
-        while frames <= target && video.isReadyForMoreMediaData {
-            if !adaptor.append(image, withPresentationTime: CMTime(value: frames, timescale: Int32(fps))) {
-                failure = writer.error?.localizedDescription ?? "录屏帧写入失败。"; return
+        while frames <= target {
+            do {
+                guard try video.appendImmediately(image, with: CMTime(value: frames, timescale: Int32(fps))) else { return }
+                frames += 1
+            } catch {
+                failure = writer.error?.localizedDescription ?? error.localizedDescription
+                return
             }
-            frames += 1
         }
     }
 
     func pause() { queue.sync { if !finished && pauseStart == nil { writeVideo(); pauseStart = CMClockGetTime(CMClockGetHostTimeClock()) } } }
-    func resume() { queue.sync { if let started = pauseStart { pausedDuration = pausedDuration + CMClockGetTime(CMClockGetHostTimeClock()) - started; pauseStart = nil } } }
+    func resume() {
+        queue.sync {
+            guard let started = pauseStart else { return }
+            let now = CMClockGetTime(CMClockGetHostTimeClock())
+            if origin != nil { pausedDuration = pausedDuration + now - started }
+            resumedAt = now
+            pauseStart = nil
+        }
+    }
     func errorMessage() -> String? { queue.sync { failure } }
 
     func stop() async throws -> [String: Any] {
@@ -152,7 +162,7 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
                 self.finished = true; self.stream = nil; self.latest = nil
                 if let failure = self.failure { self.writer.cancelWriting(); continuation.resume(throwing: mediaError(failure)); return }
                 guard self.frames > 0 else { self.writer.cancelWriting(); continuation.resume(throwing: mediaError("未收到可用的录屏画面。")); return }
-                self.video.markAsFinished(); self.audio?.markAsFinished()
+                self.video.finish(); self.audio?.finish()
                 self.writer.finishWriting {
                     if self.writer.status == .completed {
                         continuation.resume(returning: ["filePath": self.path, "hasSystemAudio": self.audioBuffers > 0,
