@@ -566,3 +566,19 @@ Mac ZIP 通过 SHA-256 核对，在原路径从 1.1.129 覆盖至 1.1.131。主�
 | 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
 | --- | --- | --- | --- |
 | 1.1.131 | macOS osx-arm64 | 2026-11-21 20:28:26 +0800 | `b168b4918bc3ffd027a0ae4f0af65696e50f392e2957e62bb4b1e4969ae6f69b` |
+
+### 1.1.132 远控诊断候选
+
+Mac ZIP 核对 SHA-256 后从 1.1.131 原位覆盖至 1.1.132。原签名和屏幕录制权限保留，取帧 3024 × 1964。Windows 托管环境的签名、安装和 LocalSystem 服务启动通过。诊断确认了活动控制台，Windows 没有拉起工作进程。验证失败后未保留可交付 MSIX。[双平台签名构建](https://github.com/xsddpx/Tbox/actions/runs/44904858801)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.132 | macOS osx-arm64 | 2026-11-21 21:18:08 +0800 | `4a777087ac54fa3cedc7214610ddf654b9f0f328231ed4ba60ba4eb07b44a3c8` |
+
+### 1.1.133 远控传输标识修复候选
+
+Mac ZIP 核对 SHA-256 后从 1.1.132 原位覆盖至 1.1.133。沿用主应用及远控引擎的签名身份，主应用保留屏幕录制权限并取帧 3024 × 1964。通过 LaunchServices 单独启动远控引擎时系统权限不足，本机身份仍待通过授权流程实测。Windows 托管环境再次确认活动控制台存在，旧启动方式未拉起工作进程。后续 Windows 1.1.134 验证新的启动方式。[双平台签名构建](https://github.com/xsddpx/Tbox/actions/runs/44905422394) · [Windows 1.1.134](https://github.com/xsddpx/Tbox/actions/runs/44908576376)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.133 | macOS osx-arm64 | 2026-11-21 21:25:57 +0800 | `7509fa529476a317fe8d9983aba0774b1dee6581e8afab0b156d43459bd7043c` |
