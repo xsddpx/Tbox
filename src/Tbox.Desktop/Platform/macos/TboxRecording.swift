@@ -126,9 +126,17 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
 
     private func writeVideo() {
         guard !finished, failure == nil, pauseStart == nil, let image = latest, let origin = origin else { return }
-        let elapsed = max(0, (CMClockGetTime(CMClockGetHostTimeClock()) - origin - pausedDuration).seconds)
-        let target = Int64(floor(elapsed * Double(fps)))
+        let target = targetFrame(at: CMClockGetTime(CMClockGetHostTimeClock()), origin: origin)
         if target - frames > Int64(fps * 5) { failure = "编码速度不足，请降低帧率或减小录制范围。"; return }
+        appendVideo(image, through: target)
+    }
+
+    private func targetFrame(at end: CMTime, origin: CMTime) -> Int64 {
+        let elapsed = max(0, (end - origin - pausedDuration).seconds)
+        return Int64(floor(elapsed * Double(fps)))
+    }
+
+    private func appendVideo(_ image: CVReadOnlyPixelBuffer, through target: Int64) {
         // Duplicate a static screen at the chosen rate, including quiet periods at the end.
         while frames <= target {
             do {
@@ -158,17 +166,54 @@ private final class ScreenRecording: NSObject, SCStreamOutput, SCStreamDelegate,
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 self.timer?.cancel(); self.timer = nil
-                if !self.finished { self.writeVideo() }
-                self.finished = true; self.stream = nil; self.latest = nil
+                self.finished = true; self.stream = nil
                 if let failure = self.failure { self.writer.cancelWriting(); continuation.resume(throwing: mediaError(failure)); return }
-                guard self.frames > 0 else { self.writer.cancelWriting(); continuation.resume(throwing: mediaError("未收到可用的录屏画面。")); return }
-                self.video.finish(); self.audio?.finish()
-                self.writer.finishWriting {
-                    if self.writer.status == .completed {
-                        continuation.resume(returning: ["filePath": self.path, "hasSystemAudio": self.audioBuffers > 0,
-                            "durationSeconds": Double(self.frames) / Double(self.fps)])
-                    } else { continuation.resume(throwing: self.writer.error ?? mediaError("录屏文件未能完成。")) }
+                guard self.writer.status == .writing else {
+                    continuation.resume(throwing: self.writer.error ?? mediaError("录屏文件未能完成。"))
+                    return
                 }
+                guard let origin = self.origin, let image = self.latest else {
+                    self.writer.cancelWriting()
+                    continuation.resume(throwing: mediaError("未收到可用的录屏画面。"))
+                    return
+                }
+                self.latest = nil
+                let end = self.pauseStart ?? CMClockGetTime(CMClockGetHostTimeClock())
+                let target = self.targetFrame(at: end, origin: origin)
+                // The finished audio stream can no longer hold video back at the muxer.
+                self.audio?.finish()
+                self.finishVideo(image, through: target, deadline: .now() + 5, continuation: continuation)
+            }
+        }
+    }
+
+    private func finishVideo(_ image: CVReadOnlyPixelBuffer, through target: Int64, deadline: DispatchTime,
+                             continuation: CheckedContinuation<[String: Any], Error>) {
+        appendVideo(image, through: target)
+        if let failure = failure {
+            writer.cancelWriting()
+            continuation.resume(throwing: mediaError(failure))
+        } else if frames <= target {
+            if DispatchTime.now() >= deadline {
+                writer.cancelWriting()
+                continuation.resume(throwing: mediaError("编码速度不足，录屏未能完成。"))
+                return
+            }
+            queue.asyncAfter(deadline: .now() + .milliseconds(10)) {
+                self.finishVideo(image, through: target, deadline: deadline, continuation: continuation)
+            }
+        } else {
+            guard writer.status == .writing else {
+                continuation.resume(throwing: writer.error ?? mediaError("录屏文件未能完成。"))
+                return
+            }
+            writer.endSession(atSourceTime: CMTime(value: frames, timescale: Int32(fps)))
+            video.finish()
+            writer.finishWriting {
+                if self.writer.status == .completed {
+                    continuation.resume(returning: ["filePath": self.path, "hasSystemAudio": self.audioBuffers > 0,
+                        "durationSeconds": Double(self.frames) / Double(self.fps)])
+                } else { continuation.resume(throwing: self.writer.error ?? mediaError("录屏文件未能完成。")) }
             }
         }
     }

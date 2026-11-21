@@ -18,8 +18,9 @@ namespace Tbox.Desktop.Platform;
 // Only OS integration lives here. Selection, drawing, pins and OCR presentation are shared.
 public sealed class WindowsPlatformServices : IPlatformServices
 {
-    private static readonly bool BenchmarkBaseline = Environment.GetCommandLineArgs().Contains("--smoke-test")
-        && Environment.GetCommandLineArgs().Contains("--benchmark-screenshot-baseline");
+    private static readonly bool BenchmarkCandidate = Environment.GetCommandLineArgs().Contains("--smoke-test")
+        && Environment.GetCommandLineArgs().Contains("--benchmark-screenshot")
+        && !Environment.GetCommandLineArgs().Contains("--benchmark-screenshot-baseline");
     private readonly SemaphoreSlim _recognitionLock = new(1, 1);
     private WindowsHotkeys? _hotkeys;
     public bool HasScreenPermission => true;
@@ -68,7 +69,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
             if (previous == 0 || previous == -1) throw Error("无法选择截图位图");
             if (!BitBlt(memory, 0, 0, width, height, screen, bounds.Left, bounds.Top, 0x00CC0020 | 0x40000000))
                 throw Error("截图失败");
-            if (BenchmarkBaseline) return BgraCapturePixels.CopyBaseline(bits, checked(width * height * 4));
+            if (!BenchmarkCandidate) return BgraCapturePixels.CopyBaseline(bits, checked(width * height * 4));
             var source = new ReadOnlySpan<uint>((void*)bits, checked(width * height));
             return BgraCapturePixels.CopyOpaque(source);
         }

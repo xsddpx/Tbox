@@ -93,20 +93,13 @@ public func capturePixels(_ regionOnly: Int32, _ left: Double, _ top: Double,
     Task.detached {
         defer { result.complete.signal() }
         do {
-            if region == nil, !benchmarkLegacyScreenshot {
+            if region == nil, screenshotBenchmark, !benchmarkLegacyScreenshot {
                 if let frames = try? await captureDisplayRects() {
                     result.frames = frames
                     return
                 }
-                if screenshotBenchmark {
-                    result.error = "截图性能探针无法使用按显示器坐标采集的路径。"
-                    return
-                }
-                // Access can be revoked during the first capture. Do not prompt from a fallback.
-                guard CGPreflightScreenCaptureAccess() else {
-                    result.error = "请在系统设置中允许 Tbox 录制屏幕，然后重新打开应用。"
-                    return
-                }
+                result.error = "截图性能探针无法使用按显示器坐标采集的路径。"
+                return
             }
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             for display in content.displays {
