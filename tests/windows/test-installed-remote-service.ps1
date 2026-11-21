@@ -46,6 +46,8 @@ try {
     }
     $workers = @(Get-ConsoleWorkers)
     if ($workers.Count -ne 1 -or $workers[0].SessionId -eq 0) { throw 'The engine is not running in the active console session.' }
+    $service = Get-CimInstance Win32_Service -Filter "Name='TboxRemote'"
+    if ($workers[0].ParentProcessId -ne $service.ProcessId) { throw 'The console worker was not started by the installed Tbox service.' }
     $owner = Invoke-CimMethod -InputObject $workers[0] -MethodName GetOwnerSid
     if ($owner.ReturnValue -ne 0 -or $owner.Sid -ne 'S-1-5-18') { throw 'The console worker is not running as LocalSystem.' }
     $identity = Get-Content -LiteralPath $identityPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -68,8 +70,8 @@ try {
             workerSessions = @(Get-ConsoleWorkers | ForEach-Object SessionId)
             winlogonSessions = @(Get-Process -Name winlogon | ForEach-Object SessionId)
             identityPublished = Test-Path -LiteralPath $identityPath
-            serviceStage = Get-Content -LiteralPath (Join-Path $directory 'service-status.txt') -Raw -ErrorAction SilentlyContinue
-            consoleStage = Get-Content -LiteralPath (Join-Path $directory 'console-status.txt') -Raw -ErrorAction SilentlyContinue
+            serviceStage = [string](Get-Content -LiteralPath (Join-Path $directory 'service-status.txt') -Raw -ErrorAction SilentlyContinue)
+            consoleStage = [string](Get-Content -LiteralPath (Join-Path $directory 'console-status.txt') -Raw -ErrorAction SilentlyContinue)
         } | ConvertTo-Json | Set-Content (Join-Path $ResultDirectory 'remote-console-failure.json') -Encoding UTF8
     } catch {
         Write-Warning 'Could not collect Windows console worker diagnostics.'
