@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap desktop6 rescap">
+  <Identity Name="Tbox.RemoteServiceFixture" Publisher="CN=Tbox Development" Version="1.0.0.0" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>Tbox Remote Service Fixture</DisplayName>
+    <PublisherDisplayName>Tbox</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources><Resource Language="en-US" /></Resources>
+  <Applications>
+    <Application Id="App" Executable="RemoteServiceFixture.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Tbox Remote Service Fixture" Description="Test fixture" BackgroundColor="transparent"
+        Square44x44Logo="Assets\Square44x44Logo.png" Square150x150Logo="Assets\Square150x150Logo.png" AppListEntry="none" />
+      <Extensions>
+        <desktop6:Extension Category="windows.service" Executable="RemoteServiceFixture.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop6:Service Name="TboxRemoteServiceFixture" StartupType="auto" StartAccount="localSystem" />
+        </desktop6:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="packagedServices" />
+    <rescap:Capability Name="localSystemServices" />
+  </Capabilities>
+</Package>

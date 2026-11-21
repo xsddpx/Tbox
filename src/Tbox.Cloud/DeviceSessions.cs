@@ -88,17 +88,23 @@ internal sealed class DeviceSessions(Database db)
 
     internal async Task<Guid?> AuthenticateAsync(HttpContext context, CancellationToken ct)
     {
-        const string bearer = "Bearer ";
-        var authorization = context.Request.Headers.Authorization.ToString();
-        if (!authorization.StartsWith(bearer, StringComparison.OrdinalIgnoreCase) ||
-            !CloudProtocol.IsSecret(authorization[bearer.Length..])) return null;
+        if (ReadBearer(context) is not { } token) return null;
         await using var connection = await db.ConnectAsync(ct);
         await using var command = db.Command(connection, """
             UPDATE device SET last_seen=now()
             WHERE owner=@owner AND access_hash=@hash AND access_until>now() AND NOT revoked
             RETURNING id
-            """, ("hash", Hash(authorization[bearer.Length..])));
+            """, ("hash", Hash(token)));
         return await command.ExecuteScalarAsync(ct) as Guid?;
+    }
+
+    internal static string? ReadBearer(HttpContext context)
+    {
+        const string bearer = "Bearer ";
+        var authorization = context.Request.Headers.Authorization.ToString();
+        if (!authorization.StartsWith(bearer, StringComparison.OrdinalIgnoreCase)) return null;
+        var token = authorization[bearer.Length..];
+        return CloudProtocol.IsSecret(token) ? token : null;
     }
 
     internal async Task<bool> RevokeAsync(Guid id, CancellationToken ct)
@@ -110,6 +116,7 @@ internal sealed class DeviceSessions(Database db)
             WHERE owner=@owner AND id=@id
             """, ("id", id));
         var found = await command.ExecuteNonQueryAsync(ct) == 1;
+        if (found) await RemoteAccess.RevokeDeviceAsync(db, transaction, id, ct);
         await transaction.CommitAsync(ct);
         return found;
     }
@@ -130,6 +137,7 @@ internal sealed class DeviceSessions(Database db)
             WHERE owner=@owner AND id=@id
             """, ("id", request.DeviceId));
         await update.ExecuteNonQueryAsync(ct);
+        await RemoteAccess.RevokeDeviceAsync(db, transaction, request.DeviceId, ct);
         await transaction.CommitAsync(ct);
         return true;
     }
@@ -165,7 +173,7 @@ internal sealed class DeviceSessions(Database db)
         return true;
     }
 
-    private static bool Verify(byte[] key, string? signature, byte[] data)
+    internal static bool Verify(byte[] key, string? signature, byte[] data)
     {
         if (!TryDecode(signature, 100, out var decoded)) return false;
         try

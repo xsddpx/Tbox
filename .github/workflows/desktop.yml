@@ -18,6 +18,10 @@ on:
         required: true
         default: false
         type: boolean
+      verify_remote_service:
+        description: 'Verify Windows MSIX service registration and upgrade with an isolated fixture'
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -229,6 +233,28 @@ jobs:
             TEMP/windows-package/**/media/result.json
           if-no-files-found: ignore
           retention-days: 14
+
+  windows-remote-service:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_remote_service
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify the isolated signed Windows service package and upgrade
+        shell: powershell
+        env:
+          TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
+          TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
+          TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+        run: ./scripts/release/sign-and-package-windows.ps1 -VerifyRemoteService
+      - name: Preserve service verification results
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-remote-service-fixture
+          path: TEMP/remote-service-fixture/result.json
+          if-no-files-found: error
 
   macos-signed-package:
     # Build a development package with the existing release identity without creating a Release.

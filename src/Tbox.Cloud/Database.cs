@@ -40,6 +40,23 @@ internal sealed class Database(NpgsqlDataSource source, CloudOptions options)
               owner bigint NOT NULL, id uuid NOT NULL, received timestamptz NOT NULL,
               PRIMARY KEY (owner, id)
             );
+            CREATE TABLE IF NOT EXISTS remote_host (
+              owner bigint NOT NULL, device_id uuid NOT NULL, credential_hash bytea NOT NULL, ready_until timestamptz,
+              PRIMARY KEY (owner, device_id), UNIQUE (owner, credential_hash),
+              FOREIGN KEY (owner, device_id) REFERENCES device (owner, id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS remote_session (
+              owner bigint NOT NULL, id uuid NOT NULL, host_id uuid NOT NULL, controller_id uuid NOT NULL,
+              ticket_hash bytea, expires_at timestamptz NOT NULL,
+              PRIMARY KEY (owner, id), UNIQUE (owner, ticket_hash),
+              FOREIGN KEY (owner, host_id) REFERENCES remote_host (owner, device_id) ON DELETE CASCADE,
+              FOREIGN KEY (owner, controller_id) REFERENCES device (owner, id) ON DELETE CASCADE,
+              CHECK (controller_id <> host_id)
+            );
+            CREATE INDEX IF NOT EXISTS remote_session_expiration ON remote_session (owner, expires_at);
+            CREATE INDEX IF NOT EXISTS remote_session_host ON remote_session (owner, host_id);
+            CREATE INDEX IF NOT EXISTS remote_session_controller ON remote_session (owner, controller_id);
+            INSERT INTO cloud_schema VALUES (2) ON CONFLICT DO NOTHING;
             """, connection, transaction);
         await command.ExecuteNonQueryAsync(ct);
         await transaction.CommitAsync(ct);

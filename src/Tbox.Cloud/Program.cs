@@ -18,6 +18,7 @@ builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(options.Database));
 builder.Services.AddSingleton<Database>();
 builder.Services.AddSingleton<DeviceSessions>();
 builder.Services.AddSingleton<DeviceEvents>();
+builder.Services.AddSingleton<RemoteAccess>();
 builder.Services.AddSingleton<GitHubLogin>();
 builder.Services.AddSingleton<Preferences>();
 builder.Services.AddSingleton<Captures>();
@@ -92,6 +93,33 @@ account.MapDelete("/devices/{id:guid}", async (Guid id, DeviceSessions sessions,
     if (await sessions.RevokeAsync(id, ct)) events.Revoke(id);
     return Results.NoContent();
 });
+
+var remote = account.MapGroup("/remote");
+remote.MapGet("/hosts", (HttpContext context, RemoteAccess access, CancellationToken ct) =>
+    access.ListHostsAsync((Guid)context.Items[typeof(CloudDevice)]!, ct));
+remote.MapPut("/hosts/current", async (RemoteHostRegistration request, HttpContext context, RemoteAccess access, CancellationToken ct) =>
+    await access.RegisterHostAsync((Guid)context.Items[typeof(CloudDevice)]!, request, ct)
+        ? Results.NoContent() : Results.BadRequest());
+remote.MapDelete("/hosts/current", async (HttpContext context, RemoteAccess access, CancellationToken ct) =>
+{
+    await access.DisableHostAsync((Guid)context.Items[typeof(CloudDevice)]!, ct);
+    return Results.NoContent();
+});
+remote.MapPost("/sessions", async (RemoteConnectionRequest request, HttpContext context, RemoteAccess access, CancellationToken ct) =>
+    await access.InviteAsync((Guid)context.Items[typeof(CloudDevice)]!, request.HostId, ct) is { } offer
+        ? Results.Ok(offer) : Results.Conflict());
+
+var host = app.MapGroup("/v1/remote/host");
+host.MapPost("/heartbeat", async (HttpContext context, RemoteAccess access, CancellationToken ct) =>
+    DeviceSessions.ReadBearer(context) is { } token && await access.HeartbeatAsync(token, ct)
+        ? Results.NoContent() : Results.Unauthorized());
+host.MapPost("/claim", async (RemoteClaim request, HttpContext context, RemoteAccess access, CancellationToken ct) =>
+    DeviceSessions.ReadBearer(context) is { } token && await access.ClaimAsync(token, request, ct) is { } lease
+        ? Results.Ok(lease) : Results.Unauthorized());
+host.MapPost("/sessions/{id:guid}/renew", async (Guid id, HttpContext context, RemoteAccess access, CancellationToken ct) =>
+    DeviceSessions.ReadBearer(context) is { } token && await access.RenewAsync(token, id, ct) is { } lease
+        ? Results.Ok(lease) : Results.Unauthorized());
+
 account.MapGet("/preferences", (Preferences preferences, CancellationToken ct) => preferences.ReadAsync(ct));
 account.MapPost("/preferences/initial", async (Dictionary<string, string> input, Preferences preferences, CancellationToken ct) =>
     await preferences.InitializeAsync(input, ct) is { } initialized ? Results.Ok(initialized) : Results.BadRequest());
