@@ -8,7 +8,7 @@ namespace Tbox.Cloud.Tests;
 
 public sealed class CloudIntegrationTests
 {
-    private const string OnePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWioAAAAASUVORK5CYII=";
+    private const string OnePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNQSGj4DwADpAIAhYa8VQAAAABJRU5ErkJggg==";
 
     private static CloudOptions Options(string database) => new(new Uri("https://tbox.test/"),
         RandomNumberGenerator.GetInt32(1, int.MaxValue), "fixture", "fixture", database, RandomNumberGenerator.GetBytes(32));
