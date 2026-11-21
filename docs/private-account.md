@@ -23,3 +23,9 @@
 `TBOX_TEST_POSTGRES` 指向专门用于测试的 PostgreSQL 数据库。运行 `dotnet test tests/Tbox.Cloud.Tests/Tbox.Cloud.Tests.csproj -c Release` 验证设备认证、模拟 GitHub 回调、偏好和截图生命周期。
 
 本阶段的部署包包含账号和同步服务。远控宿主、会话窗口和中继的实现及其重启验收按产品需求跟踪。
+
+## 无人值守组件验证
+
+源代码初查采用 RustDesk 客户端 1.5.3 和开源服务器 1.1.16。客户端源码包含固定的协议子模块，客户端与服务器仓库均提供 AGPL-3.0 许可。发行验收需核对组件改动、对应源码、依赖及构建材料，包含可从网络使用的修改后服务。[客户端源码](https://github.com/rustdesk/rustdesk/tree/95cca3f661f635b3cc85c04935fe8d96d8f432ef) · [服务器源码](https://github.com/rustdesk/rustdesk-server/tree/73523b31cfd25d77dee862e6fc9f5e1fb5e485ef)
+
+上游 Windows 安装器自行注册自动启动服务，运行时还检查上游安装布局。Tbox 签名包需要在应用扩展中声明服务，用随包位置解析服务与子进程路径，并在宿主通过本机授权前保持远控关闭。管理员安装、从重启到登录界面连接、撤销及升级后的服务连续性均需实际运行验证。[上游 Windows 实现](https://github.com/rustdesk/rustdesk/blob/95cca3f661f635b3cc85c04935fe8d96d8f432ef/src/platform/windows.rs) · [MSIX 服务文档](https://learn.microsoft.com/en-us/windows/msix/packaging-tool/convert-an-installer-with-services)
