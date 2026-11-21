@@ -61,9 +61,14 @@ try {
             ($service.PathName -ne $expectedCommand -and $service.PathName -ne ($expectedPath + ' --tbox-service'))) {
             throw "Fixture service registration is invalid for $version."
         }
+        $serviceKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName"
+        Remove-ItemProperty -LiteralPath $serviceKey -Name TboxFixtureTcbPrivilege -ErrorAction SilentlyContinue
         Start-Service -Name $serviceName
         (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(25))
+        $tcbPrivilege = Get-ItemPropertyValue -LiteralPath $serviceKey -Name TboxFixtureTcbPrivilege
+        if ($tcbPrivilege -notin 'enabled', 'disabled', 'absent') { throw 'The fixture did not report its own privilege state.' }
         $results += [pscustomobject]@{
+            TcbPrivilege = $tcbPrivilege
             Version = $version
             PackageFamilyName = $installed.PackageFamilyName
             StartMode = $service.StartMode
