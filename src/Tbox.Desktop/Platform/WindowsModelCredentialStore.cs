@@ -7,16 +7,34 @@ internal sealed class WindowsModelCredentialStore : IModelCredentialStore
 {
     private const int NotFound = 1168;
     private static string Target(Guid id) => "Tbox/Models/" + id.ToString("N");
-    public Task<string?> ReadAsync(Guid id, CancellationToken ct = default) => Execute(() =>
+    public Task<string?> ReadAsync(Guid id, CancellationToken ct = default) => Execute(() => ReadCredential(Target(id)), ct);
+
+    internal static string? ReadCredential(string target)
     {
-        if (!CredRead(Target(id), 1, 0, out var pointer)) { if (Marshal.GetLastWin32Error() == NotFound) return null; throw Error(); }
+        if (!CredRead(target, 1, 0, out var pointer)) { if (Marshal.GetLastWin32Error() == NotFound) return null; throw Error(); }
         try
         {
             var credential = Marshal.PtrToStructure<Credential>(pointer);
             return Marshal.PtrToStringUni(credential.Blob, checked((int)credential.BlobSize / 2));
         }
         finally { CredFree(pointer); }
-    }, ct);
+    }
+
+    internal static void WriteCredential(string target, string value)
+    {
+        var pointer = Marshal.StringToCoTaskMemUni(value);
+        try
+        {
+            var credential = new Credential
+            {
+                Type = 1, TargetName = target, UserName = "Tbox",
+                Blob = pointer, BlobSize = checked((uint)value.Length * 2), Persist = 2
+            };
+            if (!CredWrite(ref credential, 0)) throw Error();
+        }
+        finally { Marshal.ZeroFreeCoTaskMemUnicode(pointer); }
+    }
+
     public Task DeleteAsync(Guid id, CancellationToken ct = default) => Execute(() =>
     {
         if (!CredDelete(Target(id), 1, 0) && Marshal.GetLastWin32Error() != NotFound) throw Error();
@@ -42,5 +60,7 @@ internal sealed class WindowsModelCredentialStore : IModelCredentialStore
     private static extern bool CredRead(string target, uint type, uint flags, out nint credential);
     [DllImport("advapi32.dll", EntryPoint = "CredDeleteW", CharSet = CharSet.Unicode, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CredDelete(string target, uint type, uint flags);
+    [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CredWrite(ref Credential credential, uint flags);
     [DllImport("advapi32.dll")] private static extern void CredFree(nint credential);
 }

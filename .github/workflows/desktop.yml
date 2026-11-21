@@ -3,13 +3,18 @@ name: Shared desktop checks
 on:
   push:
     branches: [main, 'codex/**']
-    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'deploy/cloud/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
   pull_request:
-    paths: ['src/**', 'tests/**', 'scripts/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
+    paths: ['src/**', 'tests/**', 'scripts/**', 'deploy/cloud/**', 'assets/media-test/**', 'global.json', '.github/workflows/**']
   workflow_dispatch:
     inputs:
       verify_installer:
         description: 'Build, sign, install, verify and retain the Windows MSIX'
+        required: true
+        default: false
+        type: boolean
+      verify_macos_installer:
+        description: 'Build and verify the signed macOS ZIP'
         required: true
         default: false
         type: boolean
@@ -18,6 +23,28 @@ permissions:
   contents: read
 
 jobs:
+  cloud:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432/tcp
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.313
+            8.0.x
+      - name: Validate private account and synchronization
+        env:
+          TBOX_TEST_POSTGRES: Host=127.0.0.1;Port=${{ job.services.postgres.ports[5432] }};Database=postgres;Username=postgres
+        run: dotnet test tests/Tbox.Cloud.Tests/Tbox.Cloud.Tests.csproj -c Release
+
   windows-media:
     uses: ./.github/workflows/windows-media.yml
 
@@ -64,11 +91,19 @@ jobs:
       - name: Test shared core
         run: dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
       - name: Test shared desktop
+        env:
+          TBOX_UI_PREVIEWS: TEMP/account-preview
         timeout-minutes: 5
         run: >-
           dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
           --logger "console;verbosity=normal"
           --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type none
+      - name: Preserve rendered account page
+        uses: actions/upload-artifact@v4
+        with:
+          name: account-preview-${{ runner.os }}
+          path: TEMP/account-preview/main-Account-800.png
+          if-no-files-found: error
       - name: Test Windows playback and exports
         if: runner.os == 'Windows'
         run: dotnet run --project tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj -c Release -- assets/media-test/fixture.mp4 TEMP/media-smoke TEMP/media-runtime/windows/bin/ffmpeg.exe
@@ -197,3 +232,39 @@ jobs:
             TEMP/windows-package/**/media/result.json
           if-no-files-found: ignore
           retention-days: 14
+  macos-signed-package:
+    # Build a development package with the existing release identity without creating a Release.
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_macos_installer
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.313
+            8.0.x
+      - name: Check Apple Silicon runner and media tools
+        run: |
+          test "$(uname -m)" = arm64
+          command -v pkg-config || brew install pkgconf
+      - name: Sign, package and verify Mac
+        env:
+          TBOX_MAC_P12_BASE64: ${{ secrets.TBOX_MAC_P12_BASE64 }}
+          TBOX_MAC_P12_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD }}
+          TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
+          TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
+        run: bash scripts/release/sign-and-package-macos.sh
+      - name: Preserve verified installer and package history
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-signed-package
+          path: |
+            artifacts/Tbox_*_osx-arm64.zip
+            docs/release-history.md
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

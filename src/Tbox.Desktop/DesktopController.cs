@@ -1,3 +1,5 @@
+using Tbox.Core.Accounts;
+using Tbox.Desktop.Accounts;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
@@ -51,6 +53,7 @@ public sealed class DesktopController : IDisposable
     private bool _capturePermissionNeeded;
     public IPlatformServices Platform { get; }
     public ModelServices.ModelService Models { get; }
+    internal AccountCoordinator Account { get; }
     public CaptureHistory CaptureHistory { get; } = new();
     internal CaptureFrameHistory CaptureFrames { get; } = new();
     // The one main window. It stays hidden until opened from the tray, a second launch or app reopen.
@@ -104,6 +107,9 @@ public sealed class DesktopController : IDisposable
         _pinSession = new PinSessionStore(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!);
         _keepAwake = platform.CreateKeepAwake(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!);
         Models = new ModelServices.ModelService(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!, "model-services.json"), ModelCredentialStore.Create());
+        Account = new AccountCoordinator(() => _settings,
+            update => UpdateSettingsAsync(update, fromCloud: true), new AccountCredentialVault(),
+            Path.GetDirectoryName(Path.GetFullPath(_settingsPath))!, _stop.Token);
         _cache = CreateCache(null);
     }
 
@@ -134,6 +140,7 @@ public sealed class DesktopController : IDisposable
             PruneCache();
             await CaptureFrames.OpenAsync(_cache.DirectoryPath);
             RecordingWorkspace.CleanupExpired();
+            Account.Start();
             if (migrationNotice is not null) Main.SetStatus(migrationNotice);
             if (SettingsLoadWarning is { } warning) Main.SetStatus(warning);
         }
@@ -463,6 +470,8 @@ public sealed class DesktopController : IDisposable
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
             await CacheAsync(picture, pinned);
             CaptureHistory.Remember(placement);
+            if (frame is not null && action is (CaptureAction.Copy or CaptureAction.Save) && Account.CanQueueCapture)
+                await Account.QueueCaptureAsync(picture.Png);
             if (frame is not null)
             {
                 // Saved history follows the screenshot folder, including a fallback chosen while saving.
@@ -811,17 +820,22 @@ public sealed class DesktopController : IDisposable
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Main.SetStatus("缓存清理暂时失败，下次启动会重试。"); }
     }
 
-    private async Task UpdateSettingsAsync(Func<AppSettings, AppSettings> update)
+    private async Task UpdateSettingsAsync(Func<AppSettings, AppSettings> update, bool fromCloud = false)
     {
         await _moduleChanges.WaitAsync(_stop.Token);
         try
         {
             var updated = update(_settings);
+            if (!fromCloud) updated = CloudPreferences.Track(_settings, updated);
+            if (updated == _settings) return;
             await _settingsStore.SaveAsync(updated, _stop.Token);
             _settings = updated;
         }
         finally { _moduleChanges.Release(); Main.Refresh(); }
     }
+
+    internal Task SetTranslationLanguageAsync(string language) =>
+        UpdateSettingsAsync(settings => settings with { TranslationLanguage = language });
 
     public async Task SetFailureNotificationsAsync(bool enabled)
     {
@@ -985,6 +999,7 @@ public sealed class DesktopController : IDisposable
     {
         IsQuitting = true; _stop.Cancel();
         if (Platform.SupportsSystemScreenshotShortcutTakeover) Platform.StopSystemScreenshotShortcutTakeover();
+        Account.Dispose();
         Models.Dispose();
         _folderBar.Dispose();
         _quickLookWindow?.Close(); _quickLook?.Dispose();

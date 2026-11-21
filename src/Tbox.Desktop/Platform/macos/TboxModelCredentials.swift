@@ -26,7 +26,11 @@ public func modelSecretContains(_ id: UnsafePointer<CChar>?) -> UnsafeMutablePoi
 
 @_cdecl("tbox_model_secret_get")
 public func modelSecretGet(_ id: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
-    guard var query = modelSecretQuery(id) else { return response(["error": true]) }
+    readSecret(modelSecretQuery(id))
+}
+
+private func readSecret(_ item: [String: Any]?) -> UnsafeMutablePointer<CChar>? {
+    guard var query = item else { return response(["error": true]) }
     query[kSecReturnData as String] = true
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -37,12 +41,16 @@ public func modelSecretGet(_ id: UnsafePointer<CChar>?) -> UnsafeMutablePointer<
 
 @_cdecl("tbox_model_secret_set")
 public func modelSecretSet(_ id: UnsafePointer<CChar>?, _ secret: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
-    guard var query = modelSecretQuery(id), let secret = secret else { return response(["error": true]) }
+    writeSecret(modelSecretQuery(id), secret, label: "Tbox 模型服务")
+}
+
+private func writeSecret(_ item: [String: Any]?, _ secret: UnsafePointer<CChar>?, label: String) -> UnsafeMutablePointer<CChar>? {
+    guard var query = item, let secret = secret else { return response(["error": true]) }
     let data = Data(String(cString: secret).utf8)
     let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
     if status == errSecItemNotFound {
         query[kSecValueData as String] = data
-        query[kSecAttrLabel as String] = "Tbox 模型服务"
+        query[kSecAttrLabel as String] = label
         return response(SecItemAdd(query as CFDictionary, nil) == errSecSuccess ? ["success": true] : ["error": true])
     }
     return response(status == errSecSuccess ? ["success": true] : ["error": true])
@@ -53,4 +61,19 @@ public func modelSecretDelete(_ id: UnsafePointer<CChar>?) -> UnsafeMutablePoint
     guard let query = modelSecretQuery(id) else { return response(["error": true]) }
     let status = SecItemDelete(query as CFDictionary)
     return response(status == errSecSuccess || status == errSecItemNotFound ? ["success": true] : ["error": true])
+}
+
+private let accountSecretQuery = [kSecClass as String: kSecClassGenericPassword,
+                                  kSecAttrService as String: "com.xsddpx.tbox.account",
+                                  kSecAttrAccount as String: "session-v1",
+                                  kSecAttrSynchronizable as String: false] as [String: Any]
+
+@_cdecl("tbox_account_secret_get")
+public func accountSecretGet() -> UnsafeMutablePointer<CChar>? {
+    readSecret(accountSecretQuery)
+}
+
+@_cdecl("tbox_account_secret_set")
+public func accountSecretSet(_ secret: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    writeSecret(accountSecretQuery, secret, label: "Tbox 账号")
 }

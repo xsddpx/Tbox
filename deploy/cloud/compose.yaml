@@ -1,0 +1,51 @@
+services:
+  proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      TBOX_DOMAIN: ${TBOX_DOMAIN:?set the public domain}
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - proxy-data:/data
+      - proxy-config:/config
+    depends_on:
+      - cloud
+  cloud:
+    build:
+      context: ../..
+      dockerfile: deploy/cloud/Dockerfile
+    restart: unless-stopped
+    environment:
+      Cloud__Origin: https://${TBOX_DOMAIN:?set the public domain}
+      Cloud__OwnerId: ${TBOX_GITHUB_OWNER_ID:?set the GitHub numeric user ID}
+      Cloud__ClientId: ${TBOX_GITHUB_CLIENT_ID:?set the OAuth application ID}
+      Cloud__ClientSecret: ${TBOX_GITHUB_CLIENT_SECRET:?set the OAuth application secret}
+      Cloud__CaptureKey: ${TBOX_CAPTURE_KEY:?set the screenshot encryption key}
+      Cloud__Database: Host=db;Database=tbox;Username=tbox;Password=${TBOX_DB_PASSWORD:?set the database password}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - auth-keys:/cloud-keys
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tbox
+      POSTGRES_USER: tbox
+      POSTGRES_PASSWORD: ${TBOX_DB_PASSWORD:?set the database password}
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "tbox", "-d", "tbox"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    volumes:
+      - database:/var/lib/postgresql/data
+volumes:
+  proxy-data:
+  proxy-config:
+  auth-keys:
+  database:

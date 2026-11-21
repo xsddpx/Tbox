@@ -87,6 +87,8 @@ public sealed class MainWindow : Window
     private readonly UpdateCard _update;
     private readonly ModelServicesPage _models;
     private readonly TranslationPage _translation;
+    private readonly AccountPage _account;
+    private readonly Button _accountEntry;
 
     internal static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
     internal MainPage CurrentPage { get; private set; }
@@ -130,6 +132,13 @@ public sealed class MainWindow : Window
         {
             await controller.Models.InitializeAsync(); return controller.Models.Configuration;
         }, () => Navigate(MainPage.Models));
+        _translation.LanguageChanged += language => _controller.Run(() => _controller.SetTranslationLanguageAsync(language));
+        _account = new AccountPage(_controller, () => this);
+        _accountEntry = Ui.Link("账号", () => Navigate(MainPage.Account));
+        _accountEntry.HorizontalAlignment = HorizontalAlignment.Right;
+        _accountEntry.VerticalAlignment = VerticalAlignment.Top;
+        _accountEntry.Margin = new Thickness(0, 1, OperatingSystem.IsWindows() ? 145 : 15, 0);
+        _controller.Account.Changed += () => _accountEntry.Content = _controller.Account.Login ?? "账号";
         _update.AvailabilityChanged += RefreshDots;
         Wire();
         BuildPages();
@@ -146,7 +155,7 @@ public sealed class MainWindow : Window
             BoxShadow = BoxShadows.Parse("0 0 0 1 #0D101220, 0 10 30 0 #0F101220"),
             Child = new DockPanel { Children = { _status, _body } }
         };
-        var root = new Grid { ColumnDefinitions = new ColumnDefinitions($"{208},*"), Children = { Sidebar(), Ui.Column(card, 1) } };
+        var root = new Grid { ColumnDefinitions = new ColumnDefinitions($"{208},*"), Children = { Sidebar(), Ui.Column(card, 1), Ui.Column(_accountEntry, 1) } };
         Content = root;
         Navigate(MainPage.Capture);
         Refresh();
@@ -206,6 +215,7 @@ public sealed class MainWindow : Window
         SetStatus("");
         if (page == MainPage.Models) _controller.Run(_models.OpenAsync);
         if (page == MainPage.Translation) _controller.Run(_translation.OpenAsync);
+        if (page == MainPage.Account) { _account.Refresh(); _controller.Run(_controller.Account.RefreshAsync); }
     }
 
     private void StopRecordingShortcut()
@@ -222,6 +232,8 @@ public sealed class MainWindow : Window
 
     public void Refresh()
     {
+        _translation.ApplyLanguage(_controller.Settings.TranslationLanguage);
+        _account.Refresh();
         var settings = _controller.Settings;
         var capture = settings.ScreenPasteEnabled;
         var folders = settings.FolderJumpEnabled;
@@ -376,11 +388,17 @@ public sealed class MainWindow : Window
         Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
         if (_controller.SupportsQuickLook) Item(MainPage.QuickLook, IconKind.QuickLook, "速览");
         Item(MainPage.Translation, IconKind.Translate, "翻译"); Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒");
-        Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.About, IconKind.Update, "关于");
+        Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.Account, IconKind.Settings, "账号"); Item(MainPage.About, IconKind.Update, "关于");
         var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
         DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(version, Dock.Bottom);
+        var navigation = new ScrollViewer
+        {
+            Content = items, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Margin = new Thickness(0, 0, 0, 6)
+        };
         // macOS draws the traffic lights over the top-left corner, so the brand moves below them.
-        return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, version, items } };
+        return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, version, navigation } };
     }
 
     private void BuildPages()
@@ -417,6 +435,7 @@ public sealed class MainWindow : Window
             Spaced(Ui.Note("关闭窗口后 Tbox 继续在托盘运行，快捷键照常可用。右键托盘图标可退出。"), 18));
 
         AddPage(MainPage.Models, _models);
+        AddPage(MainPage.Account, PageHeader(IconKind.Settings, "账号", "管理设备和同步内容", null), _account);
         AddPage(MainPage.Translation, _translation);
 
         var feedback = new SurfaceButton("反馈问题", () => _controller.Run(async () =>
