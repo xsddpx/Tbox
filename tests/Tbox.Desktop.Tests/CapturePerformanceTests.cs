@@ -1,13 +1,70 @@
 using System.Diagnostics;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia.Headless.XUnit;
 using Tbox.Desktop.Models;
+using Tbox.Desktop.Platform;
 using Xunit;
 
 namespace Tbox.Desktop.Tests;
 
 public sealed class CapturePerformanceTests
 {
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void CopyingCapturePixelsPreservesRgbAndMakesAlphaOpaque(int tail)
+    {
+        var source = new uint[Vector<uint>.Count * 2 + tail];
+        new Random(42).NextBytes(MemoryMarshal.AsBytes(source.AsSpan()));
+        var baseline = source.Select(pixel => pixel | 0xff000000u).ToArray();
+        Assert.Equal(baseline, MemoryMarshal.Cast<byte, uint>(BgraCapturePixels.CopyOpaque(source)).ToArray());
+    }
+
+    [Fact]
+    public void Compare4KCapturePixelCopiesWhenRequested()
+    {
+        var reportPath = Environment.GetEnvironmentVariable("TBOX_BGRA_CAPTURE_BENCHMARK");
+        if (string.IsNullOrEmpty(reportPath)) return;
+        var source = new byte[3840 * 2160 * 4];
+        new Random(42).NextBytes(source);
+        var baseline = new byte[source.Length];
+        var handle = GCHandle.Alloc(source, GCHandleType.Pinned);
+        try
+        {
+            void CopyBaseline()
+            {
+                baseline = new byte[source.Length];
+                Marshal.Copy(handle.AddrOfPinnedObject(), baseline, 0, source.Length);
+                for (var i = 3; i < baseline.Length; i += 4) baseline[i] = 255;
+            }
+            byte[] CopyCandidate() => BgraCapturePixels.CopyOpaque(MemoryMarshal.Cast<byte, uint>(source.AsSpan()));
+            for (var i = 0; i < 3; i++) { CopyBaseline(); _ = CopyCandidate(); }
+            Assert.True(baseline.AsSpan().SequenceEqual(CopyCandidate()));
+            var oldTimes = new double[30];
+            var newTimes = new double[30];
+            for (var i = 0; i < oldTimes.Length; i++)
+            {
+                var timer = Stopwatch.StartNew();
+                if (i % 2 == 0)
+                {
+                    CopyBaseline(); oldTimes[i] = timer.Elapsed.TotalMilliseconds;
+                    timer.Restart(); _ = CopyCandidate(); newTimes[i] = timer.Elapsed.TotalMilliseconds;
+                }
+                else
+                {
+                    _ = CopyCandidate(); newTimes[i] = timer.Elapsed.TotalMilliseconds;
+                    timer.Restart(); CopyBaseline(); oldTimes[i] = timer.Elapsed.TotalMilliseconds;
+                }
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(reportPath))!);
+            File.WriteAllText(reportPath, JsonSerializer.Serialize(new { oldTimes, newTimes, vectorLanes = Vector<uint>.Count }));
+        }
+        finally { handle.Free(); }
+    }
+
     [AvaloniaFact]
     public void ComparePngRoundTripWithDirectPixelPresentationWhenRequested()
     {

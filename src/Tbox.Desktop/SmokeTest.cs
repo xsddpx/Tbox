@@ -14,6 +14,12 @@ internal static class SmokeTest
         Directory.CreateDirectory(directory);
         try
         {
+            if (args.Contains("--benchmark-screenshot"))
+            {
+                var benchmark = await ScreenshotBenchmark.RunAsync(controller);
+                await WriteResultAsync(directory, JsonSerializer.Serialize(benchmark));
+                return;
+            }
             await Task.Delay(300);
             using var picture = DesktopController.RenderText("TBOX 12345\n跨平台截图与文字识别");
             await File.WriteAllBytesAsync(Path.Combine(directory, "ocr-fixture.png"), picture.Png);

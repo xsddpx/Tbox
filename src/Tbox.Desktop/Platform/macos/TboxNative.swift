@@ -27,10 +27,55 @@ public func openPermissionSettings() {
 }
 
 private final class CaptureResult: @unchecked Sendable {
-    var frames: [(CGDirectDisplayID, CGRect, CGImage)] = []
+    var frames: [DisplayFrame] = []
     var error: String?
     let complete = DispatchSemaphore(value: 0)
 }
+
+private typealias DisplayFrame = (CGDirectDisplayID, CGRect, CGImage)
+
+private struct DisplayGeometry: Equatable {
+    let id: CGDirectDisplayID
+    let bounds: CGRect
+    let width: Int
+    let height: Int
+}
+
+private func activeDisplayGeometry() -> [DisplayGeometry]? {
+    var count: UInt32 = 0
+    guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return nil }
+    var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+    guard CGGetActiveDisplayList(count, &ids, &count) == .success, count == ids.count else { return nil }
+    var displays: [DisplayGeometry] = []
+    for id in ids {
+        guard CGDisplayIsInMirrorSet(id) == 0, let mode = CGDisplayCopyDisplayMode(id) else { return nil }
+        let bounds = CGDisplayBounds(id)
+        guard !bounds.isEmpty, mode.pixelWidth > 0, mode.pixelHeight > 0 else { return nil }
+        displays.append(DisplayGeometry(id: id, bounds: bounds, width: mode.pixelWidth, height: mode.pixelHeight))
+    }
+    return displays
+}
+
+private func captureDisplayRects() async throws -> [DisplayFrame]? {
+    guard let displays = activeDisplayGeometry() else { return nil }
+    var frames: [DisplayFrame] = []
+    for display in displays {
+        let config = SCScreenshotConfiguration()
+        config.width = display.width
+        config.height = display.height
+        config.showsCursor = false
+        config.dynamicRange = .sdr
+        let output = try await SCScreenshotManager.captureScreenshot(rect: display.bounds, configuration: config)
+        guard let image = output.sdrImage, image.width == display.width, image.height == display.height else { return nil }
+        frames.append((display.id, display.bounds, image))
+    }
+    return activeDisplayGeometry() == displays ? frames : nil
+}
+
+private let screenshotBenchmark = ProcessInfo.processInfo.arguments.contains("--smoke-test")
+    && ProcessInfo.processInfo.arguments.contains("--benchmark-screenshot")
+private let benchmarkLegacyScreenshot = screenshotBenchmark
+    && ProcessInfo.processInfo.arguments.contains("--benchmark-screenshot-baseline")
 
 public typealias CaptureFrameCallback = @convention(c) (UInt32, Double, Double, Double, Double, Int32, Int32, UnsafeRawPointer) -> Int32
 
@@ -48,6 +93,21 @@ public func capturePixels(_ regionOnly: Int32, _ left: Double, _ top: Double,
     Task.detached {
         defer { result.complete.signal() }
         do {
+            if region == nil, !benchmarkLegacyScreenshot {
+                if let frames = try? await captureDisplayRects() {
+                    result.frames = frames
+                    return
+                }
+                if screenshotBenchmark {
+                    result.error = "截图性能探针无法使用按显示器坐标采集的路径。"
+                    return
+                }
+                // Access can be revoked during the first capture. Do not prompt from a fallback.
+                guard CGPreflightScreenCaptureAccess() else {
+                    result.error = "请在系统设置中允许 Tbox 录制屏幕，然后重新打开应用。"
+                    return
+                }
+            }
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             for display in content.displays {
                 let bounds = CGDisplayBounds(display.displayID)

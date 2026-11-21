@@ -42,7 +42,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
         }).ToArray();
     }, cancellationToken);
 
-    private static byte[] CapturePixels(NativeRect bounds)
+    private static unsafe byte[] CapturePixels(NativeRect bounds)
     {
         var width = bounds.Right - bounds.Left; var height = bounds.Bottom - bounds.Top;
         var screen = GetDC(0);
@@ -66,10 +66,8 @@ public sealed class WindowsPlatformServices : IPlatformServices
             if (previous == 0 || previous == -1) throw Error("无法选择截图位图");
             if (!BitBlt(memory, 0, 0, width, height, screen, bounds.Left, bounds.Top, 0x00CC0020 | 0x40000000))
                 throw Error("截图失败");
-            var pixels = new byte[checked(width * height * 4)];
-            Marshal.Copy(bits, pixels, 0, pixels.Length);
-            for (var x = 3; x < pixels.Length; x += 4) pixels[x] = 255;
-            return pixels;
+            var source = new ReadOnlySpan<uint>((void*)bits, checked(width * height));
+            return BgraCapturePixels.CopyOpaque(source);
         }
         finally
         {

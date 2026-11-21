@@ -423,6 +423,20 @@ public sealed class DesktopController : IDisposable
     public Task RecordRegionAsync() => CaptureAsync(CaptureAction.Record);
     public Task LongCaptureAsync() => CaptureAsync(CaptureAction.Long);
 
+    internal async Task<(double Milliseconds, CapturedDisplay[] Displays)> MeasureScreenshotAsync()
+    {
+        var timer = Stopwatch.StartNew();
+        await CaptureAsync();
+        var capture = _capture ?? throw new InvalidOperationException("截图选区没有打开。");
+        try
+        {
+            if (capture.Windows.Count == 0 || capture.Windows.Any(window => !window.IsVisible))
+                throw new InvalidOperationException("截图选区未全部显示。");
+            return (timer.Elapsed.TotalMilliseconds, capture.Windows.Select(window => window.Frame).ToArray());
+        }
+        finally { capture.Cancel(); }
+    }
+
     internal async Task CaptureAsync(CaptureAction? preset)
     {
         if (!_settings.ScreenPasteEnabled || _capturing || _capture is not null || _longCapture is not null || _recording is not null || _quitRequested) return;

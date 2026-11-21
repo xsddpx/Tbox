@@ -188,6 +188,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      - name: Measure 4K capture pixel copies
+        shell: pwsh
+        run: |
+          $env:TBOX_BGRA_CAPTURE_BENCHMARK = Join-Path $PWD 'TEMP/capture-pixel-benchmark.json'
+          dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release --filter FullyQualifiedName~Compare4KCapturePixelCopiesWhenRequested
+      - name: Preserve capture pixel comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-capture-pixel-benchmark
+          path: TEMP/capture-pixel-benchmark.json
+          if-no-files-found: error
       - name: Preserve installed application verification
         if: always()
         uses: actions/upload-artifact@v4
