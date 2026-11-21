@@ -96,6 +96,47 @@ public sealed class AccountCoordinatorTests
     }
 
     [AvaloniaFact]
+    public async Task OldScreenshotConsentCannotEnableUploadsAfterTheSameDeviceSignsInAgain()
+    {
+        var account = LocalAccount.Create(new Uri("https://tbox.test/")) with
+        {
+            RefreshToken = CloudProtocol.RandomSecret(), Login = "owner"
+        };
+        var settings = new AppSettings { Cloud = new LocalCloudPreferences { Origin = account.Origin } };
+        var vault = new FixtureVault(JsonSerializer.Serialize(account));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var http = new HttpClient(new CloudHandler());
+        using var browser = new HttpClient();
+        Task<string>? callback = null;
+        using var coordinator = new AccountCoordinator(() => settings, edit =>
+        {
+            settings = edit(settings);
+            return Task.CompletedTask;
+        }, vault, Path.GetTempPath(), timeout.Token, http, openBrowser: url =>
+        {
+            var query = System.Web.HttpUtility.ParseQueryString(url.Query);
+            callback = browser.GetStringAsync(
+                $"http://127.0.0.1:{query["port"]}/tbox-callback?state={query["state"]}&code={CloudProtocol.RandomSecret()}", timeout.Token);
+        });
+        await coordinator.RefreshAsync();
+        var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = coordinator.SetCaptureSyncAsync(true, () => answer.Task);
+
+        await coordinator.SignOutAsync();
+        await coordinator.SignInAsync();
+        Assert.NotNull(callback);
+        await callback;
+        Assert.True(coordinator.SignedIn);
+        Assert.Equal(account.DeviceId, coordinator.LocalDevice);
+        Assert.NotEqual(account.RefreshToken, JsonSerializer.Deserialize<LocalAccount>(vault.Value!)!.RefreshToken);
+
+        answer.SetResult(true);
+        await pending.WaitAsync(timeout.Token);
+        Assert.False(settings.Cloud.SyncCaptures);
+        Assert.False(coordinator.CanQueueCapture);
+    }
+
+    [AvaloniaFact]
     public async Task SigningOutCancelsTheInFlightScreenshotAndDiscardsPendingWork()
     {
         var root = Path.Combine(Path.GetTempPath(), "tbox-account-" + Guid.NewGuid().ToString("N"));
