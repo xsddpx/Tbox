@@ -8,6 +8,8 @@ namespace Tbox.Cloud.Tests;
 
 public sealed class CloudIntegrationTests
 {
+    private const string OnePixelPng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWioAAAAASUVORK5CYII=";
+
     private static CloudOptions Options(string database) => new(new Uri("https://tbox.test/"),
         RandomNumberGenerator.GetInt32(1, int.MaxValue), "fixture", "fixture", database, RandomNumberGenerator.GetBytes(32));
 
@@ -17,7 +19,7 @@ public sealed class CloudIntegrationTests
         var options = Options("Host=localhost");
         var captures = new Captures(new Database(null!, options), options);
         var id = Guid.NewGuid();
-        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWioAAAAASUVORK5CYII=");
+        var png = Convert.FromBase64String(OnePixelPng);
         Assert.True(Captures.IsPng(png));
         Assert.False(Captures.IsPng(png[..32]));
         var encrypted = captures.Encrypt(id, png);
@@ -78,7 +80,7 @@ public sealed class CloudIntegrationTests
         Assert.Equal("ja", conflict.Preference.Value);
 
         var captures = new Captures(db, options);
-        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWioAAAAASUVORK5CYII=");
+        var png = Convert.FromBase64String(OnePixelPng);
         var image = Guid.NewGuid();
         await captures.SaveAsync(image, DateTimeOffset.UtcNow, png, default);
         Assert.Equal(png, await captures.ReadAsync(image, default));
@@ -105,6 +107,30 @@ public sealed class CloudIntegrationTests
         Assert.Null(await sessions.RefreshAsync(new RefreshRequest(id, later.RefreshToken,
             Sign(key, "refresh", later.RefreshToken)), default));
         Assert.Empty(await sessions.ListAsync(default));
+    }
+
+    [PostgresFact]
+    public async Task CountLimitRetainsTheNewestFiftyAndRetriesCannotRestoreAnEvictedCapture()
+    {
+        var options = Options(Environment.GetEnvironmentVariable("TBOX_TEST_POSTGRES")!);
+        await using var source = NpgsqlDataSource.Create(options.Database);
+        var db = new Database(source, options);
+        await db.InitializeAsync(default);
+        var captures = new Captures(db, options);
+        var png = Convert.FromBase64String(OnePixelPng);
+        var start = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var ids = Enumerable.Range(0, 51).Select(_ => Guid.NewGuid()).ToArray();
+        // An older capture can arrive late when an offline device reconnects.
+        foreach (var i in Enumerable.Range(1, 50).Append(0))
+            await captures.SaveAsync(ids[i], start.AddSeconds(i), png, default);
+
+        var expected = ids.Skip(1).Reverse().ToArray();
+        Assert.Equal(expected, (await captures.ListAsync(default)).Select(c => c.Id));
+        Assert.Null(await captures.ReadAsync(ids[0], default));
+        await captures.DeleteAsync(expected[0], default);
+        await captures.SaveAsync(ids[0], start, png, default);
+        Assert.Equal(expected.Skip(1), (await captures.ListAsync(default)).Select(c => c.Id));
+        Assert.Null(await captures.ReadAsync(ids[0], default));
     }
 
     private sealed class WatchStream : MemoryStream

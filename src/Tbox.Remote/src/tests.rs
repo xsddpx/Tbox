@@ -234,3 +234,62 @@ async fn an_expired_local_lease_cannot_be_renewed() {
     let error = lease.maintain().await.unwrap_err();
     assert_eq!(error.to_string(), "Remote lease expired");
 }
+
+#[tokio::test]
+async fn an_active_lease_stops_when_its_next_renewal_is_denied() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
+
+    let server = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let session = Lease {
+        session_id: Uuid::from_u128(2),
+        controller_id: CONTROLLER,
+        host_id: Uuid::from_u128(3),
+    };
+    let host = HostAuthorization {
+        origin: Url::parse(&format!("http://{}/", server.local_addr().unwrap())).unwrap(),
+        client: Client::builder().no_proxy().build().unwrap(),
+        device_id: session.host_id,
+        credential: invitation().ticket,
+    };
+    let lease = HostLease {
+        host,
+        session_id: session.session_id,
+        controller_id: session.controller_id,
+        requested: Instant::now() - RENEW_INTERVAL,
+    };
+    let expected = format!(
+        "POST /v1/remote/host/sessions/{}/renew HTTP/1.1",
+        session.session_id
+    );
+    let renewals = async {
+        for (status, body) in [
+            ("200 OK", serde_json::to_string(&session).unwrap()),
+            ("401 Unauthorized", String::new()),
+        ] {
+            let (socket, _) = server.accept().await.unwrap();
+            let (reader, mut writer) = socket.into_split();
+            let mut lines = BufReader::new(reader).lines();
+            assert_eq!(
+                lines.next_line().await.unwrap().as_deref(),
+                Some(expected.as_str())
+            );
+            while !lines.next_line().await.unwrap().unwrap().is_empty() {}
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            writer.write_all(response.as_bytes()).await.unwrap();
+        }
+    };
+
+    let (result, ()) = timeout(Duration::from_secs(30), async {
+        tokio::join!(lease.maintain(), renewals)
+    })
+    .await
+    .expect("revocation must end the lease within thirty seconds");
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        "Remote invitation or lease rejected"
+    );
+}
