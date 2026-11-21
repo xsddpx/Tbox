@@ -63,7 +63,7 @@ public sealed class UnifiedDesignTests
                 // 16 px app mark in the title strip, 40 px tool icon in the header.
                 Assert.Contains(window.GetVisualDescendants().OfType<Image>(), i => i.Width == 16);
                 Assert.Contains(window.GetVisualDescendants().OfType<Border>(), b => b.Width == 40 && b.Child is LineIcon);
-                var buttons = window.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible && b.GetType() == typeof(Button)).ToArray();
+                var buttons = window.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible && b.StyleKey == typeof(Button)).ToArray();
                 Assert.All(buttons, b => Assert.Equal(DesignTokens.ControlRadius, b.CornerRadius.TopLeft));
                 var accent = Assert.Single(buttons, b => b.Classes.Contains("accent"));
                 Assert.Equal(primary, AutomationProperties.GetName(accent));
@@ -139,7 +139,7 @@ public sealed class UnifiedDesignTests
                 Assert.True(buttons.Count(b => b.Classes.Contains("accent")) <= 1, page.ToString());
                 // Page titles are 20 px (spec ①).
                 Assert.Contains(main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>(), t => t.FontSize == 20);
-                Assert.All(buttons.Where(b => b.GetType() == typeof(Button)), b => Assert.True(b.MinHeight <= 36, AutomationProperties.GetName(b)));
+                Assert.All(buttons.Where(b => b.StyleKey == typeof(Button)), b => Assert.True(b.MinHeight <= 36, AutomationProperties.GetName(b)));
                 Preview(main, $"main-{page}");
             }
         }
