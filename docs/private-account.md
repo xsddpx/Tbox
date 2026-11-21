@@ -86,3 +86,5 @@ tbox.xsddpx.com {
 Windows 1.1.131 的签名包在 Windows 2025 运行器完成安装，`TboxRemote` 以 LocalSystem 进入 Running。测试等待控制台进程发布身份超时。后续候选在受保护的本机目录记录准备阶段和 Windows 错误编号。测试失败时保存阶段和进程会话编号，不读取授权状态文件或宿主凭据。[签名服务验证](https://github.com/xsddpx/Tbox/actions/runs/44901112084/job/136843710588)
 
 Windows 1.1.132 诊断将超时定位到工作进程启动，控制台会话存在，服务未能拉起工作进程。后续服务使用自己的 LocalSystem 令牌，将随包工作进程启动到活动控制台会话，避免依赖打开系统登录进程。待确认状态继续只准备身份，成功登记并落盘本机授权后才开始接受连接。[诊断构建](https://github.com/xsddpx/Tbox/actions/runs/44904858801/job/136855969514)
+
+Windows 1.1.134 完成 MSIX 签名、安装和 LocalSystem 服务启动。服务读取待确认授权并复制自身令牌，系统拒绝设置目标控制台会话，返回 Windows 错误 5。微软文档要求跨会话分配具备 `SeTcbPrivilege`，签名运行器中拒绝的具体原因仍待核查。工作进程没有启动，未发布身份。失败运行未保留可交付 MSIX。[Windows 1.1.134](https://github.com/xsddpx/Tbox/actions/runs/44908576376/job/136866701993) · [Windows TokenSessionId 文档](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class)

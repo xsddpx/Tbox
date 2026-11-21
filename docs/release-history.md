@@ -582,3 +582,11 @@ Mac ZIP 核对 SHA-256 后从 1.1.132 原位覆盖至 1.1.133。沿用主应用�
 | 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
 | --- | --- | --- | --- |
 | 1.1.133 | macOS osx-arm64 | 2026-11-21 21:25:57 +0800 | `7509fa529476a317fe8d9983aba0774b1dee6581e8afab0b156d43459bd7043c` |
+
+### 1.1.134 Windows 控制台启动候选
+
+Mac ZIP 核对 SHA-256 后从 1.1.133 原位覆盖至 1.1.134。主应用和嵌入引擎通过原签名验证，主应用保留屏幕录制权限并取帧 3024 × 1964。通过 LaunchServices 单独启动引擎时仍缺少所需系统权限。Windows 托管环境通过 MSIX 签名安装及 LocalSystem 服务启动。系统拒绝将远控工作进程分配到控制台会话，返回 Windows 错误 5，本轮没有可交付 Windows MSIX。[Mac 签名构建](https://github.com/xsddpx/Tbox/actions/runs/44909307499/job/136869181956) · [Windows 验证](https://github.com/xsddpx/Tbox/actions/runs/44908576376/job/136866701993)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.134 | macOS osx-arm64 | 2026-11-21 22:08:56 +0800 | `0af599152566d7b5eaba09766bab6e33397b333b70cca9b5a33cb776335cfe27` |
