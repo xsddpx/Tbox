@@ -56,9 +56,9 @@ try {
         }
         $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
         $expectedPath = Join-Path $installed.InstallLocation 'RemoteServiceFixture.exe'
+        $expectedCommand = '"' + $expectedPath + '" --tbox-service'
         if (-not $service -or $service.StartMode -ne 'Auto' -or $service.StartName -ne 'LocalSystem' -or
-            -not $service.PathName.StartsWith($expectedPath, [StringComparison]::OrdinalIgnoreCase) -and
-            -not $service.PathName.StartsWith(('"' + $expectedPath + '"'), [StringComparison]::OrdinalIgnoreCase)) {
+            ($service.PathName -ne $expectedCommand -and $service.PathName -ne ($expectedPath + ' --tbox-service'))) {
             throw "Fixture service registration is invalid for $version."
         }
         Start-Service -Name $serviceName
@@ -68,6 +68,7 @@ try {
             PackageFamilyName = $installed.PackageFamilyName
             StartMode = $service.StartMode
             StartAccount = $service.StartName
+            ServiceArgumentVerified = $true
             State = (Get-Service -Name $serviceName).Status.ToString()
             Sha256 = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
         }

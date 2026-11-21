@@ -18,8 +18,10 @@ internal sealed class RemoteServiceFixture : ServiceBase
         }
     }
 
-    private static void Main()
+    private static void Main(string[] arguments)
     {
+        if (arguments.Length != 1 || arguments[0] != "--tbox-service")
+            throw new InvalidOperationException("The package must start this executable in service mode.");
         using (var service = new RemoteServiceFixture())
             Run(service);
     }

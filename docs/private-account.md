@@ -72,3 +72,7 @@ tbox.xsddpx.com {
 完整窗口构建保留 RustDesk 许可和准确的对应源码提交。Mac 和 Windows 打包器分别从 `TBOX_REMOTE_MACOS_VIEWER_ZIP` 或 `TBOX_REMOTE_WINDOWS_VIEWER_ZIP` 取得组件，并核对对应的 `TBOX_REMOTE_MACOS_VIEWER_SHA256` 或 `TBOX_REMOTE_WINDOWS_VIEWER_SHA256`。Mac 组件以 `com.xsddpx.tbox.remote` 嵌入并使用应用的持久签名身份。Windows 组件随 MSIX 封装并覆盖验签。无人值守 Windows 服务另按 REM-001 验收。
 
 在 `Shared desktop checks` 同时选择 `build_remote_viewer` 和所需平台的签名验证选项，并填写 `remote_rendezvous` 和 `remote_rendezvous_key`，可生成带引擎的签名候选。签名任务从同一次运行下载引擎，按构建任务输出的 SHA-256 核对。候选包保留为工作流产物。
+
+2026-11-21，VPS 使用生产数据库结构和合成设备记录复测远控授权迁移。候选进程在隔离的 PostgreSQL 数据库和回环端口从架构 2 迁移到 3，保留已有设备及宿主，宿主在绑定传输公钥前保持不可用。候选 `/health` 返回 200，未认证的设备列表请求返回 401。
+
+固定版会合和中继已在 VPS 的测试网络启动。Mac 经现有 Stash 的 Tailscale 路由通过三项 TCP 连通检查，正式公网路由与桌面会话仍待验收。服务使用独立受限账号，测试只允许本地与 Tailscale 地址接入。
