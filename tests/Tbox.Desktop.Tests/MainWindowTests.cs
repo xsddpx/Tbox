@@ -719,6 +719,76 @@ public sealed class MainWindowTests
         Assert.Null(Dot(main, "截图"));
     }
 
+    [AvaloniaFact]
+    public async Task WindowTopmostRegistersOnlyWhenEnabledAndCleansUpOnDisableOrExit()
+    {
+        var platform = new FakePlatform { HasScreenPermission = true };
+        using var scope = new Scope(platform);
+        var controller = scope.Controller;
+        var main = controller.Main;
+        await scope.InitializeAsync();
+        controller.ShowMain(MainPage.WindowTopmost);
+        Assert.DoesNotContain(HotkeyAction.WindowTopmost, platform.Hotkeys.Keys);
+        Assert.True(platform.Topmost.BorderVisible);
+
+        await controller.SetWindowTopmostEnabledAsync(true);
+        Assert.Equal(ShortcutPolicy.Default(HotkeyAction.WindowTopmost, OperatingSystem.IsMacOS()), platform.Hotkeys[HotkeyAction.WindowTopmost]);
+        platform.HotkeyHandler!(HotkeyAction.WindowTopmost);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(platform.Topmost.Windows);
+        platform.Topmost.Foreground = new(2, "工作草稿");
+        platform.HotkeyHandler(HotkeyAction.WindowTopmost);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, platform.Topmost.Windows.Count);
+        Layout(main);
+        TaskToolbarTests.Preview(main, "main-window-topmost");
+
+        var remove = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<Button>(), button => Name(button) == "解除参考笔记置顶");
+        remove.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(2, Assert.Single(platform.Topmost.Windows).Id);
+        await controller.SetWindowTopmostBorderAsync(false);
+        Assert.False(platform.Topmost.BorderVisible);
+        Assert.False((await scope.ReadSettingsAsync()).WindowTopmostBorder);
+        await controller.SetWindowTopmostEnabledAsync(false);
+        Assert.Empty(platform.Topmost.Windows);
+        Assert.DoesNotContain(HotkeyAction.WindowTopmost, platform.Hotkeys.Keys);
+        platform.HotkeyHandler(HotkeyAction.WindowTopmost);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Empty(platform.Topmost.Windows);
+        await controller.SetWindowTopmostEnabledAsync(true);
+        platform.HotkeyHandler(HotkeyAction.WindowTopmost);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(platform.Topmost.Windows);
+        controller.Dispose();
+        Assert.Empty(platform.Topmost.Windows);
+    }
+
+    [AvaloniaFact]
+    public async Task WindowTopmostConflictDoesNotReplaceAnotherShortcutAndAuthorizationIsExplicit()
+    {
+        var platform = new FakePlatform { Topmost = { NeedsAccessibilityPermission = true, NeedsScreenPermission = true } };
+        var original = ShortcutPolicy.Default(HotkeyAction.WindowTopmost, OperatingSystem.IsMacOS());
+        platform.TakenShortcuts.Add(original);
+        using var scope = new Scope(platform);
+        var controller = scope.Controller;
+        await scope.InitializeAsync();
+        await controller.SetWindowTopmostEnabledAsync(true);
+        Assert.True(controller.HasHotkeyConflictFor(HotkeyAction.WindowTopmost));
+        Assert.False(controller.HasConflictIn(capture: true));
+        Assert.Equal(0, platform.PermissionRequests);
+        Assert.Equal(0, platform.Topmost.AccessibilityRequests);
+
+        var replacement = new Shortcut(true, true, false, false, "Y");
+        Assert.Null(await controller.SetShortcutAsync(HotkeyAction.WindowTopmost, replacement));
+        Assert.NotNull(await controller.SetShortcutAsync(HotkeyAction.WindowTopmost, original));
+        Assert.Equal(replacement, platform.Hotkeys[HotkeyAction.WindowTopmost]);
+        Assert.Equal(replacement, (await scope.ReadSettingsAsync()).Hotkeys!.WindowTopmost);
+        controller.RequestTopmostScreenPermission();
+        controller.RequestTopmostAccessibilityPermission();
+        Assert.Equal(1, platform.PermissionRequests);
+        Assert.Equal(1, platform.Topmost.AccessibilityRequests);
+    }
+
     private static string? Name(Control control) => AutomationProperties.GetName(control);
 
     private static string[] Caps(ShortcutRow row) =>

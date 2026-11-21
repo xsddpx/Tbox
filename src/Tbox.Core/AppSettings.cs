@@ -37,4 +37,6 @@ public sealed record AppSettings
     // Shared desktop app: global shortcuts chosen in the main window; unset entries use the platform defaults.
     public HotkeyBindings? Hotkeys { get; init; }
     public QuickLookSettings QuickLook { get; init; } = new();
+    public bool WindowTopmostEnabled { get; init; }
+    public bool WindowTopmostBorder { get; init; } = true;
 }
