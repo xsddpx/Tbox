@@ -30,6 +30,21 @@ env:
   TBOX_ACCOUNT_ORIGIN: ${{ vars.TBOX_ACCOUNT_ORIGIN }}
 
 jobs:
+  remote-authorization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate Tbox remote authorization
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/TEMP/remote-target
+        run: |
+          rustup update stable --no-self-update
+          cargo +stable test --locked --manifest-path src/Tbox.Remote/Cargo.toml
+      - name: Apply the authorization patch to the pinned RustDesk sources
+        run: bash scripts/prepare-remote-engine.sh
+
   cloud:
     runs-on: ubuntu-latest
     services:

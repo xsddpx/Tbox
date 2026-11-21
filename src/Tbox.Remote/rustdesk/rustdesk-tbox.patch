@@ -1,0 +1,411 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 625f45d5..10710d58 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -51,6 +51,7 @@ screencapturekit = ["cpal/screencapturekit"]
+ 
+ [dependencies]
+ async-trait = "0.1"
++tbox-remote = { path = "libs/tbox-remote" }
+ scrap = { path = "libs/scrap", features = ["wayland"] }
+ hbb_common = { path = "libs/hbb_common", features = ["webrtc"] }
+ base = { path = "libs/base" }
+diff --git a/flutter/lib/main.dart b/flutter/lib/main.dart
+index 09250a86..86122289 100644
+--- a/flutter/lib/main.dart
++++ b/flutter/lib/main.dart
+@@ -36,6 +36,18 @@ WindowType? kWindowType;
+ late List<String> kBootArgs;
+ 
+ Future<void> main(List<String> args) async {
++  final tboxPeer = isDesktop &&
++          (args.isEmpty || args.first != 'multi_window')
++      ? Platform.environment['TBOX_REMOTE_VIEWER_PEER']
++      : null;
++  if (tboxPeer != null) {
++    args = [
++      '--connect',
++      tboxPeer,
++      if (Platform.environment['TBOX_REMOTE_VIEWER_RELAY'] == '1')
++        '--relay',
++    ];
++  }
+   earlyAssert();
+   WidgetsFlutterBinding.ensureInitialized();
+ 
+@@ -113,7 +125,7 @@ Future<void> main(List<String> args) async {
+     if (isMacOS) {
+       disableWindowMovable(kWindowId);
+     }
+-    runMainApp(true);
++    runMainApp(tboxPeer == null);
+   }
+ }
+ 
+diff --git a/flutter/windows/runner/main.cpp b/flutter/windows/runner/main.cpp
+index 4ac6b998..fa813924 100644
+--- a/flutter/windows/runner/main.cpp
++++ b/flutter/windows/runner/main.cpp
+@@ -17,7 +17,7 @@ typedef void (*FUNC_RUSTDESK_FREE_ARGS)( char**, int);
+ typedef int (*FUNC_RUSTDESK_GET_APP_NAME)(wchar_t*, int);
+ typedef int (*FUNC_RUSTDESK_IS_DISABLE_INSTALLATION)();
+ /// Note: `--server`, `--service` are already handled in [core_main.rs].
+-const std::vector<std::string> parameters_white_list = {"--install", "--cm"};
++const std::vector<std::string> parameters_white_list = {"--install", "--cm", "--tbox-connect"};
+ 
+ const wchar_t* getWindowClassName();
+ 
+diff --git a/src/client.rs b/src/client.rs
+index ea71ca4f..f7736eeb 100644
+--- a/src/client.rs
++++ b/src/client.rs
+@@ -373,8 +373,8 @@ impl Client {
+     /// Start a new connection.
+     pub async fn start(
+         peer: &str,
+-        key: &str,
+-        token: &str,
++        _key: &str,
++        _token: &str,
+         conn_type: ConnType,
+         interface: impl Interface,
+     ) -> ResultType<(
+@@ -388,9 +388,13 @@ impl Client {
+         (i32, String),
+     )> {
+         debug_assert!(peer == interface.get_id());
++        let key = crate::tbox_remote::controller_key(peer)?;
++        if conn_type != ConnType::DEFAULT_CONN {
++            bail!("Tbox authorizes desktop connections only");
++        }
+         interface.update_direct(None);
+         interface.update_received(false);
+-        match Self::_start(peer, key, token, conn_type, interface.clone()).await {
++        match Self::_start(peer, key, "", conn_type, interface.clone()).await {
+             Err(err) => {
+                 let err_str = err.to_string();
+                 if err_str.starts_with("Failed") {
+@@ -399,7 +403,8 @@ impl Client {
+                     return Err(err);
+                 }
+             }
+-            Ok(x) => {
++            Ok(mut x) => {
++                crate::tbox_remote::authorize_controller(peer, x.0.2.as_deref(), &mut x.0.0).await?;
+                 // Set x.2 to true only in the connect() function to indicate that direct_failures needs to be updated; everywhere else it should be set to false.
+                 if x.2 {
+                     let direct_failures = interface.get_lch().read().unwrap().direct_failures;
+@@ -1729,6 +1734,9 @@ impl Client {
+                                 } else {
+                                     hbb_common::tcp::kx_version_for(kx_version)
+                                 };
++                                if !is_webrtc && picked != hbb_common::tcp::KX_VERSION_LATEST {
++                                    bail!("Tbox remote key exchange downgrade refused");
++                                }
+                                 let mut msg_out = Message::new();
+                                 msg_out.set_public_key(PublicKey {
+                                     asymmetric_value: asymmetric_value.clone(),
+diff --git a/src/core_main.rs b/src/core_main.rs
+index 0f62d1e5..7799018d 100644
+--- a/src/core_main.rs
++++ b/src/core_main.rs
+@@ -46,7 +46,18 @@ pub fn core_main() -> Option<CoreMainAction> {
+     if !crate::common::global_init() {
+         return None;
+     }
+-    crate::load_custom_client();
++    crate::tbox_remote::setup_name();
++    // The companion accepts secrets only over inherited pipes.
++    match std::env::args().nth(1).as_deref() {
++        Some("--tbox-host") => return crate::tbox_remote::start_host().err().map(CoreMainAction::ExitFailure),
++        Some("--tbox-connect") => {
++            return Some(match crate::tbox_remote::start_controller() {
++                Ok(args) => CoreMainAction::StartUi(args),
++                Err(error) => CoreMainAction::ExitFailure(error),
++            });
++        }
++        _ => {}
++    }
+     #[cfg(windows)]
+     if !crate::platform::windows::bootstrap() {
+         // return None to terminate the process
+diff --git a/src/lib.rs b/src/lib.rs
+index f6e48a1b..95e779c0 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -44,6 +44,7 @@ pub mod flutter_ffi;
+ use common::*;
+ mod auth_2fa;
+ mod trusted_devices;
++mod tbox_remote;
+ #[cfg(not(target_os = "ios"))]
+ mod clipboard;
+ #[cfg(not(any(target_os = "android", target_os = "ios")))]
+diff --git a/src/rendezvous_mediator.rs b/src/rendezvous_mediator.rs
+index 7e7ea5f0..9213045b 100644
+--- a/src/rendezvous_mediator.rs
++++ b/src/rendezvous_mediator.rs
+@@ -538,6 +538,8 @@ impl RendezvousMediator {
+                 if rpr.request_pk {
+                     log::info!("request_pk received from {}", self.host);
+                     self.register_pk(sink).await?;
++                } else if Config::get_key_confirmed() && Config::get_host_key_confirmed(&self.host_prefix) {
++                    crate::tbox_remote::registered();
+                 }
+             }
+             Some(rendezvous_message::Union::RegisterPkResponse(rpr)) => {
+@@ -548,6 +550,7 @@ impl RendezvousMediator {
+                         Config::set_host_key_confirmed(&self.host_prefix, true);
+                         *SOLVING_PK_MISMATCH.lock().await = "".to_owned();
+                         NEEDS_DEPLOY.store(false, Ordering::SeqCst);
++                        crate::tbox_remote::registered();
+                         #[cfg(target_os = "android")]
+                         reset_needs_deploy_notification();
+                     }
+diff --git a/src/server.rs b/src/server.rs
+index a88e33a5..e67a45d4 100644
+--- a/src/server.rs
++++ b/src/server.rs
+@@ -217,6 +217,10 @@ pub async fn create_tcp_connection(
+     secure: bool,
+     meta: ConnectionMeta,
+ ) -> ResultType<()> {
++    let host = crate::tbox_remote::host()?;
++    if !secure {
++        bail!("Tbox remote display requires an encrypted connection");
++    }
+     let mut stream = stream;
+     // The address the connection layer keys on, whitelist and admission alike.
+     let addr = hbb_common::try_into_v4(addr);
+@@ -228,12 +232,16 @@ pub async fn create_tcp_connection(
+     };
+     // Before the handshake, so its read is bounded too; lifted again at authorization.
+     stream.set_max_packet_length(MAX_UNAUTHORIZED_MESSAGE);
+-    tokio::select! {
+-        handshake = identity_handshake(&mut stream, secure) => handshake?,
++    let lease = tokio::select! {
++        handshake = async {
++            identity_handshake(&mut stream, secure).await?;
++            crate::tbox_remote::authorize_host(host, &mut stream).await
++        } => handshake?,
+         _ = unauthorized.evicted() => {
+             bail!("evicted to make room for a newer unauthenticated connection");
+         }
+-    }
++    };
++    stream.set_max_packet_length(MAX_UNAUTHORIZED_MESSAGE);
+ 
+     #[cfg(target_os = "macos")]
+     {
+@@ -254,6 +262,7 @@ pub async fn create_tcp_connection(
+         Arc::downgrade(&server),
+         meta,
+         unauthorized,
++        lease,
+     )
+     .await;
+     Ok(())
+@@ -314,12 +323,8 @@ async fn identity_handshake(stream: &mut Stream, secure: bool) -> ResultType<()>
+                                 &pk.asymmetric_value,
+                                 &our_sk_b,
+                             )?;
+-                            if pk.kx_version > advertised {
+-                                bail!(
+-                                    "Handshake failed: key exchange version {} not offered, {} was",
+-                                    pk.kx_version,
+-                                    advertised
+-                                );
++                            if pk.kx_version != advertised {
++                                bail!("Tbox remote key exchange downgrade refused");
+                             }
+                             stream.set_negotiated_key(
+                                 key,
+diff --git a/src/server/connection.rs b/src/server/connection.rs
+index 4b2eec88..01bb73a1 100644
+--- a/src/server/connection.rs
++++ b/src/server/connection.rs
+@@ -531,7 +531,10 @@ impl Connection {
+         server: super::ServerPtrWeak,
+         meta: super::ConnectionMeta,
+         unauthorized: UnauthorizedID,
++        lease: tbox_remote::HostLease,
+     ) {
++        let lease = lease.maintain();
++        tokio::pin!(lease);
+         let super::ConnectionMeta {
+             control_permissions,
+             controlled_context,
+@@ -742,6 +745,10 @@ impl Connection {
+                 // Both end an unauthorized connection at once, not on the next timer tick:
+                 // told to go to make room, or past the grace for its authorization. Neither
+                 // fires once the connection has authorized.
++                _ = &mut lease => {
++                    conn.on_close("Tbox remote authorization expired", true).await;
++                    break;
++                }
+                 _ = unauthorized_evicted(&conn.unauthorized_id) => {
+                     conn.on_close("Timeout", true).await;
+                     break;
+@@ -801,6 +808,9 @@ impl Connection {
+                             conn.chat_unanswered = false;
+                         }
+                         ipc::Data::SwitchPermission{name, enabled} => {
++                            if name != "keyboard" {
++                                continue;
++                            }
+                             log::info!("Change permission {} -> {}", name, enabled);
+                             if &name == "keyboard" {
+                                 conn.keyboard = enabled;
+@@ -2714,6 +2724,10 @@ impl Connection {
+         enable_prefix_option: &str,
+         control_permissions: &Option<ControlPermissions>,
+     ) -> bool {
++        if enable_prefix_option != keys::OPTION_ENABLE_KEYBOARD {
++            return false;
++        }
++
+         use hbb_common::rendezvous_proto::control_permissions::Permission;
+         if let Some(control_permissions) = control_permissions {
+             let permission = match enable_prefix_option {
+@@ -2853,7 +2867,7 @@ impl Connection {
+         self.lr = lr.clone();
+         self.peer_argb = crate::str2color(&format!("{}{}", &lr.my_id, &lr.my_platform), 0xff);
+         if let Some(o) = lr.option.as_ref() {
+-            self.options_in_login = Some(o.clone());
++            self.options_in_login = Some(crate::tbox_remote::desktop_options(o));
+         }
+         self.video_ack_required = lr.video_ack_required;
+     }
+@@ -2886,6 +2900,9 @@ impl Connection {
+     }
+ 
+     async fn on_message(&mut self, msg: Message) -> bool {
++        if !crate::tbox_remote::allows_desktop_message(&msg) {
++            return true;
++        }
+         if let Some(message::Union::Misc(misc)) = &msg.union {
+             // Move the CloseReason forward, as this message needs to be received when unauthorized, especially for kcp.
+             if let Some(misc::Union::CloseReason(s)) = &misc.union {
+@@ -2905,6 +2922,9 @@ impl Connection {
+         }
+         // After handling CloseReason messages, proceed to process other message types
+         if let Some(message::Union::LoginRequest(lr)) = msg.union {
++            if lr.union.is_some() || lr.os_login.is_some() {
++                return false;
++            }
+             if !self.check_login_scope(&lr).await {
+                 return false;
+             }
+@@ -3016,84 +3036,11 @@ impl Connection {
+                 self.try_start_cm_ipc();
+             }
+ 
+-            // https://github.com/rustdesk/rustdesk-server-pro/discussions/646
+-            // `is_logon` is used to check login with `OPTION_ALLOW_LOGON_SCREEN_PASSWORD` == "Y".
+-            // `is_logon_ui()` is a fallback for logon UI detection on Windows.
+-            #[cfg(target_os = "windows")]
+-            let is_logon = || {
+-                crate::platform::is_prelogin() || crate::platform::is_locked() || {
+-                    match crate::platform::is_logon_ui() {
+-                        Ok(result) => result,
+-                        Err(e) => {
+-                            log::error!("Failed to detect logon UI: {:?}", e);
+-                            false
+-                        }
+-                    }
+-                }
+-            };
+-            #[cfg(any(target_os = "linux", target_os = "macos"))]
+-            let is_logon = || crate::platform::is_prelogin() || crate::platform::is_locked();
+-            #[cfg(any(target_os = "android", target_os = "ios"))]
+-            let is_logon = || crate::platform::is_prelogin();
+-
+-            let allow_logon_screen_password =
+-                crate::get_builtin_option(keys::OPTION_ALLOW_LOGON_SCREEN_PASSWORD) == "Y"
+-                    && is_logon();
+-
+-            if (password::approve_mode() == ApproveMode::Click && !allow_logon_screen_password)
+-                || password::approve_mode() == ApproveMode::Both && !password::has_valid_password()
+-            {
+-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+-                if should_use_terminal_os_login_scope(self.terminal, &lr.os_login.username) {
+-                    if let Some(keep_alive) = self.prepare_terminal_login_for_authorization().await
+-                    {
+-                        return keep_alive;
+-                    }
+-                }
+-                self.try_start_cm(lr.my_id, lr.my_name, false);
+-                if hbb_common::get_version_number(&lr.version)
+-                    >= hbb_common::get_version_number("1.2.0")
+-                {
+-                    self.send_login_error(crate::client::LOGIN_MSG_NO_PASSWORD_ACCESS)
+-                        .await;
+-                }
+-                return true;
+-            } else if self.is_recent_session(false) {
+-                if !self.send_logon_response_and_keep_alive().await {
+-                    return false;
+-                }
+-                self.try_start_cm(lr.my_id.clone(), lr.my_name.clone(), self.authorized);
+-            } else if lr.password.is_empty() {
+-                #[cfg(not(any(target_os = "android", target_os = "ios")))]
+-                if should_use_terminal_os_login_scope(self.terminal, &lr.os_login.username) {
+-                    if let Some(keep_alive) = self.prepare_terminal_login_for_authorization().await
+-                    {
+-                        return keep_alive;
+-                    }
+-                }
+-                self.try_start_cm(lr.my_id, lr.my_name, false);
+-            } else {
+-                let (failure, res) = self.check_failure(0).await;
+-                if !res {
+-                    return true;
+-                }
+-                if !self.validate_password(allow_logon_screen_password) {
+-                    self.update_failure_with_scope(failure, false, 0, FailureScope::Default);
+-                    self.check_update_temporary_password(false);
+-                    self.send_login_error(crate::client::LOGIN_MSG_PASSWORD_WRONG)
+-                        .await;
+-                    self.try_start_cm(lr.my_id, lr.my_name, false);
+-                } else {
+-                    self.update_failure_with_scope(failure, true, 0, FailureScope::Default);
+-                    if !self.begin_trusted_device().await {
+-                        return false;
+-                    }
+-                    if !self.send_logon_response_and_keep_alive().await {
+-                        return false;
+-                    }
+-                    self.try_start_cm(lr.my_id, lr.my_name, self.authorized);
+-                }
++            self.require_2fa = None;
++            if !self.send_logon_response_and_keep_alive().await {
++                return false;
+             }
++            self.try_start_cm(lr.my_id, lr.my_name, self.authorized);
+         } else if let Some(message::Union::Auth2fa(tfa)) = msg.union {
+             // A 2FA response may arrive after click authorization has completed.
+             // Ignore it unless this connection is still waiting for the response.
+@@ -3390,13 +3337,7 @@ impl Connection {
+                     }
+                     self.update_auto_disconnect_timer();
+                 }
+-                #[cfg(any(target_os = "windows", target_os = "macos"))]
+-                Some(message::Union::OsLogin(login)) => {
+-                    if self.peer_keyboard_enabled() {
+-                        self.type_auto_login_password(login.password).await;
+-                    }
+-                    self.update_auto_disconnect_timer();
+-                }
++                Some(message::Union::OsLogin(_)) => {}
+                 Some(message::Union::Clipboard(cb)) => {
+                     if self.should_handle_text_clipboard_message() && self.clipboard_enabled() {
+                         #[cfg(not(any(target_os = "android", target_os = "ios")))]
+@@ -3925,7 +3866,7 @@ impl Connection {
+                     }
+                     Some(misc::Union::Option(o)) => {
+                         if self.authed_conn_type() == Some(AuthConnType::Remote) {
+-                            self.update_options(&o).await;
++                            self.update_options(&crate::tbox_remote::desktop_options(&o)).await;
+                         } else if let Some(option) = self.scoped_update_option_message(&o) {
+                             self.update_options(&option).await;
+                         }

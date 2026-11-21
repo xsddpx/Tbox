@@ -60,3 +60,9 @@ tbox.xsddpx.com {
 上游 Windows 安装器自行注册自动启动服务，运行时还检查上游安装布局。Tbox 签名包需要在应用扩展中声明服务，用随包位置解析服务与子进程路径，并在宿主通过本机授权前保持远控关闭。管理员安装、从重启到登录界面连接、撤销及升级后的服务连续性均需实际运行验证。[上游 Windows 实现](https://github.com/rustdesk/rustdesk/blob/95cca3f661f635b3cc85c04935fe8d96d8f432ef/src/platform/windows.rs) · [MSIX 服务文档](https://learn.microsoft.com/en-us/windows/msix/packaging-tool/convert-an-installer-with-services)
 
 2026-11-21，GitHub Windows 2025 运行器安装并覆盖升级独立签名夹具 `Tbox.RemoteServiceFixture`。两个版本的包系列一致，自动服务以 LocalSystem 启动并达到 Running。夹具验证 MSIX 服务注册与覆盖升级，RustDesk 宿主接入、Windows 重启至登录界面后的连接及双机操作仍待验收。[Windows MSIX 服务验证](https://github.com/xsddpx/Tbox/actions/runs/44871636834/job/136747239256)
+
+### RustDesk 握手验证
+
+`cargo test --locked --manifest-path src/Tbox.Remote/Cargo.toml` 验证独立握手逻辑。`bash scripts/prepare-remote-engine.sh` 检出固定 RustDesk 客户端和协议子模块，并将 Tbox 补丁应用到 `TEMP/` 的独立目录。控制端在已加密的流上比对服务器登记的被控端公钥。被控端生成新挑战，并调用账号服务兑换票据。引擎只处理桌面画面和键鼠消息。宿主使用单独的凭据报告就绪、兑换及续期。开发入口通过继承管道与 Tbox 交换登记信息和挑战签名。
+
+当前补丁已通过固定源码应用检查。完整 RustDesk 构建、Tbox 启动入口、Windows 签名服务注册、Mac 授权和中继部署按 REM-001 验收后进入安装包。
