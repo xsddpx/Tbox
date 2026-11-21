@@ -63,20 +63,22 @@ jobs:
           ref: 9e593bb18ea69cc5095e012465dcd675a822ed0d
           path: TEMP/vcpkg
           persist-credentials: false
+      - uses: actions/cache@v4
+        with:
+          path: TEMP/vcpkg/installed
+          key: rustdesk-arm64-osx-9e593bb1-aom-jpeg-vpx-yuv-opus
       - name: Prepare and type-check the patched client
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
           CARGO_TARGET_DIR: ${{ github.workspace }}/TEMP/rustdesk-target
           VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
-          VCPKG_INSTALLED_ROOT: ${{ github.workspace }}/TEMP/rustdesk-vcpkg
         run: |
           rustup update stable --no-self-update
           engine="$(bash scripts/prepare-remote-engine.sh)"
           "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
           cd "$engine"
           "$VCPKG_ROOT/vcpkg" install aom libjpeg-turbo libvpx libyuv opus \
-            --triplet arm64-osx \
-            --x-install-root="$VCPKG_INSTALLED_ROOT" --classic
+            --triplet arm64-osx --classic
           cargo +stable check --lib
 
   cloud:
