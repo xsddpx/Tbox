@@ -88,3 +88,5 @@ Windows 1.1.131 的签名包在 Windows 2025 运行器完成安装，`TboxRemote
 Windows 1.1.132 诊断将超时定位到工作进程启动，控制台会话存在，服务未能拉起工作进程。后续服务使用自己的 LocalSystem 令牌，将随包工作进程启动到活动控制台会话，避免依赖打开系统登录进程。待确认状态继续只准备身份，成功登记并落盘本机授权后才开始接受连接。[诊断构建](https://github.com/xsddpx/Tbox/actions/runs/44904858801/job/136855969514)
 
 Windows 1.1.134 完成 MSIX 签名、安装和 LocalSystem 服务启动。服务读取待确认授权并复制自身令牌，系统拒绝设置目标控制台会话，返回 Windows 错误 5。微软文档要求跨会话分配具备 `SeTcbPrivilege`，签名运行器中拒绝的具体原因仍待核查。工作进程没有启动，未发布身份。失败运行未保留可交付 MSIX。[Windows 1.1.134](https://github.com/xsddpx/Tbox/actions/runs/44908576376/job/136866701993) · [Windows TokenSessionId 文档](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ne-winnt-token_information_class)
+
+Mac 1.1.134 的签名引擎取得屏幕录制及辅助功能权限后，两次冷启动返回相同的有效传输身份。用设备页授权后，Windows 11 上的 1.1.130 显示 Mac 可远程控制，独立窗口收到 Mac 测试画面。点击和键入均未触发 Mac 测试窗口的回执。关闭 Mac 被控后，Windows 在 2.3 秒内进入重连。反向测试中，Mac 能看到 Windows 就绪并打开控制窗口，随后显示无法通过注册服务器建立连接。Windows 1.1.130 没有安装无人值守服务。

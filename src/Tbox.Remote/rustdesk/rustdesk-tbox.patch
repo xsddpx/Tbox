@@ -431,3 +431,59 @@ index 4b2eec88..01bb73a1 100644
                          } else if let Some(option) = self.scoped_update_option_message(&o) {
                              self.update_options(&option).await;
                          }
+diff --git a/flutter/macos/Runner/AppDelegate.swift b/flutter/macos/Runner/AppDelegate.swift
+index 46372a5..4ad89b0 100644
+--- a/flutter/macos/Runner/AppDelegate.swift
++++ b/flutter/macos/Runner/AppDelegate.swift
+@@ -11,6 +11,7 @@ class AppDelegate: FlutterAppDelegate {
+   }
+     
+     override func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
++        if isTboxRemoteHost { return false }
+         if (launched) {
+             handle_applicationShouldOpenUntitledFile();
+         }
+@@ -19,6 +20,6 @@ class AppDelegate: FlutterAppDelegate {
+     
+     override func applicationDidFinishLaunching(_ aNotification: Notification) {
+         launched = true;
+-        NSApplication.shared.activate(ignoringOtherApps: true);
++        if !isTboxRemoteHost { NSApplication.shared.activate(ignoringOtherApps: true) }
+     }
+ }
+diff --git a/flutter/macos/Runner/MainFlutterWindow.swift b/flutter/macos/Runner/MainFlutterWindow.swift
+index 336d94f..67b9f01 100644
+--- a/flutter/macos/Runner/MainFlutterWindow.swift
++++ b/flutter/macos/Runner/MainFlutterWindow.swift
+@@ -35,6 +35,8 @@ class RelativeMouseState {
+     private init() {}
+ }
+ 
++let isTboxRemoteHost = CommandLine.arguments.dropFirst().first == "--tbox-host"
++
+ class MainFlutterWindow: NSWindow {
+     private static let fullscreenWorkAreaSizes = NSMapTable<NSWindow, NSValue>(
+         keyOptions: [.weakMemory, .objectPointerPersonality],
+@@ -56,6 +58,14 @@ class MainFlutterWindow: NSWindow {
+     }
+ 
+     override func awakeFromNib() {
++        if isTboxRemoteHost {
++            // Screen input is delivered on the AppKit main queue. The host waits
++            // for its parent and serves the connection on a background thread.
++            NSApp.setActivationPolicy(.prohibited)
++            super.awakeFromNib()
++            DispatchQueue.global(qos: .userInitiated).async { _ = rustdesk_core_main() }
++            return
++        }
+         rustdesk_core_main();
+         _ = MainFlutterWindow.fullscreenObserver
+         let flutterViewController = FlutterViewController.init()
+@@ -91,6 +101,7 @@ class MainFlutterWindow: NSWindow {
+     }
+ 
+     override public func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
++        if isTboxRemoteHost && place != .out { return }
+         super.order(place, relativeTo: otherWin)
+         hiddenWindowAtLaunch()
+     }

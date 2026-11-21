@@ -50,3 +50,4 @@ done < <(find "$VIEWER/Contents" -depth -type d \( -name '*.framework' -o -name 
 codesign --force --sign "$SIGN_IDENTITY" --timestamp=none "$VIEWER"
 codesign --verify --deep --strict "$VIEWER"
 codesign --verify --strict -R "=identifier \"com.xsddpx.tbox.remote\" and certificate leaf = H\"$CERT_SHA1\"" "$VIEWER"
+swift "$(dirname "$0")/../tests/macos/RemoteHostLaunchTests.swift" "$VIEWER/Contents/MacOS/TboxRemote"

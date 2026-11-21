@@ -19,6 +19,7 @@ REMOTE_BUILD_FILES = (
     '.github/workflows/remote-viewers.yml',
     'scripts/prepare-remote-engine.sh',
     'scripts/stage-remote-viewer-macos.sh',
+    'tests/macos/RemoteHostLaunchTests.swift',
     'scripts/package-desktop-windows.ps1',
     'src/Tbox.Remote/Cargo.toml',
     'src/Tbox.Remote/Cargo.lock',
