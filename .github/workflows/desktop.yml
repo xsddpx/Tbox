@@ -170,7 +170,9 @@ jobs:
           retention-days: 7
 
   remote-viewer-macos:
-    if: github.event_name == 'workflow_dispatch' && inputs.build_remote_viewer
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.build_remote_viewer &&
+      (!inputs.verify_installer || inputs.verify_macos_installer)
     needs: remote-viewer-bridge
     runs-on: macos-26
     timeout-minutes: 60
@@ -235,7 +237,9 @@ jobs:
           compression-level: 0
 
   remote-viewer-windows:
-    if: github.event_name == 'workflow_dispatch' && inputs.build_remote_viewer
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.build_remote_viewer &&
+      (!inputs.verify_macos_installer || inputs.verify_installer)
     needs: remote-viewer-bridge
     runs-on: windows-2025
     timeout-minutes: 60
@@ -291,10 +295,18 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo check --lib --features flutter
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python build.py --flutter --portable --skip-portable-pack
+          cargo build --locked --release --lib --features flutter
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The MSIX packages the Flutter runtime and the authorization library.
+          # The upstream portable installer also builds a virtual display library.
+          Push-Location flutter
+          flutter build windows --release
+          Pop-Location
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $viewer = 'flutter/build/windows/x64/runner/Release'
-          if (-not (Test-Path "$viewer/rustdesk.exe")) { throw 'RustDesk executable was not built.' }
+          foreach ($payload in 'rustdesk.exe', 'librustdesk.dll', 'flutter_windows.dll', 'data/flutter_assets') {
+            if (-not (Test-Path "$viewer/$payload")) { throw "Missing Windows viewer payload: $payload" }
+          }
           Rename-Item "$viewer/rustdesk.exe" TboxRemote.exe
           Copy-Item LICENCE "$viewer/RustDesk-LICENCE.txt"
           $client = git rev-parse HEAD
