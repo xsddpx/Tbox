@@ -23,12 +23,15 @@ public sealed class WindowsWindowTopmostTests
             Assert.True(IsTopmost(existing));
             Assert.False(IsTopmost(normal));
             using var topmost = new WindowsWindowTopmost();
+            string? error = null;
+            topmost.Changed += message => error = message;
             topmost.SetBorderVisible(false);
             topmost.ToggleWindow(main);
             Assert.Equal((long)main, Assert.Single(topmost.Windows).Id);
             Assert.True(IsTopmost(main));
             Assert.True(IsTopmost(existing));
             topmost.ToggleWindow(main);
+            Assert.Null(error);
             Assert.Empty(topmost.Windows);
             Assert.False(IsTopmost(main));
             Assert.True(IsTopmost(existing));

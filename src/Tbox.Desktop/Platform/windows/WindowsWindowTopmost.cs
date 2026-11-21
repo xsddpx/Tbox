@@ -6,7 +6,8 @@ namespace Tbox.Desktop.Platform;
 
 internal sealed class WindowsWindowTopmost : IWindowTopmost
 {
-    private const uint PreservePlacement = 0x0001 | 0x0002 | 0x0010 | 0x0200 | 0x0400;
+    // Windows needs to adjust the entire owner group when moving it between z-order bands.
+    private const uint PreservePlacement = 0x0001 | 0x0002 | 0x0010;
     private const int ManagedWindow = 1;
     private const int OriginallyTopmostOwnedWindow = 2;
     private readonly string _property = $"Tbox.WindowTopmost.{Guid.NewGuid():N}";
