@@ -63,6 +63,38 @@ public sealed class AccountCoordinatorTests
             CloudProtocol.Challenge(handler.ExchangedVerifier!));
     }
 
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ScreenshotSyncUsesTheConfirmationEvenIfAccountRefreshesWhileTheDialogIsOpen(bool accepted)
+    {
+        var account = LocalAccount.Create(new Uri("https://tbox.test/")) with
+        {
+            RefreshToken = CloudProtocol.RandomSecret(), Login = "owner"
+        };
+        var settings = new AppSettings { Cloud = new LocalCloudPreferences { Origin = account.Origin, SyncPreferences = false } };
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var http = new HttpClient(new CloudHandler());
+        using var coordinator = new AccountCoordinator(() => settings, update =>
+        {
+            settings = update(settings);
+            return Task.CompletedTask;
+        }, new FixtureVault(JsonSerializer.Serialize(account)), Path.GetTempPath(), timeout.Token, http);
+        await coordinator.RefreshAsync();
+        var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = coordinator.SetCaptureSyncAsync(true, () => answer.Task);
+        await coordinator.RefreshAsync();
+        Assert.False(settings.Cloud.SyncCaptures);
+        Assert.False(coordinator.CanQueueCapture);
+
+        answer.SetResult(accepted);
+        await pending.WaitAsync(timeout.Token);
+        Assert.Equal(accepted, settings.Cloud.SyncCaptures);
+        Assert.Equal(accepted, coordinator.CanQueueCapture);
+        await coordinator.SetCaptureSyncAsync(false, () => throw new InvalidOperationException("Disabling must not ask for consent."));
+        Assert.False(coordinator.CanQueueCapture);
+    }
+
     [AvaloniaFact]
     public async Task SigningOutCancelsTheInFlightScreenshotAndDiscardsPendingWork()
     {

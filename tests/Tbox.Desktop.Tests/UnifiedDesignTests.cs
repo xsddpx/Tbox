@@ -21,6 +21,28 @@ namespace Tbox.Desktop.Tests;
 public sealed class UnifiedDesignTests
 {
     [AvaloniaFact]
+    public void MacAccessibilityPressHonorsTheCurrentEnabledStateOfAnAccountAction()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+        var clicks = 0;
+        var button = Ui.Button("我的设备", () => clicks++);
+        var window = new Window { Content = button };
+        window.Show();
+        try
+        {
+            var peer = Avalonia.Automation.Peers.ControlAutomationPeer.CreatePeerForElement(button);
+            var action = Assert.IsAssignableFrom<Avalonia.Automation.Provider.IInvokeProvider>(peer);
+            button.IsEnabled = false;
+            action.Invoke();
+            Assert.Equal(0, clicks);
+            button.IsEnabled = true;
+            action.Invoke();
+            Assert.Equal(1, clicks);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void ResultWindowsShareTheLightFrameAndPutThePrimaryActionLast()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());

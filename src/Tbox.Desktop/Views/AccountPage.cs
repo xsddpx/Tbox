@@ -48,17 +48,17 @@ internal sealed class AccountPage : StackPanel
         {
             if (!_refreshing) _controller.Run(() => _account.SetPreferenceSyncAsync(_preferences.IsChecked == true));
         };
-        _screenshots.IsCheckedChanged += async (_, _) =>
+        _screenshots.IsCheckedChanged += (_, _) =>
         {
             if (_refreshing) return;
-            if (_screenshots.IsChecked == true &&
-                !await new ConfirmWindow("同步此电脑的后续截图？", "开启同步",
-                    "之后完成的选区成品会上传至配置的账号服务，其他同账号设备可以查看。").ShowDialog<bool>(_owner()))
+            var enabled = _screenshots.IsChecked == true;
+            _controller.Run(async () =>
             {
+                await _account.SetCaptureSyncAsync(enabled, () =>
+                    new ConfirmWindow("同步此电脑的后续截图？", "开启同步",
+                        "之后完成的选区成品会上传至配置的账号服务，其他同账号设备可以查看。").ShowDialog<bool>(_owner()));
                 Refresh();
-                return;
-            }
-            _controller.Run(() => _account.SetCaptureSyncAsync(_screenshots.IsChecked == true));
+            });
         };
         _account.Changed += Refresh;
         Refresh();

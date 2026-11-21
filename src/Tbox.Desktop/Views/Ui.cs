@@ -1,5 +1,7 @@
 ﻿using Avalonia;
 using Avalonia.Automation;
+using Avalonia.Automation.Peers;
+using Avalonia.Automation.Provider;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
@@ -29,9 +31,25 @@ internal static class Ui
     {
         Text = text, FontSize = size, TextWrapping = TextWrapping.Wrap
     };
+    private sealed class ActionButton : Button
+    {
+        protected override Type StyleKeyOverride => typeof(Button);
+        protected override AutomationPeer OnCreateAutomationPeer() =>
+            OperatingSystem.IsMacOS() ? new MacButtonPeer(this) : base.OnCreateAutomationPeer();
+    }
+
+    private sealed class MacButtonPeer(Button owner) : ButtonAutomationPeer(owner), IInvokeProvider
+    {
+        void IInvokeProvider.Invoke()
+        {
+            // The native accessibility bridge can deliver a press after the page disables a button.
+            if (Owner.IsEffectivelyEnabled) base.Invoke();
+        }
+    }
+
     public static Button Button(string text, Action action, string? tooltip = null)
     {
-        var button = new Button { Content = text, MinHeight = DesignTokens.ControlHeight, Padding = new Thickness(14, 5), FontSize = 13,
+        var button = new ActionButton { Content = text, MinHeight = DesignTokens.ControlHeight, Padding = new Thickness(14, 5), FontSize = 13,
             CornerRadius = new CornerRadius(DesignTokens.ControlRadius), VerticalAlignment = VerticalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center };
         if (tooltip is not null) ToolTip.SetTip(button, tooltip);

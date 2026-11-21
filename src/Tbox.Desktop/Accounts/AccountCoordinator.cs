@@ -143,13 +143,16 @@ internal sealed partial class AccountCoordinator(
         if (enabled && SignedIn) await SynchronizeAsync(ct);
     });
 
-    internal async Task SetCaptureSyncAsync(bool enabled)
+    internal async Task SetCaptureSyncAsync(bool enabled, Func<Task<bool>> confirmEnable)
     {
+        var requestingAccount = _account;
+        if (!SignedIn || requestingAccount is null) return;
+        if (enabled && !await confirmEnable()) return;
         if (!enabled) PauseCaptureSync();
         await RunAsync(async ct =>
         {
             var account = _account;
-            if (!SignedIn || account is null) return;
+            if (!SignedIn || account != requestingAccount) return;
             await save(current => current with { Cloud = current.Cloud with { SyncCaptures = enabled } });
             if (enabled)
             {
