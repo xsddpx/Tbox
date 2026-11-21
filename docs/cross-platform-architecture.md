@@ -15,7 +15,7 @@
 - `Platform/windows`：Win32 原始像素捕获、窗口位置与全局快捷键（默认 F6/F7/F8/Ctrl+G）；系统 OCR 使用 Windows.Media.Ocr，仍要求 MSIX 包身份和已安装语言。共用工程在 Windows 自动选择 Windows TFM，也可在 Mac 以 `-p:TboxWindows=true` 编译检查。
 - `tests/Tbox.Core.Tests`、`tests/Tbox.Desktop.Tests`：两平台共用规则和实际渲染测试；系统权限及真实桌面集成另做本机验证。
 
-采用 Avalonia 是为了延续 C# 核心并共用桌面交互。1.1.110 起，应用和检查项目统一使用 .NET 10 LTS，Mac 应用最低版本为 macOS 15。Swift 桥接和合盖唤醒组件从 Bundle 的最低系统版本读取部署目标，完整包检查每个原生二进制的最低版本。
+采用 Avalonia 是为了延续 C# 核心并共用桌面交互。应用和检查项目使用 .NET 10 LTS。1.1.111 起，Mac Bundle 声明最低系统版本 macOS 27，主程序仅含 arm64 架构。Swift 桥接、合盖唤醒组件和媒体构建以 macOS 26 为内部部署目标，便于托管 CI 从命令行运行签名包内的二进制和执行冒烟检查。系统正常启动及覆盖升级使用 macOS 27 实机验收。
 
 ## 平台依赖选择
 

@@ -46,15 +46,15 @@ public sealed class UpdateTests
     }
 
     [Theory]
-    [InlineData("15.0", "15.0.0")]
-    [InlineData("15.0.0", "15.0")]
-    [InlineData("15.0.1", "15.1")]
+    [InlineData("27.0", "27.0.0")]
+    [InlineData("27.0.0", "27.0")]
+    [InlineData("27.0.1", "27.1")]
     public void MacUpdateAcceptsTheMinimumSystemAndLaterVersions(string minimum, string installed) =>
         UpdateInstaller.ValidateMacMinimumVersion(minimum, Version.Parse(installed));
 
     [Theory]
-    [InlineData("15.0", "14.7.8")]
-    [InlineData("15.0.1", "15.0.0")]
+    [InlineData("27.0", "26.7.2")]
+    [InlineData("27.0.1", "27.0.0")]
     public void MacUpdateRejectsSystemsBelowTheSignedPackageMinimum(string minimum, string installed)
     {
         var error = Assert.Throws<InvalidOperationException>(
@@ -64,10 +64,10 @@ public sealed class UpdateTests
 
     [Theory]
     [InlineData("")]
-    [InlineData("15")]
-    [InlineData("15.0.0.1")]
+    [InlineData("27")]
+    [InlineData("27.0.0.1")]
     public void MacUpdateRejectsInvalidMinimumSystemMetadata(string minimum) =>
-        Assert.Throws<InvalidDataException>(() => UpdateInstaller.ValidateMacMinimumVersion(minimum, new Version(15, 0)));
+        Assert.Throws<InvalidDataException>(() => UpdateInstaller.ValidateMacMinimumVersion(minimum, new Version(27, 0)));
 
     [Theory]
     [InlineData("http://release-assets.githubusercontent.com/file")]
