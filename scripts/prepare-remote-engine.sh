@@ -19,7 +19,7 @@ fi
 SOURCE="$ROOT/src/Tbox.Remote"
 git -C "$DESTINATION" apply --check "$SOURCE/rustdesk/rustdesk-tbox.patch"
 git -C "$DESTINATION" apply "$SOURCE/rustdesk/rustdesk-tbox.patch"
-cp "$SOURCE/rustdesk/tbox_remote.rs" "$DESTINATION/src/"
+cp "$SOURCE/rustdesk/"*.rs "$DESTINATION/src/"
 mkdir -p "$DESTINATION/libs/tbox-remote/src"
 cp "$SOURCE/Cargo.toml" "$DESTINATION/libs/tbox-remote/"
 cp "$SOURCE"/src/*.rs "$DESTINATION/libs/tbox-remote/src/"

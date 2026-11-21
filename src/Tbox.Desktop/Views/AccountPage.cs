@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Tbox.Core.Accounts;
 using Tbox.Desktop.Accounts;
 using Tbox.Desktop.Models;
+using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop.Views;
 
@@ -156,8 +157,10 @@ internal sealed class AccountPage : StackPanel
             ? Ui.Button("关闭远程控制", () => _controller.Run(_account.DisableRemoteHostAsync))
             : Ui.Button("允许此设备被控", () => _controller.Run(async () =>
             {
-                if (await new ConfirmWindow("允许无人值守控制？", "允许远程控制",
-                    "登录同一 Tbox 账号且仍获授权的设备可以查看此电脑画面并操作键鼠。关闭授权会结束进行中的连接。")
+                var detail = "登录同一 Tbox 账号且仍获授权的设备可以查看此电脑画面并操作键鼠。关闭授权会结束进行中的连接。";
+                if (OperatingSystem.IsWindows() && WindowsRemoteHost.Available)
+                    detail += " Windows 会要求管理员确认，以便重启后在登录界面接受连接。";
+                if (await new ConfirmWindow("允许无人值守控制？", "允许远程控制", detail)
                     .ShowDialog<bool>(_owner())) await _account.EnableRemoteHostAsync();
             }));
         action.IsEnabled = !_account.Busy;

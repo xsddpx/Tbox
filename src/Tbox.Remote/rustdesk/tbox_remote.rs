@@ -15,11 +15,15 @@ use serde_derive::{Deserialize, Serialize};
 use tbox_remote::{ControllerSigner, HostAuthorization, HostLease, Invitation, SecureStream};
 use uuid::Uuid;
 
+#[cfg(windows)]
+#[path = "tbox_windows_service.rs"]
+pub(crate) mod system_host;
+
 static HOST: OnceLock<Host> = OnceLock::new();
 static CONTROLLER: OnceLock<Controller> = OnceLock::new();
 static LAST_READY: Mutex<Option<Instant>> = Mutex::new(None);
 
-#[derive(Deserialize)]
+#[derive(Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 struct Network {
     rendezvous: String,
@@ -82,27 +86,35 @@ pub(crate) fn start_host() -> Result<()> {
     }
     let host =
         HostAuthorization::new(&bootstrap.origin, bootstrap.device_id, bootstrap.credential)?;
+    let identity = host_identity()?;
+    send_control(&identity)?;
+    // The parent obtains local consent and signs the identity registration.
+    let answer: StartHost = read_control()?;
+    ensure!(answer.ready, "Tbox remote host registration was cancelled");
+    initialize_host(host, identity)?;
+    watch_parent_pipe();
+    crate::start_server(true, false);
+    Ok(())
+}
+
+fn host_identity() -> Result<HostIdentity> {
     let (_, key) = Config::get_key_pair();
     ensure!(
         key.len() == 32,
         "Could not initialize Tbox remote host identity"
     );
-    let identity = HostIdentity {
+    Ok(HostIdentity {
         peer_id: Config::get_id(),
         public_key: crate::encode64(key),
-    };
-    send_control(&identity)?;
-    // The parent obtains local consent and signs the identity registration.
-    let answer: StartHost = read_control()?;
-    ensure!(answer.ready, "Tbox remote host registration was cancelled");
+    })
+}
+
+fn initialize_host(authorization: HostAuthorization, identity: HostIdentity) -> Result<()> {
     HOST.set(Host {
-        authorization: host,
+        authorization,
         identity,
     })
-    .map_err(|_| anyhow!("Tbox remote host already initialized"))?;
-    watch_parent_pipe();
-    crate::start_server(true, false);
-    Ok(())
+    .map_err(|_| anyhow!("Tbox remote host already initialized"))
 }
 
 pub(crate) fn start_controller() -> Result<Vec<String>> {
@@ -141,10 +153,12 @@ fn configure_network(network: &Network) -> Result<()> {
         "Invalid Tbox rendezvous settings"
     );
     *config::EXE_RENDEZVOUS_SERVER.write().unwrap() = network.rendezvous.clone();
-    config::OVERWRITE_SETTINGS
-        .write()
-        .unwrap()
-        .insert("key".to_owned(), network.rendezvous_key.clone());
+    let mut settings = config::OVERWRITE_SETTINGS.write().unwrap();
+    settings.insert(
+        "custom-rendezvous-server".to_owned(),
+        network.rendezvous.clone(),
+    );
+    settings.insert("key".to_owned(), network.rendezvous_key.clone());
     Ok(())
 }
 
@@ -161,8 +175,13 @@ pub(crate) fn registered() {
         *last = Some(now);
     }
     tokio::spawn(async move {
-        if let Err(error) = host.heartbeat().await {
-            hbb_common::log::debug!("Tbox remote readiness failed: {error}");
+        match host.heartbeat().await {
+            Ok(true) => {}
+            Ok(false) => {
+                #[cfg(windows)]
+                system_host::revoke_consent();
+            }
+            Err(error) => hbb_common::log::debug!("Tbox remote readiness failed: {error}"),
         }
     });
 }

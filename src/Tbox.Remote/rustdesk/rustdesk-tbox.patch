@@ -109,14 +109,24 @@ diff --git a/src/core_main.rs b/src/core_main.rs
 index 0f62d1e5..7799018d 100644
 --- a/src/core_main.rs
 +++ b/src/core_main.rs
-@@ -46,7 +46,18 @@ pub fn core_main() -> Option<CoreMainAction> {
+@@ -46,7 +46,28 @@ pub fn core_main() -> Option<CoreMainAction> {
      if !crate::common::global_init() {
          return None;
      }
 -    crate::load_custom_client();
 +    crate::tbox_remote::setup_name();
-+    // The companion accepts secrets only over inherited pipes.
-+    match std::env::args().nth(1).as_deref() {
++    // The companion entry points keep credentials out of command-line arguments.
++    let mut arguments = std::env::args().skip(1);
++    match arguments.next().as_deref() {
++        #[cfg(windows)]
++        Some("--tbox-service") => return crate::tbox_remote::system_host::dispatch().err().map(CoreMainAction::ExitFailure),
++        #[cfg(windows)]
++        Some("--server") if arguments.next().as_deref() == Some("--tbox-console") => {
++            let result = arguments.next().and_then(|pid| pid.parse().ok())
++                .ok_or_else(|| hbb_common::anyhow::anyhow!("Invalid Tbox remote service process"))
++                .and_then(crate::tbox_remote::system_host::start_console);
++            return result.err().map(CoreMainAction::ExitFailure);
++        }
 +        Some("--tbox-host") => return crate::tbox_remote::start_host().err().map(CoreMainAction::ExitFailure),
 +        Some("--tbox-connect") => {
 +            return Some(match crate::tbox_remote::start_controller() {
@@ -220,6 +230,18 @@ index a88e33a5..e67a45d4 100644
                              }
                              stream.set_negotiated_key(
                                  key,
+@@ -684,6 +701,10 @@ pub async fn start_server(is_server: bool, no_server: bool) {
+         }
+         crate::common::set_server_running(true);
+-        if !cfg!(windows) || crate::is_server() {
++        #[cfg(windows)]
++        let system_host = crate::tbox_remote::system_host::active_worker();
++        #[cfg(not(windows))]
++        let system_host = false;
++        if !system_host && (!cfg!(windows) || crate::is_server()) {
+             std::thread::spawn(move || {
+                 if let Err(err) = crate::ipc::start("") {
+                     log::error!("Failed to start ipc: {}", err);
 diff --git a/src/server/connection.rs b/src/server/connection.rs
 index 4b2eec88..01bb73a1 100644
 --- a/src/server/connection.rs

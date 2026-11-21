@@ -162,14 +162,17 @@ impl HostAuthorization {
     }
 
     // Call only while a locally enabled host is listening and registered with rendezvous.
-    pub async fn heartbeat(&self) -> Result<()> {
+    pub async fn heartbeat(&self) -> Result<bool> {
         let response = self
             .request("/v1/remote/host/heartbeat")?
             .send()
             .await
             .context("Could not report remote host readiness")?;
-        ensure!(response.status() == 204, "Remote host readiness rejected");
-        Ok(())
+        match response.status().as_u16() {
+            204 => Ok(true),
+            401 => Ok(false),
+            _ => anyhow::bail!("Remote host readiness rejected"),
+        }
     }
 
     pub async fn authorize(&self, stream: &mut impl SecureStream) -> Result<HostLease> {

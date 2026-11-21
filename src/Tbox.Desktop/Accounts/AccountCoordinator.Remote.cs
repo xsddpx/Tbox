@@ -1,5 +1,6 @@
 using System.Net;
 using Tbox.Core.Accounts;
+using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop.Accounts;
 
@@ -10,12 +11,23 @@ internal sealed partial class AccountCoordinator
     internal IReadOnlyList<RemoteHost> RemoteHosts { get; private set; } = [];
     internal bool RemoteAvailable => RemoteEngine.Installed is not null && _account is { } account &&
         CloudClient.TryOrigin(_packagedOrigin, out var origin) && account.Origin == origin.AbsoluteUri;
-    internal bool RemoteHostEnabled => _remoteHost is not null;
+    internal bool RemoteHostEnabled => _remoteHost is not null ||
+        OperatingSystem.IsWindows() && WindowsRemoteHost.Available && WindowsRemoteHost.ConfiguredDevice is not null;
 
     internal Task EnableRemoteHostAsync() => RunAsync(async ct =>
     {
-        if (_remoteHost is not null || !SignedIn || !RemoteAvailable ||
+        if (RemoteHostEnabled || !SignedIn || !RemoteAvailable ||
             _account is not { } account || RemoteEngine.Installed is not { } engine) return;
+        if (OperatingSystem.IsWindows() && WindowsRemoteHost.Available)
+        {
+            var systemCredential = CloudProtocol.RandomSecret();
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(TimeSpan.FromMinutes(2));
+            await WindowsRemoteHost.ConfigureAsync(account.DeviceId, systemCredential,
+                transport => RegisterRemoteTransportAsync(account, systemCredential, transport, deadline.Token), deadline.Token);
+            Status = "已允许此设备接受远程控制。";
+            return;
+        }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         var token = timeout.Token;
@@ -28,11 +40,7 @@ internal sealed partial class AccountCoordinator
                 engine.Network, account.Origin, account.DeviceId, Credential = credential
             }, token);
             var transport = await process.ReceiveAsync<RemoteTransportIdentity>(token);
-            if (!RemoteAccessProtocol.IsTransportIdentity(transport))
-                throw new InvalidOperationException("远程桌面组件返回的设备身份无效。");
-            var signature = account.Sign(RemoteAccessProtocol.HostRegistrationProof(account.DeviceId, credential, transport));
-            await RequestAsync<object>(HttpMethod.Put, "/v1/remote/hosts/current",
-                new RemoteHostRegistration(credential, transport, signature), token);
+            await RegisterRemoteTransportAsync(account, credential, transport, token);
             await process.SendAsync(new { Ready = true }, token);
             if (_disposed) throw new OperationCanceledException(token);
             _remoteHost = process;
@@ -47,10 +55,30 @@ internal sealed partial class AccountCoordinator
 
     internal Task DisableRemoteHostAsync() => RunAsync(async ct =>
     {
+        if (_account is { } account) await DisableWindowsRemoteHostAsync(account, signingOut: false, ct);
         StopRemoteHost();
         await RequestAsync<object>(HttpMethod.Delete, "/v1/remote/hosts/current", null, ct);
         Status = "此设备的远程控制已关闭。";
     });
+
+    private async Task RegisterRemoteTransportAsync(LocalAccount account, string credential,
+        RemoteTransportIdentity transport, CancellationToken ct)
+    {
+        if (!RemoteAccessProtocol.IsTransportIdentity(transport))
+            throw new InvalidOperationException("远程桌面组件返回的设备身份无效。");
+        var signature = account.Sign(RemoteAccessProtocol.HostRegistrationProof(account.DeviceId, credential, transport));
+        await RequestAsync<object>(HttpMethod.Put, "/v1/remote/hosts/current",
+            new RemoteHostRegistration(credential, transport, signature), ct);
+    }
+
+    private static async Task DisableWindowsRemoteHostAsync(LocalAccount account, bool signingOut, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsWindows() || !WindowsRemoteHost.Available || WindowsRemoteHost.ConfiguredDevice is not { } device ||
+            signingOut && device != account.DeviceId) return;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(TimeSpan.FromMinutes(2));
+        await WindowsRemoteHost.ConfigureAsync(account.DeviceId, null, null, deadline.Token);
+    }
 
     internal Task ConnectRemoteHostAsync(Guid hostId) => RunAsync(async ct =>
     {

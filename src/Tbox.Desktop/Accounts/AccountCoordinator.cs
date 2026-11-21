@@ -96,11 +96,19 @@ internal sealed partial class AccountCoordinator(
 
     internal Task SignOutAsync()
     {
+        var captureWasPaused = _capturePaused;
         PauseCaptureSync();
         StopRemoteEngine();
         return RunAsync(async ct =>
         {
             if (_account is not { RefreshToken: not null } account) return;
+            try { await DisableWindowsRemoteHostAsync(account, signingOut: true, ct); }
+            catch
+            {
+                _capturePaused = captureWasPaused;
+                if (!_capturePaused && settings().Cloud.SyncCaptures) StartCaptureSync();
+                throw;
+            }
             await WriteAsync(account with { SignOutPending = true, Login = null }, ct);
             ResetView();
             await save(current => current with { Cloud = new LocalCloudPreferences { Origin = account.Origin } });

@@ -36,13 +36,44 @@ $ResultDirectory = [IO.Path]::GetFullPath($ResultDirectory)
 if (Test-Path -LiteralPath $ResultDirectory) { throw 'Use a new result directory, so a stale result cannot pass verification.' }
 $parameters = @{ Path = $package; ForceApplicationShutdown = $true; ErrorAction = 'Stop' }
 if ($DependencyPath.Count) { $parameters.DependencyPath = $DependencyPath }
-Add-AppxPackage @parameters
+$remoteExtension = $manifest.SelectSingleNode("//*[local-name()='Service' and @Name='TboxRemote' and namespace-uri()='http://schemas.microsoft.com/appx/manifest/desktop/windows10/6']")
+function Get-InstalledRemoteService($app) {
+    $service = Get-CimInstance Win32_Service -Filter "Name='TboxRemote'"
+    $expected = Join-Path $app.InstallLocation 'Remote\TboxRemote.exe'
+    if (-not $service -or $service.StartMode -ne 'Auto' -or $service.StartName -ne 'LocalSystem' -or
+        ($service.PathName -ne ('"' + $expected + '" --tbox-service') -and $service.PathName -ne ($expected + ' --tbox-service'))) {
+        throw 'The installed signed package did not register the expected Tbox remote service.'
+    }
+    $service
+}
+$restartPreviousService = $false
+if ($installedBefore.Count -eq 1 -and (Test-Path -LiteralPath (Join-Path $installedBefore[0].InstallLocation 'Remote\tbox-host-policy.json'))) {
+    $priorService = Get-InstalledRemoteService $installedBefore[0]
+    if ($priorService.State -ne 'Stopped') {
+        Stop-Service -Name TboxRemote
+        (Get-Service -Name TboxRemote).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(25))
+        $restartPreviousService = $true
+    }
+}
+try { Add-AppxPackage @parameters }
+catch {
+    if ($restartPreviousService) { Start-Service -Name TboxRemote -ErrorAction Continue }
+    throw
+}
 $installed = Get-AppxPackage -Name Tbox | Where-Object Publisher -eq 'CN=Tbox Development'
 if (-not $installed) { throw 'Tbox was not registered after installation.' }
 if ($installed.Version -ne [Version]$manifest.Package.Identity.Version) { throw 'Installed version differs from the requested package.' }
 $executable = Join-Path $installed.InstallLocation 'Tbox.Desktop.exe'
 if (-not (Test-Path -LiteralPath $executable)) { throw 'The installed package does not contain the shared desktop application.' }
 New-Item -ItemType Directory -Path $ResultDirectory | Out-Null
+if ($remoteExtension) {
+    $service = Get-InstalledRemoteService $installed
+    Start-Service -Name TboxRemote
+    (Get-Service -Name TboxRemote).WaitForStatus('Running', [TimeSpan]::FromSeconds(25))
+    [ordered]@{ name = $service.Name; startMode = $service.StartMode; startAccount = $service.StartName;
+        status = (Get-Service -Name TboxRemote).Status.ToString() } |
+        ConvertTo-Json | Set-Content (Join-Path $ResultDirectory 'remote-service.json') -Encoding UTF8
+}
 $smokeArguments = "--smoke-test `"$ResultDirectory`""
 if ($VerifyCapture) { $smokeArguments += ' --verify-capture' }
 if ($VerifyRecording) { $smokeArguments += ' --verify-recording' }

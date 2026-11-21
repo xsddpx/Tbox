@@ -26,10 +26,51 @@ function Invoke-Checked {
 
 function Assert-RemoteViewer {
     param([string]$LayoutPath)
-    foreach ($relative in 'TboxRemote.exe', 'librustdesk.dll', 'data\flutter_assets', 'RustDesk-LICENCE.txt', 'RustDesk-source.txt') {
+    foreach ($relative in 'TboxRemote.exe', 'librustdesk.dll', 'data\flutter_assets', 'RustDesk-LICENCE.txt', 'RustDesk-source.txt', 'tbox-host-policy.json') {
         if (-not (Test-Path -LiteralPath (Join-Path $LayoutPath "Remote\$relative"))) {
             throw "Missing packaged remote viewer payload: $relative"
         }
+    }
+}
+
+function Add-RemoteService {
+    param([xml]$Manifest, [string]$ViewerPath)
+    [xml]$projectXml = Get-Content -LiteralPath $project -Raw -Encoding UTF8
+    $origin = if ($env:TBOX_ACCOUNT_ORIGIN) { $env:TBOX_ACCOUNT_ORIGIN.Trim() }
+        else { $projectXml.SelectSingleNode('/Project/PropertyGroup/TBOX_ACCOUNT_ORIGIN').InnerText }
+    $uri = [Uri]$origin
+    if (-not $uri.IsAbsoluteUri -or $uri.Scheme -ne 'https' -or $uri.AbsolutePath -ne '/' -or
+        $uri.UserInfo -or $uri.Query -or $uri.Fragment) {
+        throw 'The Windows remote service requires an HTTPS account origin.'
+    }
+    if ($env:TBOX_REMOTE_RENDEZVOUS -notmatch '^[a-zA-Z0-9.-]+(:[0-9]{1,5})?$' -or
+        [Convert]::FromBase64String($env:TBOX_REMOTE_RENDEZVOUS_KEY).Length -ne 32) {
+        throw 'The Windows remote service requires a valid rendezvous address and key.'
+    }
+    $policy = [ordered]@{ origin = $uri.AbsoluteUri; network = @{
+        rendezvous = $env:TBOX_REMOTE_RENDEZVOUS; rendezvousKey = $env:TBOX_REMOTE_RENDEZVOUS_KEY } }
+    [IO.File]::WriteAllText((Join-Path $ViewerPath 'tbox-host-policy.json'),
+        ($policy | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+
+    $desktop6 = 'http://schemas.microsoft.com/appx/manifest/desktop/windows10/6'
+    $rescap = 'http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities'
+    $Manifest.Package.SetAttribute('xmlns:desktop6', $desktop6)
+    $Manifest.Package.IgnorableNamespaces += ' desktop6'
+    $extension = $Manifest.CreateElement('desktop6', 'Extension', $desktop6)
+    $extension.SetAttribute('Category', 'windows.service')
+    $extension.SetAttribute('Executable', 'Remote\TboxRemote.exe')
+    $extension.SetAttribute('EntryPoint', 'Windows.FullTrustApplication')
+    $service = $Manifest.CreateElement('desktop6', 'Service', $desktop6)
+    $service.SetAttribute('Name', 'TboxRemote')
+    $service.SetAttribute('StartupType', 'auto')
+    $service.SetAttribute('StartAccount', 'localSystem')
+    $service.SetAttribute('Arguments', '--tbox-service')
+    $extension.AppendChild($service) | Out-Null
+    $Manifest.Package.Applications.Application.Extensions.AppendChild($extension) | Out-Null
+    foreach ($name in 'packagedServices', 'localSystemServices', 'allowElevation') {
+        $capability = $Manifest.CreateElement('rescap', 'Capability', $rescap)
+        $capability.SetAttribute('Name', $name)
+        $Manifest.Package.Capabilities.AppendChild($capability) | Out-Null
     }
 }
 try {
@@ -73,6 +114,7 @@ try {
                 throw 'The remote viewer requires the configured rendezvous address and key.'
             }
             Expand-Archive -LiteralPath $env:TBOX_REMOTE_WINDOWS_VIEWER_ZIP -DestinationPath (Join-Path $layout 'Remote')
+            Add-RemoteService $manifestXml (Join-Path $layout 'Remote')
             Assert-RemoteViewer $layout
         }
         Invoke-Checked python @('scripts/verify-windows-media.py', (Join-Path $layout 'ThirdParty\FFmpeg'))
@@ -82,7 +124,7 @@ try {
             Copy-Item -Path (Join-Path $assetSource $pattern) -Destination (Join-Path $layout 'Assets')
         }
         Assert-DesktopIconAssets $layout
-        Copy-Item -LiteralPath $manifest -Destination (Join-Path $layout 'AppxManifest.xml')
+        $manifestXml.Save((Join-Path $layout 'AppxManifest.xml'))
         Invoke-Checked dotnet @('run', '--project', 'tests/Tbox.MediaSmoke/Tbox.MediaSmoke.csproj', '-c', 'Release', '--',
             'assets/media-test/fixture.mp4', (Join-Path $work 'media'),
             (Join-Path $layout 'ThirdParty\FFmpeg\bin\ffmpeg.exe'), (Join-Path $layout 'libvlc\win-x64'))
@@ -107,6 +149,9 @@ try {
     Invoke-Checked $signTool ($signArguments + $candidate)
     Invoke-Checked $signTool @('verify', '/pa', '/v', $candidate)
     & (Join-Path $PSScriptRoot 'install-desktop-windows.ps1') -PackagePath $candidate -ResultDirectory (Join-Path $work 'installed-smoke') -VerifyCapture:$VerifyCapture -VerifyRecording:$VerifyRecording
+    if ($env:TBOX_REMOTE_WINDOWS_VIEWER_ZIP -and $env:GITHUB_ACTIONS -eq 'true' -and $env:RUNNER_ENVIRONMENT -eq 'github-hosted') {
+        & "$root/tests/windows/test-installed-remote-service.ps1" -ResultDirectory (Join-Path $work 'installed-smoke')
+    }
     if ((Get-Content -LiteralPath $history -Raw -Encoding UTF8) -ne $historyBefore) { throw 'Release history changed during validation; keep the verified candidate and retry with a new version.' }
     $hash = (Get-FileHash $candidate -Algorithm SHA256).Hash
     $stamp = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time').ToString('yyyy-MM-dd HH:mm:ss zzz')
