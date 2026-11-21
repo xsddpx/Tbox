@@ -133,6 +133,7 @@ public sealed class MacPlatformServices : IPlatformServices
     public void PrepareCaptureOverlay(nint handle, bool clickThrough) => NativeCaptureOverlay(handle, clickThrough ? 1 : 0);
     public IRegionRecorder CreateRecorder(RecordingArea area, bool systemAudio, bool cursor, int framesPerSecond) => new MacRegionRecorder(area, systemAudio, cursor, framesPerSecond);
     public IFolderNavigation CreateFolderNavigation() => new MacFolderNavigation();
+    public IWindowTopmost CreateWindowTopmost() => new MacWindowTopmost(this);
     public IStartupRegistration CreateStartupRegistration() => new MacStartupRegistration();
     public IKeepAwake CreateKeepAwake(string stateDirectory) => new MacKeepAwake(stateDirectory);
 

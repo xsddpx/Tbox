@@ -79,6 +79,8 @@ internal sealed class FakePlatform : IPlatformServices
     public IStartupRegistration CreateStartupRegistration() => StartupRegistration;
     public FakeQuickLook QuickLook { get; } = new();
     public IQuickLookSource CreateQuickLook() => QuickLook;
+    public FakeWindowTopmost Topmost { get; } = new();
+    public IWindowTopmost CreateWindowTopmost() => Topmost;
     public FakeKeepAwake KeepAwake { get; set; } = new();
     public IKeepAwake CreateKeepAwake(string stateDirectory) => KeepAwake;
     public void Dispose() { }
@@ -108,6 +110,29 @@ internal sealed class FakePlatform : IPlatformServices
             CancellationToken cancellationToken) => Task.FromResult(platform.FolderJumpResult);
         public void Dispose() { }
     }
+}
+
+internal sealed class FakeWindowTopmost : IWindowTopmost
+{
+    private readonly List<TopmostWindow> _windows = [];
+    public IReadOnlyList<TopmostWindow> Windows => _windows;
+    public bool BorderVisible { get; private set; }
+    public bool NeedsScreenPermission { get; set; }
+    public bool NeedsAccessibilityPermission { get; set; }
+    public int AccessibilityRequests { get; private set; }
+    public TopmostWindow Foreground { get; set; } = new(1, "参考笔记");
+    public event Action<string?>? Changed;
+    public void RequestAccessibilityPermission() => AccessibilityRequests++;
+    public void ToggleForeground()
+    {
+        if (_windows.Any(window => window.Id == Foreground.Id)) { Remove(Foreground.Id); return; }
+        _windows.Add(Foreground);
+        Changed?.Invoke(null);
+    }
+    public void SetBorderVisible(bool visible) => BorderVisible = visible;
+    public void Remove(long id) { _windows.RemoveAll(window => window.Id == id); Changed?.Invoke(null); }
+    public void Clear() { _windows.Clear(); Changed?.Invoke(null); }
+    public void Dispose() => Clear();
 }
 
 // Records keep-awake requests and simulates refusals and the macOS password prompt.

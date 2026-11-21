@@ -14,6 +14,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Tbox.Core;
 using Tbox.Desktop.Models;
+using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop.Views;
 
@@ -68,6 +69,13 @@ public sealed class MainWindow : Window
     private readonly ComboBox _quickLookMaxSize = new() { MinWidth = 160 };
     private static readonly int[] QuickLookFontSizes = [10, 12, 13, 14, 16, 18, 20, 24];
     private static readonly int[] QuickLookMaxSizes = [1024, 5120, 10240, 51200, 102400];
+    private readonly ToggleSwitch _topmostToggle = Switch("启用窗口置顶");
+    private readonly ToggleSwitch _topmostBorder = Switch("显示紫色边框");
+    private readonly ContentControl _topmostList = new();
+    private readonly Button _topmostClear;
+    private readonly Border _topmostScreenPermission;
+    private readonly Border _topmostAccessPermission;
+    private TopmostWindow[]? _shownTopmostWindows;
     // 保持唤醒
     private readonly ToggleSwitch _awakeToggle = Switch("保持唤醒");
     private readonly ToggleSwitch _awakeDisplayToggle = Switch("保持屏幕常亮");
@@ -124,6 +132,11 @@ public sealed class MainWindow : Window
         _quickLookMethodLine = new SettingsLine("激活方法", "选择文件时使用快捷方式或按空格键", _quickLookMethod);
         AutomationProperties.SetName(_quickLookMethod, "激活方法");
         _quickLookSettings = QuickLookSettingsRows();
+        _topmostClear = Ui.Button("解除全部", () => controller.WindowTopmost?.Clear(), "解除全部窗口置顶");
+        _topmostScreenPermission = Ui.WarningBar(IconKind.Warn, "需要屏幕录制权限", "允许后 Tbox 才能在浮窗中显示窗口画面",
+            Ui.Primary("去授权", controller.RequestTopmostScreenPermission, "允许窗口置顶录制屏幕"));
+        _topmostAccessPermission = Ui.WarningBar(IconKind.Warn, "需要辅助功能权限", "允许后 Tbox 才能识别当前窗口并从浮窗返回",
+            Ui.Button("去授权", controller.RequestTopmostAccessibilityPermission, "允许窗口置顶使用辅助功能"));
         _cancelStartup = Ui.Button("取消申请", () => controller.Run(() => controller.SetStartupAsync(false)), "取消开机启动申请");
         _startup = new SettingsLine("开机时启动", "启动后只在托盘运行，不打开窗口", Ui.Row(_cancelStartup, _startupToggle));
         _update = new UpdateCard(controller);
@@ -213,6 +226,7 @@ public sealed class MainWindow : Window
         _body.Content = _pages[page];
         foreach (var (key, item) in _nav) item.Selected = key == page;
         SetStatus("");
+        if (page == MainPage.WindowTopmost) RefreshWindowTopmost();
         if (page == MainPage.Models) _controller.Run(_models.OpenAsync);
         if (page == MainPage.Translation) _controller.Run(_translation.OpenAsync);
         if (page == MainPage.Account) { _account.Refresh(); _controller.Run(_controller.Account.RefreshAsync); }
@@ -297,6 +311,7 @@ public sealed class MainWindow : Window
         _cancelStartup.IsVisible = _controller.Startup.RequiresApproval;
 
         RefreshKeepAwake();
+        RefreshWindowTopmost();
         RefreshDots();
         RefreshRecent();
     }
@@ -329,6 +344,28 @@ public sealed class MainWindow : Window
         _awakeScreen.Background = Brush.Parse(applied.System && applied.Display ? "#EEEAFE" : "#FFFFFF");
     }
 
+    internal void RefreshWindowTopmost()
+    {
+        if (_controller.WindowTopmost is not { } topmost) return;
+        var settings = _controller.Settings;
+        var enabled = settings.WindowTopmostEnabled;
+        _updating = true;
+        _topmostToggle.IsChecked = enabled;
+        _topmostBorder.IsChecked = settings.WindowTopmostBorder;
+        _updating = false;
+        _topmostBorder.IsEnabled = enabled;
+        _topmostScreenPermission.IsVisible = enabled && topmost.NeedsScreenPermission;
+        _topmostAccessPermission.IsVisible = enabled && topmost.NeedsAccessibilityPermission;
+        _nav[MainPage.WindowTopmost].Dot = enabled && _controller.HasHotkeyConflictFor(HotkeyAction.WindowTopmost) ? DesignTokens.Recording
+            : _topmostScreenPermission.IsVisible || _topmostAccessPermission.IsVisible ? DesignTokens.AttentionDot : null;
+        var windows = topmost.Windows;
+        if (_shownTopmostWindows?.SequenceEqual(windows) == true) return;
+        _shownTopmostWindows = [.. windows];
+        _topmostClear.IsEnabled = windows.Count != 0;
+        _topmostList.Content = windows.Count == 0 ? Ui.Note("当前没有置顶窗口") : Ui.Rows(windows.Select(window =>
+            new SettingsLine(window.Title, "", Ui.Button("解除", () => topmost.Remove(window.Id), $"解除{window.Title}置顶"))).ToArray());
+    }
+
     // Red = hotkey conflict, yellow = permission needed or an update is available.
     private void RefreshDots()
     {
@@ -352,6 +389,8 @@ public sealed class MainWindow : Window
         On(_startupToggle, _controller.SetStartupAsync);
         On(_failureToggle, _controller.SetFailureNotificationsAsync);
         On(_quickLookToggle, enabled => _controller.SetQuickLookAsync(_controller.Settings.QuickLook with { Enabled = enabled }));
+        On(_topmostToggle, _controller.SetWindowTopmostEnabledAsync);
+        On(_topmostBorder, _controller.SetWindowTopmostBorderAsync);
         _quickLookMethod.SelectionChanged += (_, _) =>
         {
             if (_updating || _quickLookMethod.SelectedIndex < 0) return;
@@ -387,6 +426,7 @@ public sealed class MainWindow : Window
         void Item(MainPage page, IconKind icon, string title) { var item = new NavItem(icon, title, () => Navigate(page)); _nav[page] = item; items.Children.Add(item); }
         Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
         if (_controller.SupportsQuickLook) Item(MainPage.QuickLook, IconKind.QuickLook, "速览");
+        if (_controller.WindowTopmost is not null) Item(MainPage.WindowTopmost, IconKind.Pin, "窗口置顶");
         Item(MainPage.Translation, IconKind.Translate, "翻译"); Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒");
         Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.Account, IconKind.Settings, "账号"); Item(MainPage.About, IconKind.Update, "关于");
         var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
@@ -424,6 +464,16 @@ public sealed class MainWindow : Window
             AddPage(MainPage.QuickLook, PageHeader(IconKind.QuickLook, "速览", "在资源管理器中选中文件后按空格，快速查看内容", _quickLookToggle),
                 Spaced(_quickLookOff, 16), _quickLookSettings);
         _awakeLid.Trailing = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _awakeLidApproval, _awakeLidToggle } };
+        if (_controller.WindowTopmost is not null)
+        {
+            var pinnedHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+                Children = { Ui.GroupHeader("已置顶的窗口"), Ui.Column(_topmostClear, 1) } };
+            AddPage(MainPage.WindowTopmost, PageHeader(IconKind.Pin, "窗口置顶", OperatingSystem.IsMacOS()
+                    ? "在实时浮窗里查看当前窗口，点击浮窗回到原窗口" : "让当前窗口保持在其他窗口上方", _topmostToggle),
+                Spaced(_topmostScreenPermission, 12), Spaced(_topmostAccessPermission, 12),
+                Ui.GroupHeader("操作"), Ui.Rows(_shortcuts[HotkeyAction.WindowTopmost], new SettingsLine("显示紫色边框", "", _topmostBorder)),
+                Spaced(pinnedHeader, 16), Spaced(_topmostList, 8));
+        }
         AddPage(MainPage.KeepAwake, PageHeader(IconKind.Awake, "保持唤醒", "让电脑暂时不自动睡眠", _awakeToggle),
             KeepAwakeHero(),
             Ui.GroupHeader("行为"), Ui.Rows(new SettingsLine("保持屏幕常亮", "关闭后屏幕可按系统设置熄灭，电脑不睡眠", _awakeDisplayToggle), _awakeLid),
