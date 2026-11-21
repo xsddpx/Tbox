@@ -27,10 +27,10 @@ fi
 grep -F -- "$user_app" "$fixture/unsupported" >/dev/null
 rmdir "$system_app"
 [[ "$(select_destination '' "$system_app" "$user_app")" == "$user_app" ]]
-macos_version_supported 27.0 27.0
-macos_version_supported 27.0 27.2.1
-macos_version_supported 27.0.0 27.0
-if macos_version_supported 27.0 26.7.2 || macos_version_supported invalid 27.2.1; then
+macos_version_supported 26.0 26.0
+macos_version_supported 26.0 26.2.1
+macos_version_supported 26.0.0 26.0
+if macos_version_supported 26.0 15.7.2 || macos_version_supported invalid 26.2.1; then
   echo "应拒绝最低系统版本无效或不满足要求的安装包。" >&2
   exit 1
 fi

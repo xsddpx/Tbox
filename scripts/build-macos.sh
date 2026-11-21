@@ -19,9 +19,7 @@ BUILD="$ROOT/TEMP/build/$RID"
 APP="$BUILD/Tbox.app"
 NATIVE=src/Tbox.Desktop/Platform/macos
 MINIMUM_MACOS="$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$NATIVE/Info.plist")"
-# Hosted macOS 26 can exercise the bundled binaries directly. Launch Services
-# enforces the application minimum declared in Info.plist.
-SWIFT_TARGET="arm64-apple-macosx26.0"
+SWIFT_TARGET="arm64-apple-macosx$MINIMUM_MACOS"
 mkdir -p "$BUILD"
 python3 - <<'PY'
 import plistlib, xml.etree.ElementTree as ET

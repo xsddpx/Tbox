@@ -223,15 +223,6 @@ jobs:
           TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
           TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
         run: bash scripts/release/sign-and-package-macos.sh
-      - name: Verify macOS 26 rejects the app bundle
-        run: |
-          app=TEMP/build/osx-arm64/Tbox.app
-          if result="$(/usr/bin/open -n "$app" 2>&1)"; then
-            echo "macOS 26 opened a bundle that requires macOS 27."
-            exit 1
-          fi
-          printf '%s\n' "$result"
-          [[ "$result" == *-10825* ]]
       - name: Preserve verified installer and package history
         uses: actions/upload-artifact@v4
         with:
