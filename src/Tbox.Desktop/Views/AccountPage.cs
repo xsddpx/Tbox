@@ -1,5 +1,4 @@
 using Avalonia;
-using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Tbox.Desktop.Accounts;
@@ -13,7 +12,6 @@ internal sealed class AccountPage : StackPanel
     private readonly AccountCoordinator _account;
     private readonly Func<Window> _owner;
     private readonly TextBlock _status = Ui.Description("");
-    private readonly TextBox _server = new() { Watermark = "https://tbox.example.com", MinWidth = 190 };
     private readonly CheckBox _preferences = new() { Content = "同步通用和工具偏好" };
     private readonly CheckBox _screenshots = new() { Content = "上传此设备之后保存或复制的截图成品" };
     private readonly StackPanel _signedOut = new() { Spacing = 8 };
@@ -30,14 +28,12 @@ internal sealed class AccountPage : StackPanel
         _account = controller.Account;
         _owner = owner;
         Spacing = 12;
-        AutomationProperties.SetName(_server, "Tbox 账号服务地址");
-        _signIn = Ui.Primary("使用 GitHub 登录", () => _controller.Run(() => _account.SignInAsync(_server.Text)));
+        _signIn = Ui.Primary("使用 GitHub 登录", () => _controller.Run(_account.SignInAsync));
         _cancel = Ui.Button("取消登录", _account.CancelSignIn);
         _signOut = Ui.Button("退出登录", () => _controller.Run(_account.SignOutAsync));
         _sync = Ui.Button("同步内容", () => Select(showDevices: false));
         _devices = Ui.Button("我的设备", () => Select(showDevices: true));
         _signedOut.Children.Add(Ui.Description("登录指定的 GitHub 账号后，此设备会自动出现在列表中。"));
-        _signedOut.Children.Add(_server);
         _signedOut.Children.Add(Ui.Row(_signIn, _cancel));
         _signedIn.Children.Add(Ui.Row(_signOut, Ui.Link("刷新", () => _controller.Run(_account.RefreshAsync))));
         _signedIn.Children.Add(Ui.Row(_sync, _devices));
@@ -92,9 +88,9 @@ internal sealed class AccountPage : StackPanel
         {
             _signedIn.IsVisible = _account.SignedIn;
             _signedOut.IsVisible = !_account.SignedIn;
-            if (string.IsNullOrWhiteSpace(_server.Text)) _server.Text = _controller.Settings.Cloud.Origin;
-            _status.Text = _account.Status;
-            _server.IsEnabled = _signIn.IsEnabled = _signOut.IsEnabled = !_account.Busy;
+            _status.Text = !_account.SignedIn && !_account.CanSignIn ? "账号服务尚未配置。" : _account.Status;
+            _signIn.IsEnabled = !_account.Busy && _account.CanSignIn;
+            _signOut.IsEnabled = !_account.Busy;
             _cancel.IsVisible = _account.SigningIn;
             _preferences.IsEnabled = _screenshots.IsEnabled = !_account.Busy;
             _preferences.IsChecked = _controller.Settings.Cloud.SyncPreferences;

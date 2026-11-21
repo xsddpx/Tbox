@@ -22,6 +22,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TBOX_ACCOUNT_ORIGIN: ${{ vars.TBOX_ACCOUNT_ORIGIN }}
+
 jobs:
   cloud:
     runs-on: ubuntu-latest

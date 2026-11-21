@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Avalonia.Threading;
@@ -10,9 +11,14 @@ namespace Tbox.Desktop.Accounts;
 
 internal sealed class AccountCoordinator(
     Func<AppSettings> settings, Func<Func<AppSettings, AppSettings>, Task> save,
-    IAccountCredentialVault vault, string dataDirectory, CancellationToken lifetime, HttpClient? http = null) : IDisposable
+    IAccountCredentialVault vault, string dataDirectory, CancellationToken lifetime, HttpClient? http = null,
+    string? packagedOrigin = null, Action<Uri>? openBrowser = null) : IDisposable
 {
+    private static readonly string? PackagedOrigin = typeof(AccountCoordinator).Assembly
+        .GetCustomAttributes<AssemblyMetadataAttribute>()
+        .SingleOrDefault(attribute => attribute.Key == "TboxAccountOrigin")?.Value;
     private readonly HttpClient _http = http ?? CloudClient.CreateHttpClient();
+    private readonly string? _packagedOrigin = packagedOrigin ?? PackagedOrigin;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly SemaphoreSlim _outboxGate = new(1, 1);
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(20) };
@@ -31,6 +37,7 @@ internal sealed class AccountCoordinator(
     internal string? Login => SignedIn ? _account!.Login : null;
     internal Guid? LocalDevice => _account?.DeviceId;
     internal bool SignedIn => _account is { RefreshToken: not null, SignOutPending: false };
+    internal bool CanSignIn => LoginOrigin is not null;
     internal bool CanQueueCapture => !_disposed && SignedIn && settings().Cloud.SyncCaptures && _captureCancellation is not null;
     internal bool Busy { get; private set; }
     internal bool SigningIn => _loginCancellation is not null;
@@ -47,10 +54,14 @@ internal sealed class AccountCoordinator(
 
     private void OnTick(object? sender, EventArgs args) => _ = RefreshAsync();
 
-    internal Task SignInAsync(string? server) => RunAsync(async ct =>
+    private Uri? LoginOrigin => CloudClient.TryOrigin(settings().Cloud.Origin, out var saved)
+        ? saved
+        : CloudClient.TryOrigin(_packagedOrigin, out var configured) ? configured : null;
+
+    internal Task SignInAsync() => RunAsync(async ct =>
     {
-        if (!CloudClient.TryOrigin(server, out var origin))
-            throw new InvalidOperationException("请输入账号服务的 HTTPS 地址。");
+        if (LoginOrigin is not { } origin)
+            throw new InvalidOperationException("账号服务尚未配置。");
         await LoadAsync(ct);
         if (_account is { SignOutPending: true }) await FinishSignOutAsync(ct);
         if (_account?.Origin != origin.AbsoluteUri)
@@ -67,7 +78,7 @@ internal sealed class AccountCoordinator(
         Changed?.Invoke();
         try
         {
-            var (code, verifier) = await BrowserLogin.AuthenticateAsync(origin, cancel.Token);
+            var (code, verifier) = await BrowserLogin.AuthenticateAsync(origin, cancel.Token, openBrowser);
             var answer = await Client.ExchangeAsync(_account!, code, verifier, cancel.Token);
             await WriteAsync(_account! with { RefreshToken = answer.RefreshToken, Login = answer.Login }, ct);
             _session = answer;

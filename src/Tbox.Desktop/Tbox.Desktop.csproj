@@ -8,9 +8,9 @@
     <SupportedOSPlatformVersion Condition="'$(TboxWindows)' == 'true'">10.0.22000.0</SupportedOSPlatformVersion>
     <Platform Condition="'$(TboxWindows)' == 'true' and ('$(Platform)' == '' or '$(Platform)' == 'AnyCPU')">x64</Platform>
     <PlatformTarget Condition="'$(TboxWindows)' == 'true'">$(Platform)</PlatformTarget>
-    <Version>1.1.119</Version>
-    <AssemblyVersion>1.1.119.0</AssemblyVersion>
-    <FileVersion>1.1.119.0</FileVersion>
+    <Version>1.1.120</Version>
+    <AssemblyVersion>1.1.120.0</AssemblyVersion>
+    <FileVersion>1.1.120.0</FileVersion>
     <TboxWindowsFfmpegRoot>$(MSBuildThisFileDirectory)../../TEMP/media-runtime/windows</TboxWindowsFfmpegRoot>
     <ApplicationIcon Condition="'$(TboxWindows)' == 'true'">Assets/Tbox.ico</ApplicationIcon>
     <ApplicationManifest Condition="'$(TboxWindows)' == 'true'">Platform/windows/app.manifest</ApplicationManifest>
@@ -20,6 +20,7 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyMetadata Include="TboxAccountOrigin" Value="$(TBOX_ACCOUNT_ORIGIN)" Condition="'$(TBOX_ACCOUNT_ORIGIN)' != ''" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
     <PackageReference Include="LibVLCSharp.Avalonia" Version="3.10.2" />

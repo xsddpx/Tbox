@@ -8,7 +8,8 @@ namespace Tbox.Desktop.Accounts;
 
 internal static class BrowserLogin
 {
-    internal static async Task<(string Code, string Verifier)> AuthenticateAsync(Uri origin, CancellationToken ct)
+    internal static async Task<(string Code, string Verifier)> AuthenticateAsync(
+        Uri origin, CancellationToken ct, Action<Uri>? openBrowser = null)
     {
         var verifier = CloudProtocol.RandomSecret();
         var state = CloudProtocol.RandomSecret();
@@ -16,7 +17,10 @@ internal static class BrowserLogin
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         var url = new Uri(origin, $"/v1/auth/start?port={port}&challenge={CloudProtocol.Challenge(verifier)}&state={state}");
-        Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+        if (openBrowser is null)
+            Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+        else
+            openBrowser(url);
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromMinutes(5));

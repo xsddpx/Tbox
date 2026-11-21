@@ -26,6 +26,7 @@ concurrency:
 
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  TBOX_ACCOUNT_ORIGIN: ${{ vars.TBOX_ACCOUNT_ORIGIN }}
 
 jobs:
   preflight:

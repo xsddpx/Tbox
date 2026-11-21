@@ -1,10 +1,11 @@
 # Tbox 私有账号服务
 
-桌面端的「账号」接收 Tbox 服务的 HTTPS 地址。Windows 和 macOS 登录同一个允许的 GitHub 账号后，设备自动登记。登录和同步属于可选功能，本机工具继续使用原有的本机数据。
+在桌面端「账号」点击「使用 GitHub 登录」，在系统浏览器完成认证后返回 Tbox。Windows 和 macOS 登录同一个允许的 GitHub 账号后，设备自动登记。登录和同步属于可选功能，本机工具继续使用原有的本机数据。
 
 ## 部署
 
 - 将域名指向 Linux 服务器，开放 HTTPS 和 Caddy 获取证书所需的 HTTP 端口。PostgreSQL 和应用容器只通过内部网络访问。
+- 打包前将该 HTTPS 根地址写入 GitHub Actions 变量 `TBOX_ACCOUNT_ORIGIN`。本地打包使用同名环境变量。升级已手动配置过的安装沿用已保存的地址。全新安装若未指定地址，「账号」页会提示服务尚未配置。
 - 单独为 Tbox 创建 GitHub OAuth 应用，将回调地址设为 `https://你的域名/v1/auth/github/callback`。将允许登录者的 GitHub 数字用户 ID 写入部署配置。Tbox OAuth 应用独立于 NAV 和发布流程。
 - 从 [部署示例](../deploy/cloud/.env.example) 创建本机 `deploy/cloud/.env`，限制文件访问权限。注入 OAuth 应用密钥、独立数据库密码以及 32 字节随机截图加密密钥，以 base64 表示后两项可避免连接字符串的分隔符。例如用 `openssl rand -base64 32` 生成各自独立的值。
 - 在 `deploy/cloud` 运行 `docker compose up -d --build`，确认 `/health` 返回 HTTP 200。用同账号的两台设备分别登录，再用非许可账号验证拒绝行为。
