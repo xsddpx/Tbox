@@ -7,15 +7,18 @@ namespace Tbox.Desktop.Platform;
 internal sealed class WindowsWindowTopmost : IWindowTopmost
 {
     private const uint PreservePlacement = 0x0001 | 0x0002 | 0x0010 | 0x0200 | 0x0400;
+    private const int ManagedWindow = 1;
+    private const int OriginallyTopmostOwnedWindow = 2;
     private readonly string _property = $"Tbox.WindowTopmost.{Guid.NewGuid():N}";
     private readonly Dictionary<nint, Entry> _windows = [];
     private readonly DispatcherTimer _timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
     private WindowTopmostBorder? _border;
     private bool _showBorder = true;
 
-    private sealed class Entry(string title)
+    private sealed class Entry(string title, IReadOnlyList<nint> originallyTopmostOwned)
     {
         public string Title { get; } = title;
+        public IReadOnlyList<nint> OriginallyTopmostOwned { get; } = originallyTopmostOwned;
         public nint Border { get; set; }
         public (int Left, int Top, int Width, int Height, int Thickness) Geometry { get; set; }
         public bool BorderVisible { get; set; }
@@ -28,28 +31,42 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
     public void ToggleForeground()
     {
         var window = NativeMethods.GetAncestor(NativeMethods.GetForegroundWindow(), NativeMethods.GaRoot);
-        if (_windows.ContainsKey(window) && IsOwned(window) && IsTopmost(window)) { Remove(window); return; }
         NativeMethods.GetWindowThreadProcessId(window, out var process);
-        if (window == 0 || process == Environment.ProcessId || window == GetShellWindow() ||
+        if (process == Environment.ProcessId) { Changed?.Invoke("请先选中要置顶的应用主窗口。"); return; }
+        ToggleWindow(window);
+    }
+
+    internal void ToggleWindow(nint window)
+    {
+        if (_windows.ContainsKey(window) && IsOwned(window) && IsTopmost(window)) { Remove(window); return; }
+        if (window == 0 || window == GetShellWindow() ||
             !NativeMethods.IsWindowVisible(window) || NativeMethods.IsWindowCloaked(window) || GetWindow(window, 4) != 0)
         {
             Changed?.Invoke("请先选中要置顶的应用主窗口。");
             return;
         }
         if (IsTopmost(window)) { Changed?.Invoke("当前窗口已经置顶。"); return; }
-        if (HasTopmostOwnedWindow(window)) { Changed?.Invoke("请先解除该应用自身的浮窗置顶。"); return; }
+        Drop(window);
         // The property is deleted by Windows when the HWND dies, even if the same process reuses its handle.
-        if (!SetProp(window, _property, 1)) { Changed?.Invoke("系统拒绝置顶当前窗口。"); return; }
+        if (!SetProp(window, _property, ManagedWindow)) { Changed?.Invoke("系统拒绝置顶当前窗口。"); return; }
+        var originallyTopmostOwned = new List<nint>();
+        if (!RememberTopmostOwnedWindows(window, originallyTopmostOwned))
+        {
+            RemoveProp(window, _property);
+            ForgetTopmostOwnedWindows(originallyTopmostOwned);
+            Changed?.Invoke("无法保留该应用已有的浮窗置顶状态。");
+            return;
+        }
         if (!SetWindowPos(window, -1, 0, 0, 0, 0, PreservePlacement) || !IsTopmost(window))
         {
             RemoveProp(window, _property);
+            ForgetTopmostOwnedWindows(originallyTopmostOwned);
             Changed?.Invoke("系统拒绝置顶当前窗口。");
             return;
         }
-        Drop(window);
         var text = new char[1024];
         var count = NativeMethods.GetWindowText(window, text, text.Length);
-        _windows.Add(window, new Entry(count > 0 ? new string(text, 0, count) : "未命名窗口"));
+        _windows.Add(window, new Entry(count > 0 ? new string(text, 0, count) : "未命名窗口", originallyTopmostOwned));
         _timer.Start();
         Refresh();
         Changed?.Invoke(null);
@@ -65,7 +82,7 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
     {
         var window = (nint)id;
         if (!_windows.ContainsKey(window)) return;
-        Changed?.Invoke(TryRemove(window) ? null : "系统未能解除该窗口的置顶，请重试。");
+        Changed?.Invoke(TryRemove(window) ? null : "系统未能恢复该窗口的原始置顶状态。");
     }
 
     public void Clear()
@@ -73,39 +90,58 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
         if (_windows.Count == 0) return;
         var failed = false;
         foreach (var window in _windows.Keys.ToArray()) failed |= !TryRemove(window);
-        Changed?.Invoke(failed ? "部分窗口的置顶未能解除，请重试。" : null);
+        Changed?.Invoke(failed ? "部分窗口的原始置顶状态未能恢复。" : null);
     }
 
     private bool TryRemove(nint window)
     {
+        var restored = true;
         if (IsOwned(window))
         {
-            if (IsTopmost(window) && (!SetWindowPos(window, -2, 0, 0, 0, 0, PreservePlacement) || IsTopmost(window))) return false;
+            if (IsTopmost(window))
+            {
+                if (!SetWindowPos(window, -2, 0, 0, 0, 0, PreservePlacement) || IsTopmost(window)) return false;
+                // Windows also demotes owned windows. Restore the ones that were already topmost before pinning.
+                foreach (var child in _windows[window].OriginallyTopmostOwned)
+                {
+                    if (GetProp(child, _property) == OriginallyTopmostOwnedWindow && NativeMethods.GetAncestor(child, 3) == window && !IsTopmost(child))
+                        restored &= SetWindowPos(child, -1, 0, 0, 0, 0, PreservePlacement) && IsTopmost(child);
+                }
+            }
             RemoveProp(window, _property);
         }
         Drop(window);
-        return true;
+        return restored;
     }
 
     private void Drop(nint window)
     {
-        if (_windows.Remove(window, out var entry) && entry.Border != 0) DestroyWindow(entry.Border);
+        if (_windows.Remove(window, out var entry))
+        {
+            ForgetTopmostOwnedWindows(entry.OriginallyTopmostOwned);
+            if (entry.Border != 0) DestroyWindow(entry.Border);
+        }
         if (_windows.Count == 0) _timer.Stop();
     }
 
-    private bool IsOwned(nint window) => GetProp(window, _property) == 1;
+    private bool IsOwned(nint window) => GetProp(window, _property) == ManagedWindow;
     private static bool IsTopmost(nint window) => (GetWindowLongPtr(window, -20) & 8) != 0;
 
-    private static bool HasTopmostOwnedWindow(nint window)
+    private bool RememberTopmostOwnedWindows(nint window, List<nint> originallyTopmostOwned)
     {
-        // Demoting an owner also demotes its owned windows. Preserve pre-existing floating panels.
-        var found = false;
-        NativeMethods.EnumWindows((candidate, _) =>
+        return NativeMethods.EnumWindows((candidate, _) =>
         {
-            found = candidate != window && IsTopmost(candidate) && NativeMethods.GetAncestor(candidate, 3) == window;
-            return !found;
+            if (candidate == window || !IsTopmost(candidate) || NativeMethods.GetAncestor(candidate, 3) != window) return true;
+            if (!SetProp(candidate, _property, OriginallyTopmostOwnedWindow)) return false;
+            originallyTopmostOwned.Add(candidate);
+            return true;
         }, 0);
-        return found;
+    }
+
+    private void ForgetTopmostOwnedWindows(IEnumerable<nint> windows)
+    {
+        foreach (var window in windows)
+            if (GetProp(window, _property) == OriginallyTopmostOwnedWindow) RemoveProp(window, _property);
     }
 
     private void Refresh()
