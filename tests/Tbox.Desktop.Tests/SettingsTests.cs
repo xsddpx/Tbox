@@ -37,13 +37,16 @@ public sealed class SettingsTests
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Empty(window.GetVisualDescendants().OfType<SplitView>());
                 // These pages contain intentional fields as part of their workflows.
-                if (page is not (MainPage.Models or MainPage.Translation or MainPage.Account))
+                if (page is not (MainPage.Models or MainPage.Translation))
                     Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
                 else if (page == MainPage.Models)
                     AssertModelPageOffersAKeyField(window);
                 else
                     Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible &&
-                        AutomationProperties.GetName(t) == (page == MainPage.Account ? "Tbox 账号服务地址" : "翻译原文"));
+                        AutomationProperties.GetName(t) == "翻译原文");
+                if (page == MainPage.Account)
+                    Assert.Contains(window.GetVisualDescendants().OfType<Button>(),
+                        b => b.IsEffectivelyVisible && b.Content as string == "使用 GitHub 登录");
                 Assert.True(window.CurrentPageView.Bounds.Width > width - 208 - 10 - 10);
                 foreach (var control in window.CurrentPageView.GetVisualDescendants().OfType<Control>()
                     .Where(c => c.IsEffectivelyVisible && c.Bounds.Width > 0 && c is Button or ToggleSwitch or ComboBox or TextBox))
