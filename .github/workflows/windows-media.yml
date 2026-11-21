@@ -58,9 +58,7 @@ jobs:
           lfs: true
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - uses: actions/download-artifact@v4
         with:
           name: windows-media-runtime

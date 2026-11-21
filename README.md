@@ -6,7 +6,7 @@
 
 ## 当前功能
 
-**[下载最新正式版](https://github.com/xsddpx/Tbox/releases/latest)** · Windows 11 x64（MSIX）与 macOS 14+ Apple Silicon（ZIP）· [安装与权限说明](docs/releases/INSTALL.md)
+**[下载最新正式版](https://github.com/xsddpx/Tbox/releases/latest)** · Windows 11 x64（MSIX） · 新版 Mac 要求 macOS 26+ Apple Silicon（ZIP） · [系统要求、安装与权限说明](docs/releases/INSTALL.md)
 
 启动后，Tbox 常驻 Windows 系统托盘或 Mac 菜单栏。单击图标打开主窗口，也可以直接用全局快捷键启动常用工具。
 

@@ -403,6 +403,32 @@ Windows MSIX 签名通过，覆盖安装后的贴图冒烟检查因样图超出�
 | 1.1.109 | macOS osx-arm64 | 2026-11-21 02:32:33 +0800 | `e3ffa97d13515b6640c099eeca740a0d5b2b927da2bc3b33272ce483c3448ea2` |
 | 1.1.109.0 | Windows win-x64 | 2026-11-21 02:28:46 +0800 | `bf9042ce939e057eb7d1de52b05bc7b62cdba11e7196c643ac4724b7be7ef0f3` |
 
+## 迁移验证包 v1.1.110
+
+[双平台验证流程](https://github.com/xsddpx/Tbox/actions/runs/44815307645) 使用既有持久签名身份出包，两包的下载副本均通过 SHA-256 核对。正式发布使用新版本号。
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.110 | macOS osx-arm64 | 2026-11-21 04:57:55 +0800 | `fea56661f8c4f88530babb82994f5e9d9e46f4fe544ac42f06d634957deeecf9` |
+| 1.1.110.0 | Windows win-x64 | 2026-11-21 04:58:09 +0800 | `26eb098bdfdeb42d7f18b68e022413414a492ecbf0326776e07641c782a48e90` |
+
+## 迁移验证包 v1.1.111
+
+[macOS 27 最低版本验证](https://github.com/xsddpx/Tbox/actions/runs/44853553639/job/136690295850) 生成了 Mac 签名包。后续政策改为最低 macOS 26。
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.111 | macOS osx-arm64 | 2026-11-21 10:09:22 +0800 | `8cc30a306cdcc54eb7dd58186255f4ec458fd6976f5b3f4e159cb19b585c1eab` |
+
+## 迁移验证包 v1.1.112
+
+[Mac 签名 ZIP](https://github.com/xsddpx/Tbox/actions/runs/44854222732/job/136692484166) 和 [Windows 签名 MSIX](https://github.com/xsddpx/Tbox/actions/runs/44854790440/job/136694822595) 使用既有持久签名身份，下载副本均通过 SHA-256 核对。正式发布使用新版本号。
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.112 | macOS osx-arm64 | 2026-11-21 10:15:26 +0800 | `77fd0dde1138cff2f295d68dd8ed58ab71dcee48d148ca2b790ff40ad051991b` |
+| 1.1.112.0 | Windows win-x64 | 2026-11-21 10:19:09 +0800 | `08d836e8c8a72d9f2f6dcab9d609d01e721ccc1c5aaac346c3407897055c9eed` |
+
 ### 1.1.113 账号与同步候选
 
 [签名验证流程](https://github.com/xsddpx/Tbox/actions/runs/44858653370) 使用既有持久签名身份。Windows 托管运行器通过签名安装、OCR、像素裁剪和界面渲染。Mac 候选包在本机通过验签，签名指定要求与既有安装一致；已安装的是 .NET 10 迁移候选，覆盖升级待两个变更汇合。此测试包不构成远控交付。

@@ -70,6 +70,8 @@ internal static class UpdateInstaller
             if ((await ExecuteAsync("/usr/libexec/PlistBuddy", ["-c", "Print CFBundleIdentifier", plist], token)).Trim() != "com.xsddpx.tbox" ||
                 (await ExecuteAsync("/usr/libexec/PlistBuddy", ["-c", "Print CFBundleVersion", plist], token)).Trim() != release.Version.ToString(4))
                 throw new InvalidDataException("更新包的应用标识或版本不匹配。");
+            var minimumVersion = (await ExecuteAsync("/usr/libexec/PlistBuddy", ["-c", "Print LSMinimumSystemVersion", plist], token)).Trim();
+            ValidateMacMinimumVersion(minimumVersion, Environment.OSVersion.Version);
             var script = Path.Combine(stage, "install.sh");
             await using (var input = Assembly.GetExecutingAssembly().GetManifestResourceStream("Tbox.Desktop.Updates.install-macos-update.sh")!)
             await using (var output = File.Create(script)) await input.CopyToAsync(output, token);
@@ -79,6 +81,16 @@ internal static class UpdateInstaller
             return new(() => { using var process = Process.Start(info) ?? throw new IOException("无法启动安装程序。"); }, () => Directory.Delete(stage, true));
         }
         catch { if (Directory.Exists(stage)) Directory.Delete(stage, true); throw; }
+    }
+
+    internal static void ValidateMacMinimumVersion(string minimumVersion, Version current)
+    {
+        if (!Version.TryParse(minimumVersion, out var minimum) || minimum.Revision >= 0)
+            throw new InvalidDataException("更新包的最低 macOS 版本无效。");
+        var required = new Version(minimum.Major, minimum.Minor, Math.Max(0, minimum.Build));
+        var installed = new Version(current.Major, current.Minor, Math.Max(0, current.Build));
+        if (installed < required)
+            throw new InvalidOperationException($"此更新需要 macOS {minimumVersion} 或更高版本，请先升级 macOS。");
     }
 
     private static async Task<string> ExecuteAsync(string executable, string[] arguments, CancellationToken token)

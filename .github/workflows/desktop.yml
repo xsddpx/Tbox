@@ -14,7 +14,7 @@ on:
         default: false
         type: boolean
       verify_macos_installer:
-        description: 'Build and verify the signed macOS ZIP'
+        description: 'Build, sign, verify and retain the Mac ZIP'
         required: true
         default: false
         type: boolean
@@ -37,9 +37,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - name: Validate private account and synchronization
         env:
           TBOX_TEST_POSTGRES: Host=127.0.0.1;Port=${{ job.services.postgres.ports[5432] }};Database=postgres;Username=postgres
@@ -53,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-26]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -61,9 +59,7 @@ jobs:
           lfs: true
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -157,7 +153,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2025, macos-15]
+        os: [windows-2025, macos-26]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -194,9 +190,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -232,6 +226,7 @@ jobs:
             TEMP/windows-package/**/media/result.json
           if-no-files-found: ignore
           retention-days: 14
+
   macos-signed-package:
     # Build a development package with the existing release identity without creating a Release.
     if: github.event_name == 'workflow_dispatch' && inputs.verify_macos_installer
@@ -244,9 +239,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            9.0.313
-            8.0.x
+          global-json-file: global.json
       - name: Check Apple Silicon runner and media tools
         run: |
           test "$(uname -m)" = arm64
