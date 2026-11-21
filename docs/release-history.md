@@ -475,3 +475,14 @@ Windows MSIX 签名通过，覆盖安装后的贴图冒烟检查因样图超出�
 | --- | --- | --- | --- |
 | 1.1.120 | macOS osx-arm64 | 2026-11-21 13:37:22 +0800 | `9af4d5831934443d2dc8f5d90e09b3b5e0f763031f93fd149a836324f25d84a9` |
 | 1.1.120.0 | Windows win-x64 | 2026-11-21 13:36:30 +0800 | `fef6f707185ac715e3fcf37f21b39b5f24df6ddb877b059100afca35ac15f528` |
+
+### 1.1.123 公网账号服务候选
+
+账号候选内置 `https://tbox.xsddpx.com/`。公网服务通过真实 GitHub 授权、PKCE 令牌交换与设备登记。Windows 与 macOS 下载副本均通过 SHA-256 核对。Mac 应用通过既有持久签名要求的验签，覆盖更新留待同步主分支上的窗口置顶功能后进行。[双平台构建与验证](https://github.com/xsddpx/Tbox/actions/runs/44875582461)
+
+`Tbox Windows 11 Test` 中从 1.1.119.0 原位覆盖至 1.1.123.0，沿用包系列 `Tbox_kz23ttq7aw48a`，状态为 `Ok`。安装验证通过签名、包身份、离线 OCR、像素裁剪、窗口渲染及桌面取帧。开始菜单可启动新版。账号页单击登录打开 Edge 并进入 GitHub 的 Tbox 授权流程。Windows 桌面授权回调待验收。虚拟机证据在 `%LOCALAPPDATA%\Tbox\vm-verification\account-20261121-084036`。
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.123 | macOS osx-arm64 | 2026-11-21 14:31:25 +0800 | `b3a70e921166560e5c6c03f4314d479245f71effc8b078755832c8e323820b22` |
+| 1.1.123.0 | Windows win-x64 | 2026-11-21 14:31:52 +0800 | `a18e48144bfe62418dc51cdd231bcfe1903b65cf25e69d22ce49f617f7f450d0` |
