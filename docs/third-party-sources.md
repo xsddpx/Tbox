@@ -1,8 +1,8 @@
 # 第三方源码与构建材料
 
-每个公开版本的发布正文都链接对应的 `Tbox_third-party-sources.tar.gz`。归档包含 FFmpeg 8.1.2、libwebp 1.6.0、VLC 3.0.24、LibVLCSharp 3.10.2 的上游源码及 VLC contrib 依赖材料。`source-manifest.json` 记录来源、固定提交和 SHA-256，并保留 VLC 归档输入的上游 SHA-512。Git 源码归档由清单中的完整提交生成。
+每个公开版本的发布正文都链接对应的 `Tbox_third-party-sources.tar.gz`。归档包含 FFmpeg 8.1.2、libwebp 1.6.0、VLC 3.0.24、LibVLCSharp 3.10.2、RustDesk 1.5.3 的上游源码和对应构建材料。`source-manifest.json` 记录来源、固定提交和 SHA-256，并保留 VLC 归档输入的上游 SHA-512。Git 源码归档由清单中的完整提交生成。
 
-VLC contrib 材料包含可选组件，因此清单不等于安装包实际加载的插件清单。WiX 通用安装工具没有进入本材料包或 Tbox 运行库。VLC 核心使用 LGPL，部分插件及依赖使用 GPL 或其他许可；各组件归档中的 COPYING、LICENSE、NOTICE、PATENTS 等文件保留原许可和版权声明，`licenses/` 另外提供应用随附的许可副本。Tbox 自身的私有业务源码不属于本归档。
+VLC contrib 材料也涵盖可选组件。VLC 核心使用 LGPL，部分插件及依赖使用 GPL 或其他许可。各组件归档中的 COPYING、LICENSE、NOTICE、PATENTS 等文件保留原许可和版权声明，`licenses/` 提供应用随附的许可副本。
 
 ## 图像导出程序
 
@@ -19,6 +19,12 @@ Mac 媒体编译显式固定 `MACOSX_DEPLOYMENT_TARGET=26.0`，与应用的最�
 Windows 使用 VideoLAN.LibVLC.Windows 3.0.24 的官方 NuGet 重分发；Mac 使用 VideoLAN VLC 3.0.24 arm64 官方分发。Tbox 未修改这些原生库源码。LibVLCSharp 及 Avalonia 绑定来自清单中同一提交，其项目文件和构建说明位于对应 Git 归档内。
 
 运行库采用独立 FFmpeg 程序和动态 LibVLC/LibVLCSharp，允许按相应开源许可替换组件及为调试修改而进行必要的逆向工程。自行修改 Mac 安装内容会改变应用签名，需要自行重签名；不要把修改后的包当作官方更新包。
+
+## 远程桌面引擎
+
+`git/` 内的 RustDesk 客户端和 `hbb_common` 归档分别对应固定提交。将协议归档内容放入客户端的 `libs/hbb_common/`，按 `scripts/prepare-remote-engine.sh` 应用 `src/Tbox.Remote/rustdesk/` 下的补丁并放入 Tbox 授权库。脚本也能直接检出同样的两个提交。
+
+`.github/workflows/remote-viewers.yml` 记录 Flutter 绑定生成、vcpkg 依赖和平台构建步骤。引擎中的 `RustDesk-source.txt` 列出客户端、协议和 Tbox 补丁的源码提交。远控组件保留 RustDesk 的原许可证。
 
 ## 发布核对
 

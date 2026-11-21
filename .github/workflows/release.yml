@@ -27,11 +27,15 @@ concurrency:
 env:
   RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   TBOX_ACCOUNT_ORIGIN: ${{ vars.TBOX_ACCOUNT_ORIGIN }}
+  TBOX_REMOTE_RENDEZVOUS: ${{ vars.TBOX_REMOTE_RENDEZVOUS }}
+  TBOX_REMOTE_RENDEZVOUS_KEY: ${{ vars.TBOX_REMOTE_RENDEZVOUS_KEY }}
 
 jobs:
   preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      remote_desktop: ${{ steps.preflight.outputs.remote_desktop }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,12 +64,13 @@ jobs:
               raise SystemExit('Missing signing/release configuration: ' + ', '.join(missing) + '. See docs/automatic-releases.md')
           PY
       - name: Check tests, version, notes and repository visibility
+        id: preflight
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git merge-base --is-ancestor HEAD origin/main
           python -m unittest discover -s tests/release -v
-          python scripts/release/release.py preflight --tag "$RELEASE_TAG"
+          python scripts/release/release.py preflight --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
 
   windows-media:
     needs: preflight
@@ -75,8 +80,19 @@ jobs:
     needs: preflight
     uses: ./.github/workflows/third-party-sources.yml
 
+  remote-viewers:
+    needs: preflight
+    if: needs.preflight.outputs.remote_desktop == 'true'
+    uses: ./.github/workflows/remote-viewers.yml
+    with:
+      windows: true
+      macos: true
+
   windows:
-    needs: [preflight, windows-media]
+    needs: [preflight, windows-media, remote-viewers]
+    if: >-
+      !cancelled() && needs.preflight.result == 'success' && needs.windows-media.result == 'success' &&
+      (needs.preflight.outputs.remote_desktop == 'false' || needs.remote-viewers.result == 'success')
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -95,6 +111,11 @@ jobs:
         with:
           name: windows-media-runtime
           path: TEMP/media-runtime/windows
+      - uses: actions/download-artifact@v4
+        if: needs.preflight.outputs.remote_desktop == 'true'
+        with:
+          name: tbox-remote-windows-viewer
+          path: TEMP/remote-viewer
       - name: Verify Explorer and native file dialogs
         timeout-minutes: 5
         run: ./scripts/test-windows-folders.ps1
@@ -114,6 +135,8 @@ jobs:
           TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
           TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
           TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+          TBOX_REMOTE_WINDOWS_VIEWER_ZIP: ${{ needs.preflight.outputs.remote_desktop == 'true' && format('{0}/TEMP/remote-viewer/tbox-remote-windows.zip', github.workspace) || '' }}
+          TBOX_REMOTE_WINDOWS_VIEWER_SHA256: ${{ needs.remote-viewers.outputs.windows_sha256 }}
         run: |
           ./scripts/release/sign-and-package-windows.ps1 -VerifyCapture -VerifyRecording
           python scripts/release/release.py build-record --tag $env:RELEASE_TAG --directory artifacts --platform win-x64
@@ -129,7 +152,10 @@ jobs:
           compression-level: 0
 
   macos:
-    needs: preflight
+    needs: [preflight, remote-viewers]
+    if: >-
+      !cancelled() && needs.preflight.result == 'success' &&
+      (needs.preflight.outputs.remote_desktop == 'false' || needs.remote-viewers.result == 'success')
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -141,6 +167,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/download-artifact@v4
+        if: needs.preflight.outputs.remote_desktop == 'true'
+        with:
+          name: tbox-remote-macos-viewer
+          path: TEMP/remote-viewer
       - name: Check Apple Silicon runner and media tools
         run: |
           test "$(uname -m)" = arm64
@@ -151,6 +182,8 @@ jobs:
           TBOX_MAC_P12_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD }}
           TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
           TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
+          TBOX_REMOTE_MACOS_VIEWER_ZIP: ${{ needs.preflight.outputs.remote_desktop == 'true' && format('{0}/TEMP/remote-viewer/tbox-remote-macos.zip', github.workspace) || '' }}
+          TBOX_REMOTE_MACOS_VIEWER_SHA256: ${{ needs.remote-viewers.outputs.macos_sha256 }}
         run: |
           bash scripts/release/sign-and-package-macos.sh
           python3 scripts/release/release.py build-record --tag "$RELEASE_TAG" --directory artifacts --platform osx-arm64

@@ -1,4 +1,5 @@
 import copy
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -54,6 +55,15 @@ class ReleaseTests(unittest.TestCase):
 
     def test_accepts_consistent_new_version(self):
         self.assertEqual('2.3.4', release.preflight(self.root, 'v2.3.4'))
+
+    def test_remote_release_requires_a_complete_rendezvous_configuration(self):
+        key = base64.b64encode(bytes(32)).decode('ascii')
+        self.assertFalse(release.remote_desktop_enabled('', ''))
+        self.assertTrue(release.remote_desktop_enabled('tbox.example.com:21116', key))
+        for host, public_key in [('tbox.example.com', ''), ('', key), ('https://tbox.example.com/', key),
+                                 ('tbox.example.com:65536', key), ('tbox.example.com', 'x' * 44)]:
+            with self.subTest(host=host, public_key=public_key), self.assertRaises(ValueError):
+                release.remote_desktop_enabled(host, public_key)
 
     def test_accepts_public_release_repository(self):
         with patch.object(release, 'api', return_value={'private': False}) as api:
