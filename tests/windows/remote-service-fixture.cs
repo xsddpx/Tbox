@@ -2,7 +2,8 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
-using Microsoft.Win32;
+using System.Diagnostics;
+using System.IO;
 using System.ServiceProcess;
 
 internal sealed class RemoteServiceFixture : ServiceBase
@@ -57,8 +58,10 @@ internal sealed class RemoteServiceFixture : ServiceBase
         {
             if (identity.User == null || !identity.User.IsWellKnown(WellKnownSidType.LocalSystemSid))
                 throw new InvalidOperationException("The test service must run under LocalSystem.");
-            Registry.SetValue(@"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\TboxRemoteServiceFixture",
-                "TboxFixtureTcbPrivilege", ReadTcbPrivilege(identity), RegistryValueKind.String);
+            string state = Path.Combine(Environment.SystemDirectory,
+                @"config\systemprofile\AppData\Local\TboxRemoteServiceFixtureDiagnostics");
+            using (var process = Process.GetCurrentProcess())
+                File.WriteAllText(Path.Combine(state, process.Id + ".txt"), ReadTcbPrivilege(identity));
         }
     }
 

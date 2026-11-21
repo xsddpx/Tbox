@@ -30,6 +30,8 @@ foreach ($asset in 'StoreLogo.png', 'Square44x44Logo.png', 'Square150x150Logo.pn
 
 [xml]$manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'remote-service-fixture.appxmanifest') -Raw
 $results = @()
+$diagnostics = Join-Path ([Environment]::SystemDirectory) 'config\systemprofile\AppData\Local\TboxRemoteServiceFixtureDiagnostics'
+New-Item -ItemType Directory -Path $diagnostics | Out-Null
 try {
     foreach ($version in '1.0.0.0', '1.0.1.0') {
         $manifest.Package.Identity.Version = $version
@@ -61,11 +63,10 @@ try {
             ($service.PathName -ne $expectedCommand -and $service.PathName -ne ($expectedPath + ' --tbox-service'))) {
             throw "Fixture service registration is invalid for $version."
         }
-        $serviceKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$serviceName"
-        Remove-ItemProperty -LiteralPath $serviceKey -Name TboxFixtureTcbPrivilege -ErrorAction SilentlyContinue
         Start-Service -Name $serviceName
         (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(25))
-        $tcbPrivilege = Get-ItemPropertyValue -LiteralPath $serviceKey -Name TboxFixtureTcbPrivilege
+        $running = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
+        $tcbPrivilege = Get-Content -LiteralPath (Join-Path $diagnostics ($running.ProcessId.ToString() + '.txt')) -Raw
         if ($tcbPrivilege -notin 'enabled', 'disabled', 'absent') { throw 'The fixture did not report its own privilege state.' }
         $results += [pscustomobject]@{
             TcbPrivilege = $tcbPrivilege
@@ -85,4 +86,5 @@ try {
         Stop-Service -Name $serviceName -ErrorAction SilentlyContinue
     }
     Get-AppxPackage -Name $name | Remove-AppxPackage
+    Remove-Item -LiteralPath $diagnostics -Recurse -Force
 }
