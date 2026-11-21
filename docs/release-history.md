@@ -439,3 +439,13 @@ Windows MSIX 签名通过，覆盖安装后的贴图冒烟检查因样图超出�
 | 1.1.113.0 | Windows win-x64 | 2026-11-21 10:54:59 +08:00 | `2fe5e53adcfc5b14d6308c4e3ad89ba32257e995990044f62813140ff434f33c` |
 | 1.1.114 | macOS osx-arm64 | 2026-11-21 10:58:22 +0800 | `00da4e366dfd0166104ee933913e017a3c617de8fe14d0587813bfbbbe892bbc` |
 | 1.1.114.0 | Windows win-x64 | 2026-11-21 10:55:40 +08:00 | `8189d923015337d56162deb0980471333f69943ad5c6dfd0597541b092a0f019` |
+
+## 录屏收尾验证包 v1.1.115 和 v1.1.116
+
+使用原持久签名生成的性能验证包。[1.1.115 双平台构建](https://github.com/xsddpx/Tbox/actions/runs/44859281060) · [1.1.116 Mac 构建](https://github.com/xsddpx/Tbox/actions/runs/44859378154)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.115 | macOS osx-arm64 | 2026-11-21 11:11:16 +0800 | `bf7ed5ddc1ad2b105683109e716b63abda0d1231f7caf500873ac6a0080fd7f8` |
+| 1.1.115.0 | Windows win-x64 | 2026-11-21 11:10:20 +08:00 | `d47ac5f69ebe7cd4eec4543f3cd3c29703cb9d2af8b08af551ff73d7ec408db7` |
+| 1.1.116 | macOS osx-arm64 | 2026-11-21 11:12:48 +0800 | `61bc607916143b15d3284705ddeb724d1af23bc82391538017df3da1c92abb97` |
