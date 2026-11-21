@@ -92,7 +92,7 @@ jobs:
         run: dotnet test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
       - name: Test shared desktop
         env:
-          TBOX_UI_PREVIEWS: TEMP/account-preview
+          TBOX_UI_PREVIEWS: ${{ github.workspace }}/TEMP/account-preview
         timeout-minutes: 5
         run: >-
           dotnet test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
