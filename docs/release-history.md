@@ -550,3 +550,11 @@ Mac 签名包包含 `com.xsddpx.tbox.remote`。下载包通过 SHA-256 核对，
 | 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
 | --- | --- | --- | --- |
 | 1.1.129 | macOS osx-arm64 | 2026-11-21 19:18:49 +0800 | `07105d50329f58fc61ebaef1a83079eebae40e6a6452850161aaa231039550f2` |
+
+### 1.1.130 带远控引擎的 Windows 候选
+
+x64 签名 MSIX 在 Windows 2025 运行器通过安装、启动、OCR、裁剪、渲染、取帧和录屏。下载包的 SHA-256 与构建记录一致，包内的窗口程序、Flutter 运行库、授权库和对应源码记录通过核对。已准备 `Tbox Windows 11 Test` 的覆盖升级镜像，来宾安装和双端会话待验收。[Windows 签名构建](https://github.com/xsddpx/Tbox/actions/runs/44897496077/job/136834003467)
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.130.0 | Windows win-x64 | 2026-11-21 19:42:49 +0800 | `ae3e2e50575b8e48375be874b83789e54c01b50e167053fdeafd00e81add798d` |

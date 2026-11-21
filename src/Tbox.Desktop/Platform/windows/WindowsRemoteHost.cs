@@ -9,6 +9,7 @@ using System.Text.Json;
 using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 using Tbox.Core.Accounts;
+using Tbox.Desktop.Accounts;
 
 namespace Tbox.Desktop.Platform;
 
