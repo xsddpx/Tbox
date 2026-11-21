@@ -40,6 +40,22 @@ pub struct TransportIdentity {
     public_key: String,
 }
 
+pub fn valid_peer_id(id: &str) -> bool {
+    (6..=32).contains(&id.len())
+        && id.as_bytes()[0].is_ascii_alphanumeric()
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+}
+
+pub fn host_peer_id(existing: &str) -> String {
+    if valid_peer_id(existing) {
+        existing.to_owned()
+    } else {
+        format!("{:032x}", rand::random::<u128>())
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Packet {

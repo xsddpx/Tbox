@@ -98,13 +98,20 @@ pub(crate) fn start_host() -> Result<()> {
 }
 
 fn host_identity() -> Result<HostIdentity> {
+    let existing = Config::get_id();
+    let peer_id = tbox_remote::host_peer_id(&existing);
+    if peer_id != existing {
+        // The upstream hardware-derived ID can be too short for rendezvous registration.
+        Config::set_id(&peer_id);
+        Config::set_key_confirmed(false);
+    }
     let (_, key) = Config::get_key_pair();
     ensure!(
         key.len() == 32,
         "Could not initialize Tbox remote host identity"
     );
     Ok(HostIdentity {
-        peer_id: Config::get_id(),
+        peer_id,
         public_key: crate::encode64(key),
     })
 }
@@ -121,14 +128,7 @@ pub(crate) fn start_controller() -> Result<Vec<String>> {
     let controller: Controller = read_control()?;
     configure_network(&controller.network)?;
     let peer = &controller.invitation.transport.peer_id;
-    ensure!(
-        (6..=32).contains(&peer.len())
-            && peer.as_bytes()[0].is_ascii_alphanumeric()
-            && peer
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte)),
-        "Invalid Tbox remote peer"
-    );
+    ensure!(tbox_remote::valid_peer_id(peer), "Invalid Tbox remote peer");
     // The macOS runner does not forward the Rust startup argument vector to Dart.
     // The display target is public metadata. The ticket remains in Rust memory.
     std::env::set_var("TBOX_REMOTE_VIEWER_PEER", peer);

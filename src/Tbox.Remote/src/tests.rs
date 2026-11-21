@@ -51,6 +51,27 @@ fn peers() -> (TestStream, TestStream) {
     )
 }
 
+#[test]
+fn host_repairs_invalid_peer_ids_and_preserves_valid_ids() {
+    for original in [
+        "",
+        "0",
+        "12345",
+        "-valid123",
+        "abcdef/ghi",
+        "abcdef测",
+        &"a".repeat(33),
+    ] {
+        assert!(!valid_peer_id(original), "{original:?}");
+        let replacement = host_peer_id(original);
+        assert!(valid_peer_id(&replacement));
+        assert_eq!(host_peer_id(&replacement), replacement);
+    }
+    for original in ["123456", "device_01-win", &"a".repeat(32)] {
+        assert_eq!(host_peer_id(original), original);
+    }
+}
+
 const KEY: [u8; 32] = [31; 32];
 const CONTROLLER: Uuid = Uuid::from_u128(1);
 
