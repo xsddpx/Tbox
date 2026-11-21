@@ -65,6 +65,13 @@ cp TEMP/media-runtime/Licenses/*.txt "$APP/Contents/Resources/Licenses/"
 mkdir -p "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin"
 cp TEMP/media-runtime/FFmpeg/bin/ffmpeg "$APP/Contents/MacOS/ThirdParty/FFmpeg/bin/"
 ditto TEMP/media-runtime/VLC "$APP/Contents/MacOS/ThirdParty/VLC"
+if [[ -n "${TBOX_REMOTE_MACOS_VIEWER_ZIP:-}" ]]; then
+  : "${TBOX_REMOTE_MACOS_VIEWER_SHA256:?Missing the verified remote viewer digest}"
+  : "${TBOX_REMOTE_RENDEZVOUS:?Missing the rendezvous server address}"
+  : "${TBOX_REMOTE_RENDEZVOUS_KEY:?Missing the rendezvous server key}"
+  bash scripts/stage-remote-viewer-macos.sh "$TBOX_REMOTE_MACOS_VIEWER_ZIP" "$TBOX_REMOTE_MACOS_VIEWER_SHA256" \
+    "$APP" "$MINIMUM_MACOS" "$SIGN_IDENTITY" "$CERT_SHA1"
+fi
 python3 scripts/verify-macos-deployment-target.py --deployment-target "$MINIMUM_MACOS" "$APP"
 ICONSET="$BUILD/Tbox.iconset"
 mkdir -p "$ICONSET"

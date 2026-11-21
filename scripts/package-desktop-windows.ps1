@@ -23,6 +23,15 @@ function Invoke-Checked {
     & $Command @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Command failed with exit code $LASTEXITCODE" }
 }
+
+function Assert-RemoteViewer {
+    param([string]$LayoutPath)
+    foreach ($relative in 'TboxRemote.exe', 'librustdesk.dll', 'data\flutter_assets', 'RustDesk-LICENCE.txt', 'RustDesk-source.txt') {
+        if (-not (Test-Path -LiteralPath (Join-Path $LayoutPath "Remote\$relative"))) {
+            throw "Missing packaged remote viewer payload: $relative"
+        }
+    }
+}
 try {
     try { $held = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held = $true }
     if (-not $held) { throw 'Another shared desktop package build is running.' }
@@ -55,6 +64,17 @@ try {
         Invoke-Checked dotnet @('publish', $project, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
             '-p:TboxWindows=true', '-p:PublishSingleFile=false', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $layout)
         Assert-DesktopPayload $layout $version
+        if ($env:TBOX_REMOTE_WINDOWS_VIEWER_ZIP) {
+            if ($env:TBOX_REMOTE_WINDOWS_VIEWER_SHA256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+                (Get-FileHash -LiteralPath $env:TBOX_REMOTE_WINDOWS_VIEWER_ZIP -Algorithm SHA256).Hash -ne $env:TBOX_REMOTE_WINDOWS_VIEWER_SHA256) {
+                throw 'The remote viewer ZIP SHA-256 did not match.'
+            }
+            if (-not $env:TBOX_REMOTE_RENDEZVOUS -or -not $env:TBOX_REMOTE_RENDEZVOUS_KEY) {
+                throw 'The remote viewer requires the configured rendezvous address and key.'
+            }
+            Expand-Archive -LiteralPath $env:TBOX_REMOTE_WINDOWS_VIEWER_ZIP -DestinationPath (Join-Path $layout 'Remote')
+            Assert-RemoteViewer $layout
+        }
         Invoke-Checked python @('scripts/verify-windows-media.py', (Join-Path $layout 'ThirdParty\FFmpeg'))
         New-Item -ItemType Directory -Path (Join-Path $layout 'Assets') -Force | Out-Null
         $assetSource = Join-Path $root 'src\Tbox.Desktop\Assets'
@@ -72,6 +92,7 @@ try {
     Invoke-Checked $makeAppx @('unpack', '/p', $candidate, '/d', $unpacked)
     Assert-DesktopPayload $unpacked $version
     Assert-DesktopIconAssets $unpacked
+    if ($env:TBOX_REMOTE_WINDOWS_VIEWER_ZIP) { Assert-RemoteViewer $unpacked }
     if ($VerifyOnly) {
         # Deliberately not a release artifact: no signing, trust changes or installation in CI.
         $report = [ordered]@{ version = $version; kind = 'verification-unsigned'; package = $candidate;

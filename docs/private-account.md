@@ -68,3 +68,5 @@ tbox.xsddpx.com {
 当前补丁已通过固定源码应用检查。Tbox 账号「我的设备」已接入启动、授权和握手。桌面应用只在安装包包含引擎并配置对应账号的中继时显示功能入口。打包配置 `TBOX_REMOTE_RENDEZVOUS` 和 `TBOX_REMOTE_RENDEZVOUS_KEY` 分别指定自建会合地址和公钥。完整引擎构建、Windows 签名服务注册、Mac 授权和中继部署按 REM-001 验收后进入安装包。
 
 定制客户端通过 macOS 原生类型检查。固定版本的 `hbbs` 和 `hbbr` 已在本机分别编译，使用新建测试密钥启动并接受回环 TCP 连接。此结果验证启动和监听，画面经中继传输仍需双端验收。[macOS 原生检查](https://github.com/xsddpx/Tbox/actions/runs/44890546117/job/136805192496)
+
+完整窗口构建保留 RustDesk 许可和准确的对应源码提交。Mac 和 Windows 打包器分别从 `TBOX_REMOTE_MACOS_VIEWER_ZIP` 或 `TBOX_REMOTE_WINDOWS_VIEWER_ZIP` 取得组件，并核对对应的 `TBOX_REMOTE_MACOS_VIEWER_SHA256` 或 `TBOX_REMOTE_WINDOWS_VIEWER_SHA256`。Mac 组件以 `com.xsddpx.tbox.remote` 嵌入并使用应用的持久签名身份。Windows 组件随 MSIX 封装并覆盖验签。无人值守 Windows 服务另按 REM-001 验收。
