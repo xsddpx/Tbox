@@ -70,3 +70,5 @@ tbox.xsddpx.com {
 定制客户端通过 macOS 原生类型检查。固定版本的 `hbbs` 和 `hbbr` 已在本机分别编译，使用新建测试密钥启动并接受回环 TCP 连接。此结果验证启动和监听，画面经中继传输仍需双端验收。[macOS 原生检查](https://github.com/xsddpx/Tbox/actions/runs/44890546117/job/136805192496)
 
 完整窗口构建保留 RustDesk 许可和准确的对应源码提交。Mac 和 Windows 打包器分别从 `TBOX_REMOTE_MACOS_VIEWER_ZIP` 或 `TBOX_REMOTE_WINDOWS_VIEWER_ZIP` 取得组件，并核对对应的 `TBOX_REMOTE_MACOS_VIEWER_SHA256` 或 `TBOX_REMOTE_WINDOWS_VIEWER_SHA256`。Mac 组件以 `com.xsddpx.tbox.remote` 嵌入并使用应用的持久签名身份。Windows 组件随 MSIX 封装并覆盖验签。无人值守 Windows 服务另按 REM-001 验收。
+
+在 `Shared desktop checks` 同时选择 `build_remote_viewer` 和所需平台的签名验证选项，并填写 `remote_rendezvous` 和 `remote_rendezvous_key`，可生成带引擎的签名候选。签名任务从同一次运行下载引擎，按构建任务输出的 SHA-256 核对。候选包保留为工作流产物。

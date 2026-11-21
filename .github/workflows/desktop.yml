@@ -30,6 +30,12 @@ on:
         description: 'Build the patched RustDesk viewers for package integration'
         default: false
         type: boolean
+      remote_rendezvous:
+        description: 'Rendezvous address for a signed remote desktop test package'
+        type: string
+      remote_rendezvous_key:
+        description: 'Public rendezvous key for a signed remote desktop test package'
+        type: string
 
 permissions:
   contents: read
@@ -168,6 +174,8 @@ jobs:
     needs: remote-viewer-bridge
     runs-on: macos-26
     timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.viewer.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -194,6 +202,7 @@ jobs:
           path: TEMP/vcpkg/installed
           key: rustdesk-arm64-osx-9e593bb1-aom-jpeg-vpx-yuv-opus
       - name: Build the macOS viewer
+        id: viewer
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
           VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
@@ -216,6 +225,7 @@ jobs:
             "$(git rev-parse HEAD)" "$(git -C libs/hbb_common rev-parse HEAD)" "$GITHUB_REPOSITORY" "$GITHUB_SHA" \
             > "$viewer/Contents/Resources/RustDesk-source.txt"
           ditto -c -k --keepParent "$viewer" "$RUNNER_TEMP/tbox-remote-macos.zip"
+          echo "sha256=$(shasum -a 256 "$RUNNER_TEMP/tbox-remote-macos.zip" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: tbox-remote-macos-viewer
@@ -229,6 +239,8 @@ jobs:
     needs: remote-viewer-bridge
     runs-on: windows-2025
     timeout-minutes: 60
+    outputs:
+      sha256: ${{ steps.viewer.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -260,6 +272,7 @@ jobs:
         working-directory: ${{ env.TBOX_REMOTE_SOURCE }}
         run: bash .github/patches/apply_flutter_3.44_source_patches.sh
       - name: Build the Windows viewer
+        id: viewer
         shell: pwsh
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
@@ -290,6 +303,8 @@ jobs:
             Set-Content -LiteralPath "$viewer/RustDesk-source.txt" -Encoding utf8
           tar.exe -a -cf "$env:RUNNER_TEMP/tbox-remote-windows.zip" -C $viewer .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hash = (Get-FileHash -Algorithm SHA256 "$env:RUNNER_TEMP/tbox-remote-windows.zip").Hash
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
           name: tbox-remote-windows-viewer
@@ -451,11 +466,14 @@ jobs:
         run: bash scripts/release/sign-and-package-macos.sh --verify-identity-only
 
   windows-installed-package:
-    needs: windows-media
+    needs: [windows-media, remote-viewer-windows]
     # Opt-in acceptance of the actual installer on a disposable Windows runner.
     # Artifacts are accessible from this public repository; never include secrets.
     # This job does not create a Release.
-    if: github.event_name == 'workflow_dispatch' && inputs.verify_installer
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && inputs.verify_installer &&
+      needs.windows-media.result == 'success' &&
+      (!inputs.build_remote_viewer || needs.remote-viewer-windows.result == 'success')
     runs-on: windows-2025
     timeout-minutes: 45
     steps:
@@ -473,12 +491,21 @@ jobs:
         with:
           name: windows-media-runtime
           path: TEMP/media-runtime/windows
+      - uses: actions/download-artifact@v4
+        if: inputs.build_remote_viewer
+        with:
+          name: tbox-remote-windows-viewer
+          path: TEMP/remote-viewer
       - name: Build, sign, install and launch the actual Windows MSIX
         shell: powershell
         env:
           TBOX_WINDOWS_PFX_BASE64: ${{ secrets.TBOX_WINDOWS_PFX_BASE64 }}
           TBOX_WINDOWS_PFX_PASSWORD: ${{ secrets.TBOX_WINDOWS_PFX_PASSWORD }}
           TBOX_WINDOWS_CERT_SHA1: ${{ vars.TBOX_WINDOWS_CERT_SHA1 }}
+          TBOX_REMOTE_WINDOWS_VIEWER_ZIP: ${{ inputs.build_remote_viewer && format('{0}/TEMP/remote-viewer/tbox-remote-windows.zip', github.workspace) || '' }}
+          TBOX_REMOTE_WINDOWS_VIEWER_SHA256: ${{ needs.remote-viewer-windows.outputs.sha256 }}
+          TBOX_REMOTE_RENDEZVOUS: ${{ inputs.remote_rendezvous }}
+          TBOX_REMOTE_RENDEZVOUS_KEY: ${{ inputs.remote_rendezvous_key }}
         run: ./scripts/release/sign-and-package-windows.ps1 -VerifyCapture -VerifyRecording
       - name: Preserve verified installer and package history
         uses: actions/upload-artifact@v4
@@ -525,8 +552,11 @@ jobs:
           if-no-files-found: error
 
   macos-signed-package:
+    needs: remote-viewer-macos
     # Build a development package with the existing release identity without creating a Release.
-    if: github.event_name == 'workflow_dispatch' && inputs.verify_macos_installer
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && inputs.verify_macos_installer &&
+      (!inputs.build_remote_viewer || needs.remote-viewer-macos.result == 'success')
     runs-on: macos-26
     timeout-minutes: 60
     steps:
@@ -537,6 +567,11 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/download-artifact@v4
+        if: inputs.build_remote_viewer
+        with:
+          name: tbox-remote-macos-viewer
+          path: TEMP/remote-viewer
       - name: Check Apple Silicon runner and media tools
         run: |
           test "$(uname -m)" = arm64
@@ -547,6 +582,10 @@ jobs:
           TBOX_MAC_P12_PASSWORD: ${{ secrets.TBOX_MAC_P12_PASSWORD }}
           TBOX_MAC_CERT_SHA1: ${{ vars.TBOX_MAC_CERT_SHA1 }}
           TBOX_MAC_SIGN_IDENTITY: ${{ vars.TBOX_MAC_SIGN_IDENTITY }}
+          TBOX_REMOTE_MACOS_VIEWER_ZIP: ${{ inputs.build_remote_viewer && format('{0}/TEMP/remote-viewer/tbox-remote-macos.zip', github.workspace) || '' }}
+          TBOX_REMOTE_MACOS_VIEWER_SHA256: ${{ needs.remote-viewer-macos.outputs.sha256 }}
+          TBOX_REMOTE_RENDEZVOUS: ${{ inputs.remote_rendezvous }}
+          TBOX_REMOTE_RENDEZVOUS_KEY: ${{ inputs.remote_rendezvous_key }}
         run: bash scripts/release/sign-and-package-macos.sh
       - name: Preserve verified installer and package history
         uses: actions/upload-artifact@v4
