@@ -22,6 +22,10 @@ on:
         description: 'Verify Windows MSIX service registration and upgrade with an isolated fixture'
         default: false
         type: boolean
+      verify_remote_engine:
+        description: 'Type-check the patched RustDesk client on macOS'
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -44,6 +48,36 @@ jobs:
           cargo +stable test --locked --manifest-path src/Tbox.Remote/Cargo.toml
       - name: Apply the authorization patch to the pinned RustDesk sources
         run: bash scripts/prepare-remote-engine.sh
+
+  remote-engine-macos:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_remote_engine
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vcpkg
+          ref: 9e593bb18ea69cc5095e012465dcd675a822ed0d
+          path: TEMP/vcpkg
+          persist-credentials: false
+      - name: Prepare and type-check the patched client
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
+          CARGO_TARGET_DIR: ${{ github.workspace }}/TEMP/rustdesk-target
+          VCPKG_ROOT: ${{ github.workspace }}/TEMP/vcpkg
+          VCPKG_INSTALLED_ROOT: ${{ github.workspace }}/TEMP/rustdesk-vcpkg
+        run: |
+          rustup update stable --no-self-update
+          engine="$(bash scripts/prepare-remote-engine.sh)"
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh" -disableMetrics
+          cd "$engine"
+          "$VCPKG_ROOT/vcpkg" install aom libjpeg-turbo libvpx libyuv opus \
+            --triplet arm64-osx \
+            --x-install-root="$VCPKG_INSTALLED_ROOT" --classic
+          cargo +stable check --lib
 
   cloud:
     runs-on: ubuntu-latest
