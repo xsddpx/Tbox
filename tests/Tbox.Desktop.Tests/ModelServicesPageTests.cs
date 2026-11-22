@@ -232,6 +232,51 @@ public sealed class ModelServicesPageTests
         Assert.DoesNotContain(scope.Page.GetVisualDescendants().OfType<TextBlock>(), text => text.IsEffectivelyVisible && text.Text == "密钥无效或无权限");
     }
 
+    [AvaloniaTheory]
+    [InlineData("返回连接列表", false)]
+    [InlineData("返回连接列表", true)]
+    [InlineData("取消", false)]
+    [InlineData("取消", true)]
+    public async Task LeavingADirtyConnectionReturnsToListWithoutAPrompt(string action, bool editingSavedConnection)
+    {
+        using var scope = new Scope();
+        await scope.Page.BeginAddAsync();
+        var savedKey = "saved-test-key";
+        string? savedConfig = null;
+        if (editingSavedConnection)
+        {
+            scope.Page.Secret.Text = savedKey;
+            var id = scope.Page.ConnectionId;
+            await scope.Page.SaveAsync();
+            savedConfig = await File.ReadAllTextAsync(scope.ConfigPath);
+            await scope.Page.BeginEditAsync(id);
+        }
+
+        scope.Page.BaseUrl.Text = "https://unsaved.example/v1";
+        scope.Page.Secret.Text = "unsaved-test-key";
+        FindButton(scope.Page, action).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        scope.Window.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.False(scope.Page.IsEditing);
+        Assert.Empty(scope.Window.OwnedWindows);
+        Assert.Equal("", scope.Page.Secret.Text);
+        Assert.True(FindButton(scope.Page, "添加连接").IsEffectivelyVisible);
+        Assert.Equal(0, scope.Calls);
+        if (savedConfig is not null)
+        {
+            Assert.Equal(savedConfig, await File.ReadAllTextAsync(scope.ConfigPath));
+            Assert.Equal(savedKey, scope.Service.KeyOf(scope.Service.Configuration.Connections.Single().Id));
+        }
+        else
+        {
+            Assert.False(File.Exists(scope.ConfigPath));
+            Assert.Empty(scope.Service.Configuration.Connections);
+        }
+        if (action == "返回连接列表" && !editingSavedConnection)
+            TaskToolbarTests.Preview(scope.Window, "model-connection-return");
+    }
+
     [AvaloniaFact]
     public async Task NewPresetCanFetchAndTestAModelBeforeItsFirstSave()
     {

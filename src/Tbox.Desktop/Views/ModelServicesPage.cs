@@ -110,7 +110,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         _test = Ui.Link("测试连接", () => Run(TestAsync));
         ToolTip.SetTip(_test, "测试将向当前地址发送一条简短的模型请求");
         _save = Ui.Primary("保存", () => Run(SaveAsync));
-        _cancel = Ui.Button("取消", () => Run(CancelAsync));
+        _cancel = Ui.Button("取消", CancelEdit);
         _delete = Ui.Link("删除连接", () => Run(DeleteConnectionAsync), accent: false);
         _stop = Ui.Link("停止", () => _operation?.Cancel(), accent: false);
         _stop.IsVisible = false;
@@ -358,7 +358,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
 
     private Control BuildEditHeader()
     {
-        var back = Ui.IconButton(IconKind.Back, "返回连接列表", () => Run(CancelAsync));
+        var back = Ui.IconButton(IconKind.Back, "返回连接列表", CancelEdit);
         _editTitle.VerticalAlignment = VerticalAlignment.Center;
         return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), ColumnSpacing = 12, Children = { back, Ui.Column(_editTitle, 1) } };
     }
@@ -691,15 +691,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         });
     }
 
-    private async Task CancelAsync()
+    private void CancelEdit()
     {
-        if (_busy) return;
-        if (_dirty)
-        {
-            var discard = await new ConfirmWindow("放弃未保存的更改？", "放弃", "填写的内容不会保存。", destructive: true).ShowDialog<bool>(_owner());
-            if (!discard) return;
-        }
-        Leave();
+        if (!_busy) Leave();
     }
 
     internal void ToggleReveal()
