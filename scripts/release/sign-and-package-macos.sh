@@ -15,6 +15,7 @@ cleanup() {
   security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+PACKAGE_UMASK="$(umask)"
 umask 077
 python3 - <<'PY'
 import base64, os, pathlib
@@ -29,6 +30,7 @@ rm -f "$P12"
 unset TBOX_MAC_P12_BASE64 TBOX_MAC_P12_PASSWORD
 security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+umask "$PACKAGE_UMASK"
 security find-identity -p codesigning "$KEYCHAIN" | grep -Fqi "$TBOX_MAC_CERT_SHA1" || { echo 'Imported identity differs from the persistent signing certificate.' >&2; exit 1; }
 if [[ "${1:-}" == --verify-identity-only ]]; then
   # An isolated OS executable tests import/sign/verify without producing a Tbox version.

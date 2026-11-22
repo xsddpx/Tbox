@@ -2,6 +2,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+# Service Management reads and launches the bundled daemon outside the app's login session.
+umask 022
 RID="${1:-osx-arm64}"
 if [[ "$RID" != osx-arm64 || "$(uname -m)" != arm64 ]]; then
   echo "仅支持在 Apple Silicon 上构建 osx-arm64。" >&2; exit 1
