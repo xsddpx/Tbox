@@ -127,8 +127,11 @@ public readonly record struct SheetCell(int X, int Y, int LabelX, int LabelY, st
 
 public static class ContactSheetPolicy
 {
-    public const int MinCount = 2, DefaultCount = 6, MaxCount = 24, Margin = 12, LabelStrip = 28, LabelSize = 12;
-    public const int Count = DefaultCount;
+    public const int DefaultCount = 6, Margin = 12, LabelStrip = 28, LabelSize = 12;
+    public static IReadOnlyList<int> FrameCounts { get; } = Array.AsReadOnly<int>([2, 4, 6, 8, 10]);
+
+    public static int ValidateCount(int count) => FrameCounts.Contains(count) ? count
+        : throw new ArgumentOutOfRangeException(nameof(count), "宫格图数量只能选择 2、4、6、8 或 10。");
     public static IReadOnlyList<int> LongEdges { get; } = [640, 480, 320, 200];
     public const int DefaultLongEdge = 320;
 
@@ -136,7 +139,7 @@ public static class ContactSheetPolicy
     public static IReadOnlyList<long> SampleFrames(long first, long last, int count = DefaultCount)
     {
         if (last < first) throw new ArgumentOutOfRangeException(nameof(last), "范围内没有可采样的帧。");
-        count = Math.Clamp(count, MinCount, MaxCount);
+        ValidateCount(count);
         return Enumerable.Range(0, count).Select(i => first + (long)Math.Round((last - first) * i / (double)(count - 1), MidpointRounding.AwayFromZero)).ToArray();
     }
 
@@ -152,8 +155,8 @@ public static class ContactSheetPolicy
 
     public static (int Columns, int Rows) Grid(int count)
     {
-        count = Math.Clamp(count, MinCount, MaxCount);
-        var columns = count <= 4 ? 2 : count <= 6 || count == 9 ? 3 : count <= 16 ? 4 : 5;
+        ValidateCount(count);
+        var columns = Math.Max(2, count / 2);
         return (columns, (count + columns - 1) / columns);
     }
 
@@ -165,7 +168,7 @@ public static class ContactSheetPolicy
 
     public static IReadOnlyList<SheetCell> Layout(VideoSize cell, int count = DefaultCount)
     {
-        count = Math.Clamp(count, MinCount, MaxCount);
+        ValidateCount(count);
         var (columns, _) = Grid(count);
         return Enumerable.Range(0, count).Select(i =>
         {

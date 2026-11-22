@@ -974,9 +974,10 @@ public sealed class TaskToolbarTests
             var position = track.Position;
             review.MouseMove(At(5, -3), RawInputModifiers.None); Layout(review);
             Assert.Equal(5, track.HotTick); Assert.Equal(position, track.Position); Assert.True(review.ThumbnailPopup.IsOpen);
-            var count = review.GetVisualDescendants().OfType<NumericUpDown>().Single(box => AutomationProperties.GetName(box) == "取帧数量");
-            Assert.Equal(6m, count.Value);
-            count.Value = 8;
+            var count = review.GetVisualDescendants().OfType<ComboBox>().Single(box => AutomationProperties.GetName(box) == "取帧数量");
+            Assert.Equal([2, 4, 6, 8, 10], (IReadOnlyList<int>)count.ItemsSource!);
+            Assert.Equal(6, count.SelectedItem);
+            count.SelectedItem = 8;
             Layout(review);
             Assert.Equal(8, review.Options().FrameCount);
             Assert.Equal(8, track.Ticks.Count);

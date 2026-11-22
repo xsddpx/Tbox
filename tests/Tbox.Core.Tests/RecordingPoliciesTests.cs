@@ -88,6 +88,20 @@ public sealed class RecordingPoliciesTests
         Assert.Throws<ArgumentOutOfRangeException>(() => ContactSheetPolicy.SampleFrames(5, 4));
     }
 
+    [Theory]
+    [InlineData(2, 2, 1)]
+    [InlineData(4, 2, 2)]
+    [InlineData(6, 3, 2)]
+    [InlineData(8, 4, 2)]
+    [InlineData(10, 5, 2)]
+    public void ContactSheetUsesOnlyTheOfferedFrameCounts(int count, int columns, int rows)
+    {
+        Assert.Equal((columns, rows), ContactSheetPolicy.Grid(count));
+        Assert.Equal(count, ContactSheetPolicy.Layout(new(200, 100), count).Count);
+        Assert.Equal(count, ContactSheetPolicy.SampleFrames(0, 29, count).Count);
+        Assert.Throws<ArgumentOutOfRangeException>(() => ContactSheetPolicy.Grid(3));
+    }
+
     [Fact]
     public void ContactSheetLayoutMatchesTheAfterEffectsScript()
     {

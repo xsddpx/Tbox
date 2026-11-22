@@ -105,7 +105,7 @@ public static class RecordingExporter
     {
         var cell = options.Size;
         var frames = new List<byte[]>();
-        var count = Math.Clamp(options.FrameCount, ContactSheetPolicy.MinCount, ContactSheetPolicy.MaxCount);
+        var count = ContactSheetPolicy.ValidateCount(options.FrameCount);
         var times = media?.SampleTimes(options.Range, count) ?? ContactSheetPolicy.SampleTimes(options.Range, RecordingFrameRatePolicy.RecordingFrameRate, count);
         foreach (var time in times)
         {

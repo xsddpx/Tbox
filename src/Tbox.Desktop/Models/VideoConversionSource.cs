@@ -57,6 +57,7 @@ internal sealed record VideoConversionSource(string Path, string Name, VideoSize
 
     public IReadOnlyList<TimeSpan> SampleTimes(RecordingTimeRange range, int count)
     {
+        ContactSheetPolicy.ValidateCount(count);
         if (IsRecording) return ContactSheetPolicy.SampleTimes(range, RecordingFrameRatePolicy.RecordingFrameRate, count);
         var start = range.Start;
         if (AnimationFrames is { } frames)

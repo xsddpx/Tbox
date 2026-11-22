@@ -51,10 +51,9 @@ internal sealed class VideoConversionEditor : UserControl
     private readonly WrapPanel _gridCells = new() { Orientation = Orientation.Horizontal };
     private readonly List<Image> _gridImages = [];
     private readonly TextBlock _outputType = Ui.Description("MP4");
-    private readonly NumericUpDown _count = new() { Minimum = ContactSheetPolicy.MinCount, Maximum = ContactSheetPolicy.MaxCount,
-        Value = ContactSheetPolicy.DefaultCount, Increment = 1, FormatString = "0", ClipValueToMinMax = true, MinHeight = 34,
-        ShowButtonSpinner = false, HorizontalContentAlignment = HorizontalAlignment.Center, MinWidth = 0 };
-    private int FrameCount => (int)(_count.Value ?? ContactSheetPolicy.DefaultCount);
+    private readonly ComboBox _count = new() { ItemsSource = ContactSheetPolicy.FrameCounts,
+        SelectedItem = ContactSheetPolicy.DefaultCount, MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private int FrameCount => _count.SelectedItem is int count ? count : ContactSheetPolicy.DefaultCount;
     private Task _thumbnailTask = Task.CompletedTask;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
     private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -122,22 +121,13 @@ internal sealed class VideoConversionEditor : UserControl
         for (var i = 0; i < chips.Length; i++) ToolTip.SetTip(chips[i], RecordingExportProfiles.Get(Formats[i]).Description);
         AutomationProperties.SetName(FrameRate, "导出帧率"); AutomationProperties.SetName(Size, "导出尺寸"); AutomationProperties.SetName(CustomWidth, "自定义宽度");
         AutomationProperties.SetName(_count, "取帧数量");
-        var fewer = Ui.IconButton(IconKind.Minus, "减少取帧数量", () => _count.Value = Math.Max(ContactSheetPolicy.MinCount, FrameCount - 1));
-        var more = Ui.IconButton(IconKind.Plus, "增加取帧数量", () => _count.Value = Math.Min(ContactSheetPolicy.MaxCount, FrameCount + 1));
-        _countGroup = Setting("取帧数量", new Grid { ColumnDefinitions = new("Auto,*,Auto"), Children =
-            { fewer, Ui.Column(_count, 1), Ui.Column(more, 2) } });
-        void UpdateCountButtons()
-        {
-            fewer.IsEnabled = FrameCount > ContactSheetPolicy.MinCount;
-            more.IsEnabled = FrameCount < ContactSheetPolicy.MaxCount;
-        }
-        UpdateCountButtons();
+        _countGroup = Setting("取帧数量", _count);
         _frameRateGroup = Setting("帧率", FrameRate);
         _customGroup = Setting("宽度", new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { CustomWidth, _customHeight } });
         _customGroup.IsVisible = false;
         var sizeLabel = Ui.Description("尺寸");
         var sizeGroup = Setting(sizeLabel, Size);
-        _count.ValueChanged += (_, _) => { UpdateCountButtons(); UpdateSizeDetails(); UpdateRange(); };
+        _count.SelectionChanged += (_, _) => { UpdateSizeDetails(); UpdateRange(); };
         _gridPreview = new Border { Margin = new Thickness(0, 3, 0, 0), Child = new StackPanel { Spacing = 6, Children =
             { TwoEnds(Ui.Text("宫格预览", 12), _gridLayout), new Border { Background = Brush.Parse("#263340"), CornerRadius = new(6),
                 HorizontalAlignment = HorizontalAlignment.Center, Padding = new Thickness(4), Child = _gridCells } } } };
@@ -197,7 +187,7 @@ internal sealed class VideoConversionEditor : UserControl
         _volume.ValueChanged += (_, _) => { if (!_closing && _player is { } player) player.Volume = (int)_volume.Value; };
         KeyDown += (_, e) =>
         {
-            if (e.Source is TextBox or NumericUpDown or Button) return;
+            if (e.Source is TextBox or ComboBox or Button) return;
             if (e.Key == Key.Space) controller.Run(TogglePlaybackAsync);
             else if (e.Key == Key.S && (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Meta)) != 0) controller.Run(SaveAsync);
             else return;
