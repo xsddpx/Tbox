@@ -8,6 +8,8 @@
 
 规范板渲染图：[基础](images/ui-3.0-1-foundations.jpg)、[控件](images/ui-3.0-2-components.jpg)、[主窗口](images/ui-3.0-3-main.jpg)、[结果窗口](images/ui-3.0-4-results.jpg)、[任务浮层](images/ui-3.0-5-tasks.jpg)。
 
+当前共用桌面控件渲染：[设置](images/desktop-settings.png) · [标注参数](images/desktop-annotation-steps.png) · [录屏取样](images/desktop-recording-samples.png)。
+
 ## 1. 唯一实现与设计边界
 
 截图、贴图相关设计优先参考 Snipaste、PixPin、CleanShot X 和 eSearch，文件夹跳转相关设计优先参考 Listary。官方入口与使用原则见 [产品设计参考](product-references.md)。采用时保持本规范的统一视觉。如需改变已确认的产品行为，先按产品需求变更流程处理。
