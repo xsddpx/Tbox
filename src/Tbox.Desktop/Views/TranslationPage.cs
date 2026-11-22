@@ -28,7 +28,8 @@ internal sealed class TranslationPage : UserControl, IDisposable
     private readonly TextBlock _resultLabel = Ui.Description("待翻译");
     private readonly Grid _editors = new() { ColumnDefinitions = new("*,*"), RowDefinitions = new("Auto,Auto"), ColumnSpacing = 12, RowSpacing = 12 };
     private readonly Control _sourcePane, _resultPane;
-    private readonly Control _unconfigured;
+    private readonly Control _unconfigured, _choices;
+    private readonly ToolBanner _banner;
     private readonly Grid _footer;
     private ModelConfiguration _snapshot = new();
     private ModelReference? _resolved;
@@ -56,26 +57,16 @@ internal sealed class TranslationPage : UserControl, IDisposable
         _sourcePane = Pane("原文", Source, _count);
         _resultPane = Pane("译文", Result, _resultLabel);
         _editors.Children.Add(_sourcePane); _editors.Children.Add(Ui.Column(_resultPane, 1));
-        _unconfigured = Ui.Row(Ui.Description("请先在模型服务中添加连接和模型。"), Ui.Link("配置模型", configure));
-        var heading = new Grid
-        {
-            ColumnDefinitions = new("*,Auto"), MinHeight = 36, ColumnSpacing = 12,
-            Children =
-            {
-                new TextBlock
-                {
-                    Text = "翻译", FontSize = DesignTokens.PageTitle, FontWeight = FontWeight.SemiBold,
-                    VerticalAlignment = VerticalAlignment.Center
-                },
-                Ui.Column(Model, 1)
-            }
-        };
-        Model.VerticalAlignment = VerticalAlignment.Center;
-        var languages = new Grid { ColumnDefinitions = new("Auto,Auto,*,Auto,Auto"), ColumnSpacing = 8, Children =
-        {
-            Ui.Row(Ui.Description("自动识别"), new LineIcon(IconKind.Arrow) { Width = 14, Height = 14 }), Ui.Column(Target, 1),
-            Ui.Column(_paste, 3), Ui.Column(_clear, 4)
-        } };
+        _unconfigured = Ui.Primary("配置模型", configure);
+        Model.Width = 136; Target.Width = 104;
+        _choices = Ui.Row(new StackPanel { Spacing = 4, Children = { Ui.Description("模型"), Model } },
+            new StackPanel { Spacing = 4, Children = { Ui.Description("目标语言"), Target } });
+        _choices.IsVisible = false;
+        _banner = new ToolBanner(IconKind.Translate, "先配置翻译模型", "添加服务连接和模型后即可翻译。",
+            new Panel { Children = { _unconfigured, _choices } });
+        var heading = new TextBlock { Text = "翻译", FontSize = DesignTokens.PageTitle, FontWeight = FontWeight.SemiBold,
+            Height = 36, Padding = new Thickness(0, 6, 0, 0) };
+        var sourceActions = Ui.Row(_paste, _clear); sourceActions.HorizontalAlignment = HorizontalAlignment.Right;
         _destination.VerticalAlignment = VerticalAlignment.Center;
         _destination.FontSize = DesignTokens.Caption;
         var actions = Ui.Row(_copy, _translate);
@@ -84,7 +75,7 @@ internal sealed class TranslationPage : UserControl, IDisposable
             Children = { _destination, Ui.Column(actions, 1) } };
         Content = new StackPanel { Spacing = 10, Children =
         {
-            heading, _unconfigured, languages, _editors, _footer, _status
+            heading, _banner, sourceActions, _editors, _footer, _status
         } };
         Source.PropertyChanged += (_, args) => { if (args.Property == TextBox.TextProperty && !_loading) Session.Invalidate(); };
         Target.SelectionChanged += (_, _) => { if (!_loading) Session.Invalidate(); };
@@ -162,6 +153,9 @@ internal sealed class TranslationPage : UserControl, IDisposable
     private void ResolveSelection()
     {
         _unconfigured.IsVisible = Model.ItemCount == 0;
+        _choices.IsVisible = !_unconfigured.IsVisible;
+        _banner.Title.Text = _unconfigured.IsVisible ? "先配置翻译模型" : "文本翻译";
+        _banner.Detail.Text = _unconfigured.IsVisible ? "添加服务连接和模型后即可翻译。" : "自动识别原文语言。";
         if (Model.SelectedItem is not ModelOption option)
         {
             _resolved = null;
@@ -188,6 +182,7 @@ internal sealed class TranslationPage : UserControl, IDisposable
         Source.IsReadOnly = Session.IsRunning;
         Target.IsEnabled = _paste.IsEnabled = _clear.IsEnabled = !Session.IsRunning;
         Model.IsEnabled = !Session.IsRunning && Model.ItemCount > 0;
+        _translate.Classes.Set("accent", !_unconfigured.IsVisible);
         _copy.IsEnabled = !Session.IsRunning && Session.Text.Length > 0;
         _translate.IsEnabled = Session.IsRunning || (_resolved is not null && !string.IsNullOrWhiteSpace(Source.Text));
         _translate.Content = Session.IsRunning ? "停止生成" : Session.Text.Length > 0 ? "重新翻译" : "翻译";

@@ -52,16 +52,13 @@ public sealed class MainWindow : Window
     // 文件夹跳转
     private readonly ToggleSwitch _folderToggle = Switch("启用文件夹跳转");
     private readonly ToggleSwitch _folderBarToggle = Switch("显示文件对话框跳转栏");
-    private readonly Border _folderPermission;
-    private readonly Border _folderOff = Ui.Note("文件夹跳转已关闭，快捷键已释放。打开右上角开关即可恢复。");
-    private readonly Control _folderHero;
-    private readonly SettingsLine _folderTarget;
+    private readonly Button _folderPermission;
+    private readonly ToolBanner _folderHero;
     // 速览 (Windows only)
     private readonly ToggleSwitch _quickLookToggle = Switch("启用速览");
-    private readonly Border _quickLookOff = Ui.Note("速览已关闭。打开右上角开关即可恢复。");
+    private readonly ToolBanner _quickLookHero;
     private readonly Control _quickLookSettings;
     private readonly ComboBox _quickLookMethod = new() { MinWidth = 160, Items = { "空格键", "自定义快捷方式" } };
-    private readonly SettingsLine _quickLookMethodLine;
     private readonly Dictionary<string, ToggleSwitch> _quickLookSwitches = [];
     private readonly ToggleSwitch _quickLookWrap = Switch("自动换行");
     private readonly ComboBox _quickLookFont = new() { MinWidth = 160 };
@@ -72,6 +69,7 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _topmostBorder = Switch("显示紫色边框");
     private readonly ContentControl _topmostList = new();
     private readonly Button _topmostClear;
+    private readonly ToolBanner _topmostHero;
     private readonly Border _topmostScreenPermission;
     private readonly Border _topmostAccessPermission;
     private TopmostWindow[]? _shownTopmostWindows;
@@ -81,9 +79,8 @@ public sealed class MainWindow : Window
     private readonly ToggleSwitch _awakeLidToggle = Switch("合上盖子时保持唤醒");
     private readonly SettingsLine _awakeLid = new("合上盖子时保持唤醒", "");
     private readonly Button _awakeLidApproval = new() { Content = "前往系统设置", IsVisible = false };
-    private readonly TextBlock _awakeTitle = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong };
-    private readonly ContentControl _awakeStatus = new() { Margin = new Thickness(0, 4, 0, 0) };
-    private readonly TextBlock _awakeHint = Ui.Description("");
+    private readonly ContentControl _awakeStatus = new();
+    private readonly ToolBanner _awakeHero;
     // 通用
     private readonly ToggleSwitch _startupToggle = Switch("开机时启动");
     private readonly ToggleSwitch _failureToggle = Switch("失败时提示");
@@ -121,14 +118,16 @@ public sealed class MainWindow : Window
         controller.ShortcutsChanged += RefreshShortcutLabels;
         _cache = new SettingsLine("保存位置", "", Ui.Button("更改…", () => controller.Run(controller.ChooseCacheAsync), "更改保存位置"));
         _captureTools = CaptureTools();
-        var folderButton = Ui.Primary("去授权", controller.RequestFolderPermission, "允许辅助功能");
-        _folderPermission = Ui.WarningBar(IconKind.Warn, "需要辅助功能权限", "允许后 Tbox 才能读取访达当前目录并跳转", folderButton);
-        _folderHero = FolderHero();
-        _folderTarget = new SettingsLine("当前会跳到", "");
-        _quickLookMethodLine = new SettingsLine("激活方法", "选择文件时使用快捷方式或按空格键", _quickLookMethod);
+        _folderPermission = Ui.Primary("去授权", controller.RequestFolderPermission, "允许辅助功能");
+        _folderHero = new ToolBanner(IconKind.Folder, "", "", new Panel
+            { Children = { _folderPermission, _shortcuts[HotkeyAction.Folder] } });
         AutomationProperties.SetName(_quickLookMethod, "激活方法");
+        _quickLookHero = new ToolBanner(IconKind.QuickLook, "", "", new StackPanel { Spacing = 5, Children =
+            { Ui.Description("激活方法"), _quickLookMethod, _shortcuts[HotkeyAction.QuickLook] } });
         _quickLookSettings = QuickLookSettingsRows();
-        _topmostClear = Ui.Button("解除全部", () => controller.WindowTopmost?.Clear(), "解除全部窗口置顶");
+        _awakeHero = new ToolBanner(IconKind.Awake, "", "", status: _awakeStatus);
+        _topmostHero = new ToolBanner(IconKind.Pin, "", "", _shortcuts[HotkeyAction.WindowTopmost]);
+        _topmostClear = Ui.Link("解除全部", () => controller.WindowTopmost?.Clear(), "解除全部窗口置顶");
         _topmostScreenPermission = Ui.WarningBar(IconKind.Warn, "需要屏幕录制权限", "允许后 Tbox 才能在浮窗中显示窗口画面",
             Ui.Primary("去授权", controller.RequestTopmostScreenPermission, "允许窗口置顶录制屏幕"));
         _topmostAccessPermission = Ui.WarningBar(IconKind.Warn, "需要辅助功能权限", "允许后 Tbox 才能识别当前窗口并从浮窗返回",
@@ -270,12 +269,14 @@ public sealed class MainWindow : Window
         // 文件夹跳转
         var folderPermission = _controller.HasFolderPermission;
         _folderPermission.IsVisible = folders && !folderPermission;
-        _folderOff.IsVisible = !folders;
-        _folderHero.Opacity = folders ? 1 : .45;
-        _folderTarget.SetDescription(!folderPermission ? "授权后显示"
-            : string.IsNullOrWhiteSpace(_controller.FolderDirectory) ? "尚未读取目录，将使用用户主目录" : _controller.FolderDirectory);
-        _folderTarget.Trailing = !folders ? Ui.Status("已关闭", DesignTokens.Hint)
-            : folderPermission ? Ui.Status("可用", DesignTokens.Ready) : Ui.Status("未授权", DesignTokens.Error);
+        _shortcuts[HotkeyAction.Folder].IsVisible = !_folderPermission.IsVisible;
+        var directory = _controller.FolderDirectory;
+        _folderHero.Title.Text = !folders ? "文件夹跳转已关闭" : !folderPermission ? "等待辅助功能授权"
+            : string.IsNullOrEmpty(directory) ? "使用用户主目录" : "当前目标 · " + new DirectoryInfo(directory).Name;
+        _folderHero.Title.MaxLines = 2; _folderHero.Title.TextTrimming = TextTrimming.CharacterEllipsis;
+        _folderHero.Detail.Text = !folders ? "开启后可在打开或保存对话框中跳转。" : !folderPermission ? "允许 Tbox 读取访达当前打开的文件夹。"
+            : string.IsNullOrEmpty(directory) ? "尚未读取到其他文件夹，跳转时会使用主目录。" : directory;
+        ToolTip.SetTip(_folderHero.Detail, _folderHero.Detail.Text);
 
         // 速览
         var quickLook = settings.QuickLook;
@@ -287,7 +288,9 @@ public sealed class MainWindow : Window
         _quickLookFont.SelectedIndex = Nearest(QuickLookFontSizes, QuickLookPolicy.ClampFontSize(quickLook.TextFontSize));
         _quickLookMaxSize.SelectedIndex = Nearest(QuickLookMaxSizes, QuickLookPolicy.ClampMaxTextKb(quickLook.MaxTextFileSizeKb));
         _updating = false;
-        _quickLookOff.IsVisible = !quickLook.Enabled;
+        _quickLookHero.Title.Text = quickLook.Enabled ? "预览所选文件" : "速览已关闭";
+        _quickLookHero.Detail.Text = "在资源管理器中选中文件，按所选按键打开速览。";
+        _quickLookMethod.IsEnabled = quickLook.Enabled;
         _quickLookSettings.IsEnabled = quickLook.Enabled; _quickLookSettings.Opacity = quickLook.Enabled ? 1 : .45;
         _shortcuts[HotkeyAction.QuickLook].IsVisible = !quickLook.SpaceToActivate;
 
@@ -321,11 +324,11 @@ public sealed class MainWindow : Window
             : needsApproval ? "首次使用需要在「登录项与扩展」中允许 Tbox 在后台运行"
             : authorizing ? "正在应用合盖设置…"
             : "笔记本合盖后继续运行。放进包里前请关闭，以免过热");
-        _awakeTitle.Text = applied.System ? "电脑保持唤醒中" : "电脑会按系统设置睡眠";
+        _awakeHero.Title.Text = applied.System ? "电脑保持唤醒中" : "电脑会按系统设置睡眠";
         _awakeStatus.Content = authorizing ? Ui.Status("正在应用合盖设置…", DesignTokens.AttentionDot)
             : needsApproval ? Ui.Status("合盖唤醒待授权", DesignTokens.AttentionDot)
             : Ui.Status(applied.Summary, applied.System ? DesignTokens.Ready : DesignTokens.Hint);
-        _awakeHint.Text = applied.System ? "关闭右上角开关即可恢复。" : "打开右上角开关后，电脑在你关闭之前一直保持唤醒。";
+        _awakeHero.Detail.Text = applied.System ? "关闭右上角开关即可恢复。" : "打开右上角开关后，电脑在你关闭之前一直保持唤醒。";
     }
 
     internal void RefreshWindowTopmost()
@@ -343,10 +346,12 @@ public sealed class MainWindow : Window
         _nav[MainPage.WindowTopmost].Dot = enabled && _controller.HasHotkeyConflictFor(HotkeyAction.WindowTopmost) ? DesignTokens.Recording
             : _topmostScreenPermission.IsVisible || _topmostAccessPermission.IsVisible ? DesignTokens.AttentionDot : null;
         var windows = topmost.Windows;
+        _topmostHero.Title.Text = !enabled ? "窗口置顶已关闭" : windows.Count == 0 ? "暂无置顶窗口" : $"{windows.Count} 个窗口已置顶";
+        _topmostHero.Detail.Text = OperatingSystem.IsMacOS() ? "在目标窗口按快捷键建立实时浮窗，点击浮窗可返回原窗口。" : "在目标窗口按快捷键置顶，再按一次即可解除。";
+        _topmostClear.IsVisible = windows.Count > 0;
         if (_shownTopmostWindows?.SequenceEqual(windows) == true) return;
         _shownTopmostWindows = [.. windows];
-        _topmostClear.IsEnabled = windows.Count != 0;
-        _topmostList.Content = windows.Count == 0 ? Ui.Note("当前没有置顶窗口") : Ui.Rows(windows.Select(window =>
+        _topmostList.Content = windows.Count == 0 ? Spaced(Ui.Description("置顶后可以在这里逐个解除。"), 6) : Ui.Rows(windows.Select(window =>
             new SettingsLine(window.Title, "", Ui.Button("解除", () => topmost.Remove(window.Id), $"解除{window.Title}置顶"))).ToArray());
     }
 
@@ -439,26 +444,22 @@ public sealed class MainWindow : Window
             Disclosure("快捷键", Ui.Rows([.. captureShortcuts])), Disclosure("截图设置", Ui.Rows(_cache, history)));
 
         AddPage(MainPage.Folders, PageHeader("文件夹跳转", _folderToggle),
-            Spaced(_folderPermission, 14), Spaced(_folderOff, 16), _folderHero,
-            Ui.GroupHeader("状态"), Ui.Rows(_shortcuts[HotkeyAction.Folder], _folderTarget,
-                new SettingsLine("显示跳转栏", "在系统文件对话框旁显示已打开的文件夹、搜索、收藏和最近跳转", _folderBarToggle)));
+            Spaced(_folderHero, 12), Ui.GroupHeader("文件对话框"),
+            Ui.Rows(new SettingsLine("显示跳转栏", "在打开或保存对话框旁显示文件夹、搜索、收藏和最近跳转", _folderBarToggle)));
 
         if (_controller.SupportsQuickLook)
-            AddPage(MainPage.QuickLook, PageHeader("速览", _quickLookToggle),
-                Spaced(_quickLookOff, 16), _quickLookSettings);
+            AddPage(MainPage.QuickLook, PageHeader("速览", _quickLookToggle), Spaced(_quickLookHero, 12), _quickLookSettings);
         _awakeLid.Trailing = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _awakeLidApproval, _awakeLidToggle } };
         if (_controller.WindowTopmost is not null)
         {
-            var pinnedHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"),
-                Children = { Ui.GroupHeader("已置顶的窗口"), Ui.Column(_topmostClear, 1) } };
-            AddPage(MainPage.WindowTopmost, PageHeader("窗口置顶", _topmostToggle),
+            AddPage(MainPage.WindowTopmost, PageHeader("窗口置顶", _topmostToggle), Spaced(_topmostHero, 12),
                 Spaced(_topmostScreenPermission, 12), Spaced(_topmostAccessPermission, 12),
-                Ui.GroupHeader("操作"), Ui.Rows(_shortcuts[HotkeyAction.WindowTopmost], new SettingsLine("显示紫色边框", "", _topmostBorder)),
-                Spaced(pinnedHeader, 16), Spaced(_topmostList, 8));
+                Ui.GroupHeader("已置顶的窗口", _topmostClear), _topmostList,
+                Ui.GroupHeader("置顶外观"), new SettingsLine("显示紫色边框", "", _topmostBorder));
         }
         AddPage(MainPage.KeepAwake, PageHeader("保持唤醒", _awakeToggle),
-            KeepAwakeHero(),
-            Ui.GroupHeader("行为"), Ui.Rows(new SettingsLine("保持屏幕常亮", "关闭后屏幕可按系统设置熄灭，电脑不睡眠", _awakeDisplayToggle), _awakeLid),
+            Spaced(_awakeHero, 12),
+            Ui.GroupHeader("屏幕与合盖"), Ui.Rows(new SettingsLine("保持屏幕常亮", "关闭后屏幕可按系统设置熄灭，电脑不睡眠", _awakeDisplayToggle), _awakeLid),
             Spaced(Ui.Note("开关状态会被记住，下次启动 Tbox 时自动恢复。退出 Tbox 后，电脑恢复系统原来的睡眠设置。"), 18));
 
         AddPage(MainPage.Translation, _translation);
@@ -505,11 +506,7 @@ public sealed class MainWindow : Window
 
     private Control CaptureTools()
     {
-        var hero = TaskPanel(new StackPanel { Spacing = 3, Children =
-        {
-            new TextBlock { Text = "区域截图", FontSize = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong },
-            Ui.Description("拖动框选区域，或单击选中窗口。")
-        } }, _captureButton);
+        var hero = new ToolBanner(IconKind.Capture, "区域截图", "拖动框选区域，或单击选中窗口。", _captureButton);
 
         var ocrMenu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
         ocrMenu.Items.Add(MenuItem("识别剪贴板图片", () => _controller.Run(_controller.OcrClipboardAsync)));
@@ -522,7 +519,7 @@ public sealed class MainWindow : Window
             Ui.Column(Feature("录屏", IconKind.Record, null, () => _controller.Run(_controller.RecordRegionAsync)), 2),
             Ui.Column(ocr = Feature("识别文字", IconKind.Ocr, null, () => ocrMenu.ShowAt(ocr!)), 3)
         } };
-        return new StackPanel { Margin = new Thickness(0, 16, 0, 0), Spacing = 12, Children = { hero, new Border
+        return new StackPanel { Margin = new Thickness(0, 12, 0, 0), Spacing = 12, Children = { hero, new Border
             { CornerRadius = new CornerRadius(12), Background = Brush.Parse("#F0F3F6"), Padding = new Thickness(3), Child = cards } } };
     }
 
@@ -587,11 +584,12 @@ public sealed class MainWindow : Window
     private Control QuickLookSettingsRows()
     {
         var behaviour = new List<Control>();
+        var fileActions = new List<Control>();
         foreach (var (key, title, description) in QuickLookBehaviour)
         {
             var toggle = Switch(title);
             _quickLookSwitches[key] = toggle;
-            behaviour.Add(new SettingsLine(title, description ?? "", toggle));
+            (key == "ConfirmFileDelete" ? fileActions : behaviour).Add(new SettingsLine(title, description ?? "", toggle));
         }
         foreach (var size in QuickLookFontSizes) _quickLookFont.Items.Add(size.ToString(CultureInfo.InvariantCulture));
         foreach (var kb in QuickLookMaxSizes) _quickLookMaxSize.Items.Add(QuickLookPolicy.ReadableSize(kb * 1024L, false));
@@ -599,37 +597,16 @@ public sealed class MainWindow : Window
         var hint = Ui.Note("支持图片、视频、PDF、压缩包（zip、7z、rar、tar）、文件夹、文本和代码、Markdown、SVG；其他文件显示文件信息。←/→ 切换，Enter 打开，Delete 删除，Esc 关闭。");
         return new StackPanel { Children =
         {
-            Ui.GroupHeader("激活"), Ui.Rows(_quickLookMethodLine, _shortcuts[HotkeyAction.QuickLook]),
-            Ui.GroupHeader("行为"), Ui.Rows([.. behaviour]),
-            // Peek's 预览 group, 源代码文件 (Monaco): word wrap, font size and the size limit.
-            Ui.GroupHeader("文本和代码文件"), Ui.Rows(
+            Ui.GroupHeader("预览窗口"), Ui.Rows([.. behaviour]),
+            Ui.GroupHeader("文件操作"), Ui.Rows([.. fileActions]),
+            Disclosure("文本和代码文件", Ui.Rows(
                 new SettingsLine("自动换行", "", _quickLookWrap),
                 new SettingsLine("字号", "", _quickLookFont),
-                new SettingsLine("可预览的最大文件大小", "超过时只显示文件开头部分", _quickLookMaxSize)),
+                new SettingsLine("可预览的最大文件大小", "超过时只显示文件开头部分", _quickLookMaxSize))),
             Spaced(hint, 18)
         } };
     }
 
-    private static Border TaskPanel(Control summary, Control? action = null)
-    {
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12,
-            Children = { summary } };
-        summary.VerticalAlignment = VerticalAlignment.Center;
-        if (action is not null) row.Children.Add(Ui.Column(action, 1));
-        return Ui.Hero(row, 106);
-    }
-
-    private Control FolderHero() => Spaced(TaskPanel(new StackPanel { Spacing = 3, Children =
-    {
-        _folderTitle, Ui.Description("在打开或保存对话框中，跳到最近使用的文件夹。")
-    } }), 16);
-
-    private Control KeepAwakeHero() => Spaced(TaskPanel(new StackPanel { Spacing = 3, Children =
-    {
-        _awakeTitle, _awakeStatus, _awakeHint
-    } }), 16);
-
-    private readonly TextBlock _folderTitle = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong };
     private SurfaceButton? _pinFeature;
 
     private void RefreshShortcutLabels()
@@ -637,8 +614,6 @@ public sealed class MainWindow : Window
         SetCaptureButton(_captureButton.Classes.Contains("accent"));
         ToolTip.SetTip(_captureButton, $"截图 · {ShortcutLabels.Capture}"); AutomationProperties.SetName(_captureButton, $"截图 · {ShortcutLabels.Capture}");
         if (_pinFeature is not null) SetFeatureShortcut(_pinFeature, "贴出剪贴板", ShortcutLabels.Pin);
-        var folder = ShortcutLabels.Caps(HotkeyAction.Folder);
-        _folderTitle.Text = $"按 {string.Join(" + ", folder)}";
         foreach (var row in _shortcuts.Values) row.Refresh();
     }
 
@@ -796,8 +771,20 @@ internal class SettingsLine : Grid
 {
     private readonly TextBlock _description = Ui.Description("");
     private Control? _trailing;
-    public SettingsLine(string title, string description, Control? trailing = null)
+    private readonly bool _stacked;
+    public SettingsLine(string title, string description, Control? trailing = null, bool stacked = false)
     {
+        _stacked = stacked;
+        if (stacked)
+        {
+            RowDefinitions = new("Auto,Auto,Auto"); RowSpacing = 3;
+            Children.Add(Ui.Description(title));
+            SetRow(_description, 2); Children.Add(_description);
+            _description.MaxWidth = 185; _description.FontSize = DesignTokens.Caption;
+            SetDescription(description);
+            Trailing = trailing;
+            return;
+        }
         MinHeight = 46; ColumnSpacing = 14; ColumnDefinitions = new ColumnDefinitions("*,Auto");
         _description.FontSize = DesignTokens.Caption; _description.LineHeight = 16; _description.TextWrapping = TextWrapping.NoWrap;
         _description.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -816,7 +803,9 @@ internal class SettingsLine : Grid
             if (_trailing is not null) Children.Remove(_trailing);
             _trailing = value;
             if (value is null) return;
-            value.VerticalAlignment = VerticalAlignment.Center; SetColumn(value, 1); Children.Add(value);
+            value.VerticalAlignment = VerticalAlignment.Center;
+            if (_stacked) SetRow(value, 1); else SetColumn(value, 1);
+            Children.Add(value);
         }
     }
     public string Description => _description.Text ?? "";

@@ -98,7 +98,10 @@ public sealed class TranslationTests
         await scope.Page.OpenAsync(); scope.Page.Source.Text = "Keep this draft";
         await scope.Page.TranslateOrStopAsync();
         Assert.Empty(scope.Capability.Requests); Assert.Equal("Keep this draft", scope.Page.Source.Text);
-        Assert.Contains(scope.Page.GetVisualDescendants().OfType<Button>(), b => Equals(b.Content, "配置模型"));
+        var banner = Assert.Single(scope.Page.GetVisualDescendants().OfType<ToolBanner>());
+        Assert.Contains(banner.GetVisualDescendants().OfType<Button>(), b => b.IsEffectivelyVisible && Equals(b.Content, "配置模型"));
+        Assert.False(scope.Page.Model.IsEffectivelyVisible);
+        Assert.False(scope.Page.Target.IsEffectivelyVisible);
     }
 
     [AvaloniaFact]

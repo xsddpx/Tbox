@@ -121,7 +121,10 @@ internal sealed class ShortcutRow : SettingsLine
     private string? _error;
     public ShortcutRecorder Recorder { get; }
 
-    public ShortcutRow(DesktopController controller, HotkeyAction action) : base(ShortcutPolicy.Name(action) + "快捷键", "")
+    private static bool InBanner(HotkeyAction action) => action is HotkeyAction.Folder or HotkeyAction.WindowTopmost or HotkeyAction.QuickLook;
+
+    public ShortcutRow(DesktopController controller, HotkeyAction action)
+        : base(ShortcutPolicy.Name(action) + "快捷键", "", stacked: InBanner(action))
     {
         _controller = controller; _action = action;
         Recorder = new ShortcutRecorder(controller, action);
@@ -141,6 +144,7 @@ internal sealed class ShortcutRow : SettingsLine
             HotkeyAction.WindowTopmost => _controller.Settings.WindowTopmostEnabled,
             _ => _controller.Settings.ScreenPasteEnabled
         };
+        if (InBanner(_action)) IsEnabled = enabled;
         _reset.IsVisible = !_controller.IsDefaultShortcut(_action) && !Recorder.IsRecording;
         if (Recorder.IsRecording) { SetDescription("按 Esc 取消"); return; }
         if (_error is not null) { SetDescription(_error, error: true); return; }
@@ -151,7 +155,7 @@ internal sealed class ShortcutRow : SettingsLine
             SetDescription("此组合由系统处理；可开启下方接管选项或改绑");
             return;
         }
-        SetDescription(_action switch
+        SetDescription(InBanner(_action) ? "" : _action switch
         {
             HotkeyAction.Capture => "框选区域后标注、贴图或识别文字",
             HotkeyAction.Pin => "把剪贴板里的图片或文字贴到屏幕",
