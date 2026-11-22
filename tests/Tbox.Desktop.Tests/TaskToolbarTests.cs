@@ -1005,6 +1005,8 @@ public sealed class TaskToolbarTests
         bool Shows(string text) => review.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == text);
         try
         {
+            Assert.True(Chip("重新录屏").IsEffectivelyVisible);
+            Assert.DoesNotContain(review.GetVisualDescendants().OfType<Button>(), b => AutomationProperties.GetName(b) == "导入");
             Assert.True(Shows("2560 × 1440 · 00:42.0 · 30 FPS · 静音"));
             Assert.True(Shows("导出全部 · 00:00.0 – 00:42.0"));
             Assert.Equal(["MP4", "GIF", "WebP", "宫格图"], RecordingReviewWindow.Formats.Select(f => AutomationProperties.GetName(Chip(f switch

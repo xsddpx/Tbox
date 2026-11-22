@@ -12,7 +12,7 @@ internal sealed class RecordingReviewWindow : Window
 {
     private readonly VideoConverterView _converter;
     private Task<bool>? _closeRequest;
-    private bool _allowClose;
+    private bool _allowClose, _restarting;
 
     internal static IReadOnlyList<RecordingExportFormat> Formats => VideoConversionEditor.Formats;
     private VideoConversionEditor Editor => _converter.Editor!;
@@ -31,7 +31,8 @@ internal sealed class RecordingReviewWindow : Window
         Ui.Configure(this, "视频转换", 960, 650);
         MinWidth = 480; MinHeight = 395;
         Ui.ExtendIntoTitleBar(this);
-        _converter = new VideoConverterView(controller, async () => { await RequestCloseAsync(); }) { Margin = new Thickness(16, 32, 16, 14) };
+        _converter = new VideoConverterView(controller, savedRecording: async () => { await RequestCloseAsync(); }, restartRecording: RestartAsync)
+            { Margin = new Thickness(16, 32, 16, 14) };
         _converter.SetSource(workspace, new(output.FilePath, "屏幕录制", new(area.PixelWidth, area.PixelHeight),
             duration, RecordingFrameRatePolicy.RecordingFrameRate, output.HasSystemAudio, true));
         Content = new ScrollViewer { Content = _converter, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -44,6 +45,17 @@ internal sealed class RecordingReviewWindow : Window
             args.Handled = true;
             controller.Run(async () => { await RequestCloseAsync(); });
         };
+        async Task RestartAsync()
+        {
+            if (_restarting) return;
+            _restarting = true;
+            try
+            {
+                if (await RequestCloseAsync()) await controller.StartRecordingAsync(area, restoreForeground);
+            }
+            finally { _restarting = false; }
+        }
+
     }
 
     public async Task<bool> RequestCloseAsync(bool discardUnsaved = false)

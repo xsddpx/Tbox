@@ -18,7 +18,7 @@ internal sealed class VideoConverterView : UserControl
     private readonly Func<Task> _savedRecording;
     private readonly ContentControl _body = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _status = Ui.Description("");
-    private readonly Button _import, _choose;
+    private readonly Button _headerAction, _choose;
     private readonly Control _empty;
     private readonly Rectangle _dropSurface;
     private CancellationTokenSource? _importCancellation;
@@ -27,16 +27,18 @@ internal sealed class VideoConverterView : UserControl
     private bool _reading;
     internal VideoConversionEditor? Editor { get; private set; }
 
-    internal VideoConverterView(DesktopController controller, Func<Task>? savedRecording = null)
+    internal VideoConverterView(DesktopController controller, Func<Task>? savedRecording = null, Func<Task>? restartRecording = null)
     {
         _controller = controller;
         _savedRecording = savedRecording ?? (() => Task.CompletedTask);
-        _import = Ui.Button("导入", () => controller.Run(PickAsync));
-        _import.Content = Ui.Row(new LineIcon(IconKind.Import) { Width = 16, Height = 16 }, new TextBlock { Text = "导入" });
+        var actionLabel = restartRecording is null ? "导入" : "重新录屏";
+        var actionIcon = restartRecording is null ? IconKind.Import : IconKind.Record;
+        _headerAction = Ui.Button(actionLabel, () => controller.Run(restartRecording ?? PickAsync));
+        _headerAction.Content = Ui.Row(new LineIcon(actionIcon) { Width = 16, Height = 16 }, new TextBlock { Text = actionLabel });
         _choose = Ui.Button("选择文件…", () => controller.Run(PickAsync));
         _choose.HorizontalAlignment = HorizontalAlignment.Center;
         var title = Ui.Text("视频转换", 25); title.FontWeight = FontWeight.SemiBold; title.VerticalAlignment = VerticalAlignment.Center;
-        var header = new Grid { ColumnDefinitions = new("*,Auto"), Margin = new Thickness(0, 0, 0, 13), Children = { title, Ui.Column(_import, 1) } };
+        var header = new Grid { ColumnDefinitions = new("*,Auto"), Margin = new Thickness(0, 0, 0, 13), Children = { title, Ui.Column(_headerAction, 1) } };
         var options = Ui.Text("导出设置", 16); options.FontWeight = FontWeight.SemiBold;
         var save = Ui.Primary("保存视频…", () => { }); save.IsEnabled = false;
         save.HorizontalAlignment = HorizontalAlignment.Stretch; save.HorizontalContentAlignment = HorizontalAlignment.Center;
@@ -217,6 +219,6 @@ internal sealed class VideoConverterView : UserControl
     private void SetBusy(bool busy)
     {
         _busy = busy || _reading;
-        _import.IsEnabled = _choose.IsEnabled = !_busy && !_closing;
+        _headerAction.IsEnabled = _choose.IsEnabled = !_busy && !_closing;
     }
 }
