@@ -512,3 +512,12 @@ Mac 原位覆盖安装至 `/Applications/Tbox.app`，升级脚本验证原签名
 UTM Windows 11（内部版本 26300）从 1.1.126.0 覆盖安装签名 MSIX。普通截图取消和复制均归还焦点，200 × 130 的选区拼接为 200 × 226。短录屏完成暂停、继续和停止，时间轴显示取样帧，并成功导出 648 × 352 的 JPG。
 
 [双平台签名与安装检查](https://github.com/xsddpx/Tbox/actions/runs/45027636372)
+
+## 自动发布 v1.1.142
+
+两平台使用持久证书签名。
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.142 | macOS osx-arm64 | 2026-11-22 22:33:55 +0800 | `e7201d48a4a372e0446e11b4ad6df4a2592af2a5a6fb0ebd0b62f629aff736ed` |
+| 1.1.142.0 | Windows win-x64 | 2026-11-22 22:32:25 +0800 | `8fb72349dcff7ce9c9d8bba45f8deff1061e4f1290acb5bfa3c2ff9f2678c3d2` |
