@@ -935,7 +935,7 @@ public sealed class TaskToolbarTests
         review.Show(); Layout(review);
         try
         {
-            Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "六宫格")); Layout(review);
+            Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "宫格图")); Layout(review);
             var track = review.Track; var ticks = track.Ticks;
             Assert.Equal(6, ticks.Count);
             for (var wait = 0; decodes && wait < 200 && review.LoadedThumbnails < 6; wait++) { await Task.Delay(50); Dispatcher.UIThread.RunJobs(); }
@@ -974,6 +974,15 @@ public sealed class TaskToolbarTests
             var position = track.Position;
             review.MouseMove(At(5, -3), RawInputModifiers.None); Layout(review);
             Assert.Equal(5, track.HotTick); Assert.Equal(position, track.Position); Assert.True(review.ThumbnailPopup.IsOpen);
+            var count = review.GetVisualDescendants().OfType<ComboBox>().Single(box => AutomationProperties.GetName(box) == "取帧数量");
+            Assert.Equal([2, 4, 6, 8, 10], (IReadOnlyList<int>)count.ItemsSource!);
+            Assert.Equal(6, count.SelectedItem);
+            count.SelectedItem = 8;
+            Layout(review);
+            Assert.Equal(8, review.Options().FrameCount);
+            Assert.Equal(8, track.Ticks.Count);
+            Assert.Contains(review.GetVisualDescendants().OfType<TextBlock>(), block => block.Text == "4 列 × 2 行");
+
             Click(review.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "MP4")); Layout(review);
             Assert.Empty(track.Ticks); Assert.Equal(-1, track.HotTick); Assert.False(review.ThumbnailPopup.IsOpen);
         }
@@ -998,9 +1007,9 @@ public sealed class TaskToolbarTests
         {
             Assert.True(Shows("2560 × 1440 · 00:42.0 · 30 FPS · 静音"));
             Assert.True(Shows("导出全部 · 00:00.0 – 00:42.0"));
-            Assert.Equal(["MP4", "GIF", "WebP", "六宫格"], RecordingReviewWindow.Formats.Select(f => AutomationProperties.GetName(Chip(f switch
+            Assert.Equal(["MP4", "GIF", "WebP", "宫格图"], RecordingReviewWindow.Formats.Select(f => AutomationProperties.GetName(Chip(f switch
             {
-                RecordingExportFormat.Mp4 => "MP4", RecordingExportFormat.Gif => "GIF", RecordingExportFormat.WebP => "WebP", _ => "六宫格"
+                RecordingExportFormat.Mp4 => "MP4", RecordingExportFormat.Gif => "GIF", RecordingExportFormat.WebP => "WebP", _ => "宫格图"
             }))));
             // Opening defaults: full range, master rate, full size; an unchanged MP4 copies the master.
             var options = review.Options();
@@ -1033,7 +1042,7 @@ public sealed class TaskToolbarTests
             Assert.False(review.CustomWidth.IsEffectivelyVisible);
 
             // 六宫格: no frame rate, per-cell long edge defaults to 320, six sample ticks inside the range.
-            Click(Chip("六宫格")); Layout(review);
+            Click(Chip("宫格图")); Layout(review);
             Assert.False(review.FrameRate.IsEffectivelyVisible);
             Assert.Equal(new RecordingExportOptions(RecordingExportFormat.ContactSheet, 0, new(320, 180), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
             Assert.Equal(["原尺寸", "每格 ≤ 640 px", "每格 ≤ 480 px", "每格 ≤ 320 px", "每格 ≤ 200 px", "自定义"],

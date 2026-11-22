@@ -35,10 +35,10 @@ if [[ ! -f "$RUNTIME/build-id" ]] || [[ "$(cat "$RUNTIME/build-id")" != "$STAMP"
     cd "$SOURCE/ffmpeg-8.1.2"
     PKG_CONFIG_PATH="$RUNTIME/webp/lib/pkgconfig" ./configure --prefix="$RUNTIME/FFmpeg" --pkg-config="$PKG_CONFIG" --pkg-config-flags=--static \
       --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-ffplay --disable-network \
-      --enable-libwebp --enable-protocol=file,pipe --enable-demuxer=mov,lavfi --enable-muxer=gif,webp,mp4,rawvideo \
-      --enable-decoder=h264,aac,rawvideo,wrapped_avframe --enable-parser=h264,aac \
-      --enable-encoder=gif,libwebp,libwebp_anim,h264_videotoolbox,rawvideo --enable-bsf=aac_adtstoasc,h264_mp4toannexb,extract_extradata \
-      --enable-filter=fps,scale,split,palettegen,paletteuse,testsrc2,format,null,anull --enable-indev=lavfi --enable-videotoolbox
+      --enable-libwebp --enable-protocol=file,pipe --enable-demuxer=mov,matroska,avi,concat,image2,lavfi --enable-muxer=gif,webp,mp4,mov,rawvideo,null \
+      --enable-decoder=h264,hevc,mpeg4,mjpeg,vp8,vp9,av1,targa,qtrle,aac,mp3,opus,vorbis,pcm_s16le,pcm_s24le,pcm_f32le,rawvideo,wrapped_avframe --enable-parser=h264,hevc,mpeg4video,mjpeg,vp8,vp9,av1,aac,mpegaudio,opus,vorbis \
+      --enable-encoder=aac,qtrle,gif,libwebp,libwebp_anim,h264_videotoolbox,rawvideo --enable-bsf=aac_adtstoasc,h264_mp4toannexb,extract_extradata \
+      --enable-filter=fps,scale,split,palettegen,paletteuse,aresample,testsrc2,format,null,anull --enable-indev=lavfi --enable-videotoolbox
     make clean
     make -j"$(sysctl -n hw.ncpu)"
     make install
@@ -46,12 +46,12 @@ if [[ ! -f "$RUNTIME/build-id" ]] || [[ "$(cat "$RUNTIME/build-id")" != "$STAMP"
   MOUNT="$(mktemp -d "$DOWNLOAD/.vlc-mount-XXXXXX")"
   trap 'hdiutil detach "$MOUNT" >/dev/null 2>&1 || true; rmdir "$MOUNT" 2>/dev/null || true' EXIT
   hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$DOWNLOAD/vlc-3.0.24-arm64.dmg" >/dev/null
-  # Only the local MP4 decoder, audio/video outputs and their conversion modules are used.
+  # Only local video demuxers, the decoder, audio/video outputs and their conversion modules are used.
   # Avoid scanning the full VLC application/interface/network plugin collection at startup.
   rm -rf "$RUNTIME/VLC"
   mkdir -p "$RUNTIME/VLC/plugins"
   ditto "$MOUNT/VLC.app/Contents/MacOS/lib" "$RUNTIME/VLC/lib"
-  for plugin in filesystem mp4 avcodec vmem vout_macosx caopengllayer auhal audio_format float_mixer integer_mixer \
+  for plugin in filesystem mp4 mkv avi avcodec vmem vout_macosx caopengllayer auhal audio_format float_mixer integer_mixer \
     simple_channel_mixer trivial_channel_mixer ugly_resampler scaletempo swscale chain cvpx glconv_cvpx \
     i420_rgb i420_yuy2 i420_nv12 yuy2_i420 i422_i420 yuvp adummy vdummy console_logger file_logger amem equalizer subsdec deinterlace \
     marq logo adjust subtitle; do

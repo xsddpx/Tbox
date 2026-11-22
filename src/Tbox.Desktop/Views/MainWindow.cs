@@ -90,6 +90,7 @@ public sealed class MainWindow : Window
     private readonly UpdateCard _update;
     private readonly ModelServicesPage _models;
     private readonly TranslationPage _translation;
+    internal VideoConverterView Converter { get; }
 
     internal static string Version => typeof(MainWindow).Assembly.GetName().Version?.ToString(3) ?? "";
     internal MainPage CurrentPage { get; private set; }
@@ -140,6 +141,7 @@ public sealed class MainWindow : Window
         {
             await controller.Models.InitializeAsync(); return controller.Models.Configuration;
         }, () => { Navigate(MainPage.Settings); _models.BringIntoView(); });
+        Converter = new VideoConverterView(controller);
         _update.AvailabilityChanged += RefreshDots;
         Wire();
         BuildPages();
@@ -178,7 +180,7 @@ public sealed class MainWindow : Window
             }
         };
         Closed += (_, _) => { _translation.Dispose(); _models.Dispose(); _update.Release(); ReleaseThumbnails(); _brand.Dispose(); };
-        PropertyChanged += (_, args) => { if (args.Property == IsVisibleProperty && !IsVisible) { _models.Leave(); _translation.Leave(); } };
+        PropertyChanged += (_, args) => { if (args.Property == IsVisibleProperty && !IsVisible) { _models.Leave(); _translation.Leave(); Converter.Pause(); } };
         Activated += (_, _) =>
         {
             Refresh();
@@ -209,6 +211,7 @@ public sealed class MainWindow : Window
         StopRecordingShortcut();
         if (CurrentPage == MainPage.Settings && page != MainPage.Settings) _models.Leave();
         if (CurrentPage == MainPage.Translation && page != MainPage.Translation) _translation.Leave();
+        if (CurrentPage == MainPage.VideoConverter && page != MainPage.VideoConverter) Converter.Pause();
         CurrentPage = page;
         _body.Content = _pages[page];
         foreach (var (key, item) in _nav) item.Selected = key == page;
@@ -420,7 +423,8 @@ public sealed class MainWindow : Window
             _nav[page] = item;
             return item;
         }
-        Group("工具"); items.Children.Add(Item(MainPage.Capture, IconKind.Capture, "截图")); items.Children.Add(Item(MainPage.Folders, IconKind.Jump, "文件夹跳转"));
+        Group("工具"); items.Children.Add(Item(MainPage.Capture, IconKind.Capture, "截图")); items.Children.Add(Item(MainPage.VideoConverter, IconKind.Film, "视频转换"));
+        items.Children.Add(Item(MainPage.Folders, IconKind.Jump, "文件夹跳转"));
         if (_controller.SupportsQuickLook) items.Children.Add(Item(MainPage.QuickLook, IconKind.QuickLook, "速览"));
         if (_controller.WindowTopmost is not null) items.Children.Add(Item(MainPage.WindowTopmost, IconKind.Pin, "窗口置顶"));
         items.Children.Add(Item(MainPage.Translation, IconKind.Translate, "翻译")); items.Children.Add(Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒"));
@@ -443,6 +447,7 @@ public sealed class MainWindow : Window
             Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty,
             Disclosure("快捷键", Ui.Rows([.. captureShortcuts])), Disclosure("截图设置", Ui.Rows(_cache, history)));
 
+        AddPage(MainPage.VideoConverter, Converter);
         AddPage(MainPage.Folders, PageHeader("文件夹跳转", _folderToggle),
             Spaced(_folderHero, 12), Ui.GroupHeader("文件对话框"),
             Ui.Rows(new SettingsLine("显示跳转栏", "在打开或保存对话框旁显示文件夹、搜索、收藏和最近跳转", _folderBarToggle)));

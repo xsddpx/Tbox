@@ -35,10 +35,10 @@ tar -xf "$SOURCE/libwebp-1.6.0.tar.gz" -C "$BUILD"
     --pkg-config=pkg-config --pkg-config-flags=--static --extra-ldflags=-static \
     --disable-autodetect --disable-everything --disable-doc --disable-debug --disable-ffplay --disable-ffprobe --disable-network \
     --enable-static --disable-shared --enable-libwebp --enable-mediafoundation --enable-d3d11va --enable-protocol=file,pipe \
-    --enable-demuxer=mov --enable-muxer=gif,webp,mp4,rawvideo --enable-decoder=h264,aac \
-    --enable-parser=h264,aac --enable-encoder=gif,libwebp,libwebp_anim,h264_mf,rawvideo \
+    --enable-demuxer=mov,matroska,avi,concat,image2 --enable-muxer=gif,webp,mp4,mov,rawvideo,null --enable-decoder=h264,hevc,mpeg4,mjpeg,vp8,vp9,av1,targa,qtrle,aac,mp3,opus,vorbis,pcm_s16le,pcm_s24le,pcm_f32le \
+    --enable-parser=h264,hevc,mpeg4video,mjpeg,vp8,vp9,av1,aac,mpegaudio,opus,vorbis --enable-encoder=aac,qtrle,gif,libwebp,libwebp_anim,h264_mf,rawvideo \
     --enable-bsf=aac_adtstoasc,h264_mp4toannexb,extract_extradata \
-    --enable-filter=fps,scale,split,palettegen,paletteuse,format,null,anull
+    --enable-filter=fps,scale,split,palettegen,paletteuse,aresample,format,null,anull
   make -j"$(nproc)"
   make install
 ) > "$BUILD/ffmpeg-build.log" 2>&1 || { tail -60 "$BUILD/ffmpeg-build.log"; exit 1; }

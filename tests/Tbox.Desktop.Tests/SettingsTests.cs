@@ -36,7 +36,7 @@ public sealed class SettingsTests
             {
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Empty(window.GetVisualDescendants().OfType<SplitView>());
-                if (page != MainPage.Settings)
+                if (page is not (MainPage.Settings or MainPage.VideoConverter))
                 {
                     var banner = Assert.Single(window.CurrentPageView.GetVisualDescendants().OfType<ToolBanner>());
                     Assert.True(banner.IsEffectivelyVisible);
