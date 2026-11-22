@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using Avalonia.VisualTree;
 
 namespace Tbox.Desktop.Views;
 
@@ -385,12 +386,43 @@ internal static class Ui
     public static Border WindowDragRegion(Control? content = null)
     {
         var region = new Border { Background = Brushes.Transparent, Child = content };
+        if (!OperatingSystem.IsMacOS())
+        {
+            region.PointerPressed += (_, e) =>
+            {
+                if (!e.GetCurrentPoint(region).Properties.IsLeftButtonPressed || TopLevel.GetTopLevel(region) is not Window window) return;
+                window.BeginMoveDrag(e);
+                e.Handled = true;
+            };
+            return region;
+        }
+
+        (IPointer Pointer, Window Window, PixelPoint PointerOrigin, PixelPoint WindowOrigin)? drag = null;
         region.PointerPressed += (_, e) =>
         {
-            if (!e.GetCurrentPoint(region).Properties.IsLeftButtonPressed || TopLevel.GetTopLevel(region) is not Window window) return;
-            window.BeginMoveDrag(e);
+            if (e.GetCurrentPoint(region).Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed ||
+                TopLevel.GetTopLevel(region) is not Window window || window.WindowState != WindowState.Normal) return;
+            drag = (e.Pointer, window, region.PointToScreen(e.GetPosition(region)), window.Position);
+            e.Pointer.Capture(region);
             e.Handled = true;
         };
+        region.PointerMoved += (_, e) =>
+        {
+            if (drag is not { } start || e.Pointer != start.Pointer) return;
+            var position = region.PointToScreen(e.GetPosition(region));
+            var offset = position - start.PointerOrigin;
+            start.Window.Position = start.WindowOrigin + offset;
+            e.Handled = true;
+        };
+        region.PointerReleased += (_, e) =>
+        {
+            if (drag is not { } start || e.Pointer != start.Pointer ||
+                e.InitialPressMouseButton != MouseButton.Left) return;
+            drag = null;
+            e.Pointer.Capture(null);
+            e.Handled = true;
+        };
+        region.PointerCaptureLost += (_, _) => drag = null;
         return region;
     }
 
