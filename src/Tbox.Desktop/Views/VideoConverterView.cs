@@ -40,6 +40,9 @@ internal sealed class VideoConverterView : UserControl
         var options = Ui.Text("导出设置", 16); options.FontWeight = FontWeight.SemiBold;
         var save = Ui.Primary("保存视频…", () => { }); save.IsEnabled = false;
         save.HorizontalAlignment = HorizontalAlignment.Stretch; save.HorizontalContentAlignment = HorizontalAlignment.Center;
+        save.Resources["ButtonBackgroundDisabled"] = Brush.Parse("#DBE3EC");
+        save.Resources["ButtonForegroundDisabled"] = Brush.Parse("#57667A");
+        save.Classes.Remove("accent");
         _dropSurface = new Rectangle { Fill = Brush.Parse("#F7FAFF"), Stroke = Brush.Parse("#AEBED0"), StrokeThickness = 1,
             StrokeDashArray = [5, 4], RadiusX = 9, RadiusY = 9, IsHitTestVisible = false };
         var emptyTitle = Ui.Text("拖入视频或动图", 18); emptyTitle.FontWeight = FontWeight.SemiBold;
@@ -76,6 +79,7 @@ internal sealed class VideoConverterView : UserControl
         _status.IsVisible = false;
         var layout = new StackPanel { Children = { header, _body, _status } };
         Content = layout;
+        Loaded += (_, _) => Editor?.Start();
         DragDrop.SetAllowDrop(layout, true);
         layout.AddHandler(DragDrop.DragOverEvent, OnDragOver);
         layout.AddHandler(DragDrop.DragLeaveEvent, (_, _) => Highlight(false));

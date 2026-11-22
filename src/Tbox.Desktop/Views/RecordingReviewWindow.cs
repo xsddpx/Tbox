@@ -28,7 +28,7 @@ internal sealed class RecordingReviewWindow : Window
     public RecordingReviewWindow(DesktopController controller, RecordingWorkspace workspace, RecordingArea area,
         RecordingOutput output, TimeSpan duration, Action? restoreForeground = null)
     {
-        Ui.Configure(this, "视频转换", 960, 632);
+        Ui.Configure(this, "视频转换", 960, 650);
         MinWidth = 480; MinHeight = 395;
         Ui.ExtendIntoTitleBar(this);
         _converter = new VideoConverterView(controller, async () => { await RequestCloseAsync(); }) { Margin = new Thickness(16, 32, 16, 14) };
