@@ -34,7 +34,7 @@ internal sealed class VideoConversionEditor : UserControl
     private readonly TextBlock _recordingDetails = Ui.Description("");
     private readonly Grid _ruler = new() { Margin = new Thickness(5, 0) };
     private TimeSpan _rulerDuration;
-    private readonly TextBlock _range = new() { FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _range = new() { FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _status = Ui.Description("");
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 6, MinHeight = 6, Width = 140, CornerRadius = new CornerRadius(3), IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
     // Format choice is a segmented control (导出格式); MP4 first because it is the default.
@@ -48,7 +48,7 @@ internal sealed class VideoConversionEditor : UserControl
     private readonly Button _play, _save, _cancelExport, _resetRange;
     private readonly Border _countGroup, _gridPreview;
     private readonly TextBlock _gridLayout = Ui.Description("");
-    private readonly WrapPanel _gridCells = new() { Orientation = Orientation.Horizontal };
+    private readonly WrapPanel _gridCells = new() { Orientation = Orientation.Horizontal, Width = 216 };
     private readonly List<Image> _gridImages = [];
     private readonly TextBlock _outputType = Ui.Description("MP4");
     private readonly ComboBox _count = new() { ItemsSource = ContactSheetPolicy.FrameCounts,
@@ -88,7 +88,7 @@ internal sealed class VideoConversionEditor : UserControl
     internal RecordingTrimBar Track => _track;
     internal ComboBox FrameRate { get; } = new() { MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
         ItemsSource = RecordingExportProfiles.FrameRates.Select(rate => rate + " FPS").ToArray() };
-    internal ComboBox Size { get; } = new() { MinWidth = 132, HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+    internal ComboBox Size { get; } = new() { MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
     internal TextBox CustomWidth { get; } = new() { Width = 64, MinWidth = 0, Height = 30, MinHeight = 30, FontSize = 13, MaxLength = 5,
         VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0) };
     internal RecordingExportFormat Format => Formats[_formatIndex()];
@@ -109,14 +109,22 @@ internal sealed class VideoConversionEditor : UserControl
         }
         _track.Duration = source.Duration;
         _resetRange = Ui.Link("恢复全部", () => _track.Range = new(TimeSpan.Zero, _track.Duration));
-        var transport = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"), ColumnSpacing = 8,
-            Children = { _play, Ui.Column(_time, 1), Ui.Column(_resetRange, 4) } };
+        var transport = new WrapPanel { Orientation = Orientation.Horizontal, Children = { _play, _time } };
         if (source.HasAudio)
         {
-            transport.Children.Add(Ui.Column(new LineIcon(IconKind.Speaker) { Width = 16, Height = 16 }, 2));
-            transport.Children.Add(Ui.Column(_volume, 3));
+            transport.Children.Add(new StackPanel
+            {
+                Orientation = Orientation.Horizontal, Spacing = 6,
+                Children = { new LineIcon(IconKind.Speaker) { Width = 16, Height = 16 }, _volume }
+            });
         }
-        var format = Ui.Segmented(FormatNames, 0, _ => { ApplyFormatDefaults(); UpdateRange(); }, out _formatIndex, out _enableFormat);
+        transport.Children.Add(_resetRange);
+        foreach (var control in transport.Children)
+        {
+            control.Margin = new Thickness(0, 0, 8, 0);
+            control.VerticalAlignment = VerticalAlignment.Center;
+        }
+        var format = Ui.Segmented(FormatNames, 0, _ => { ApplyFormatDefaults(); UpdateRange(); }, out _formatIndex, out _enableFormat, equalWidth: true);
         var chips = format.GetLogicalDescendants().OfType<Button>().ToArray();
         for (var i = 0; i < chips.Length; i++) ToolTip.SetTip(chips[i], RecordingExportProfiles.Get(Formats[i]).Description);
         AutomationProperties.SetName(FrameRate, "导出帧率"); AutomationProperties.SetName(Size, "导出尺寸"); AutomationProperties.SetName(CustomWidth, "自定义宽度");
@@ -128,9 +136,14 @@ internal sealed class VideoConversionEditor : UserControl
         var sizeLabel = Ui.Description("尺寸");
         var sizeGroup = Setting(sizeLabel, Size);
         _count.SelectionChanged += (_, _) => { UpdateSizeDetails(); UpdateRange(); };
-        _gridPreview = new Border { Margin = new Thickness(0, 3, 0, 0), Child = new StackPanel { Spacing = 6, Children =
-            { TwoEnds(Ui.Text("宫格预览", 12), _gridLayout), new Border { Background = Brush.Parse("#263340"), CornerRadius = new(6),
-                HorizontalAlignment = HorizontalAlignment.Center, Padding = new Thickness(4), Child = _gridCells } } } };
+        var sheet = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly,
+            VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Center,
+            Child = new Border { Background = Brush.Parse("#263340"), CornerRadius = new(6), Padding = new Thickness(4), Child = _gridCells } };
+        _gridPreview = new Border { Margin = new Thickness(0, 8, 0, 0), Child = new Grid
+            {
+                RowDefinitions = new("Auto,*"), RowSpacing = 5,
+                Children = { TwoEnds(Ui.Text("宫格预览", 12), _gridLayout), InRow(sheet, 1) }
+            } };
         _syncSizeLabel = grid => sizeLabel.Text = grid ? "单格尺寸" : "尺寸";
         Size.SelectionChanged += (_, _) => UpdateSizeDetails();
         CustomWidth.TextChanged += (_, _) => UpdateSizeDetails();
@@ -151,36 +164,22 @@ internal sealed class VideoConversionEditor : UserControl
         _status.FontSize = DesignTokens.Caption;
         _track.ThumbnailAt = at => _thumbnails.GetValueOrDefault(at)?.Bitmap;
         var fields = new StackPanel { Spacing = 8, Children = { Ui.Text("导出设置", 16), Group("格式", format),
-            _countGroup, _frameRateGroup, sizeGroup, _customGroup, _gridPreview } };
+            _countGroup, _frameRateGroup, sizeGroup, _customGroup } };
         var actions = new StackPanel { Spacing = 5, Children = { _status, _progress, _cancelExport, TwoEnds(_outputType, _presetDimensions), _save } };
         _save.HorizontalAlignment = HorizontalAlignment.Stretch;
         _save.HorizontalContentAlignment = HorizontalAlignment.Center;
-        DockPanel.SetDock(actions, Dock.Bottom);
-        var export = Panel(new DockPanel { Children = { actions, fields } }, "#F4F7FA", 13);
+        var export = Panel(new Grid { RowDefinitions = new("Auto,*,Auto"),
+            Children = { fields, InRow(_gridPreview, 1), InRow(actions, 2) } }, "#F4F7FA", 13);
         var timeline = new Border { Padding = new Thickness(12, 8),
             Child = new StackPanel { Spacing = 3, Children = { transport, _ruler, _track, _range, ThumbnailPopup } } };
         var canvas = new Border { Background = Brush.Parse("#202B37"),
             ClipToBounds = true, Child = new Grid { Children = { _video, _scrubImage } } };
         var removeButton = Ui.IconButton(IconKind.Close, "移除素材", remove);
-        var header = Ui.ResultHeader(IconKind.Film, ToolTone.Grey, source.Name, _recordingDetails, removeButton);
+        var header = Ui.ResultHeader(IconKind.Film, ToolTone.Grey, source.Name, _recordingDetails, removeButton, trimTitle: true);
         header.Margin = new Thickness(12, 8);
         var editor = Panel(new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto"), Children =
             { header, InRow(canvas, 1), InRow(timeline, 2) } }, "#FFFFFF", 0);
-        var workspaceGrid = new Grid { ColumnSpacing = 12, RowSpacing = 9, Children = { editor, export } };
-        void ArrangeWorkspace(double width)
-        {
-            var stacked = width < 546;
-            workspaceGrid.ColumnDefinitions = new ColumnDefinitions(stacked ? "*" : "*,258");
-            workspaceGrid.RowDefinitions = new RowDefinitions(stacked ? "Auto,Auto" : "*");
-            Grid.SetColumn(export, stacked ? 0 : 1);
-            Grid.SetRow(export, stacked ? 1 : 0);
-            var videoWidth = width - (stacked ? 0 : 270);
-            canvas.Height = Math.Clamp(videoWidth * 9 / 16, 155, 337);
-            _gridCells.Width = 216;
-        }
-        ArrangeWorkspace(840);
-        SizeChanged += (_, e) => { if (e.WidthChanged) ArrangeWorkspace(e.NewSize.Width); };
-        Content = workspaceGrid;
+        Content = VideoConverterView.Workspace(editor, export);
         ApplyFormatDefaults(); UpdateRange();
         _play.IsEnabled = false;
         _timer.Tick += (_, _) => UpdatePlayback();
@@ -220,7 +219,7 @@ internal sealed class VideoConversionEditor : UserControl
     private static Border Setting(TextBlock label, Control control)
     {
         label.VerticalAlignment = VerticalAlignment.Center;
-        return new Border { Child = new Grid { ColumnDefinitions = new ColumnDefinitions("*,144"), ColumnSpacing = 5,
+        return new Border { Child = new Grid { ColumnDefinitions = new ColumnDefinitions("*,1.4*"), ColumnSpacing = 5,
             Children = { label, Ui.Column(control, 1) } } };
     }
 
@@ -258,8 +257,8 @@ internal sealed class VideoConversionEditor : UserControl
             // Each cell is limited by its long edge; "原尺寸" keeps the recorded pixels.
             _sizes = new[] { new RecordingSizeChoice("原尺寸", Source) }.Concat(ContactSheetPolicy.LongEdges
                 .Where(edge => edge < Math.Max(Source.Width, Source.Height))
-                .Select(edge => new RecordingSizeChoice($"每格 ≤ {edge} px", RecordingSizePolicy.FitLongEdge(Source, edge, false)))).ToArray();
-            var fallback = _sizes.Select((c, i) => (c, i)).FirstOrDefault(x => x.c.Label == $"每格 ≤ {ContactSheetPolicy.DefaultLongEdge} px");
+                .Select(edge => new RecordingSizeChoice($"≤{edge} px", RecordingSizePolicy.FitLongEdge(Source, edge, false)))).ToArray();
+            var fallback = _sizes.Select((c, i) => (c, i)).FirstOrDefault(x => x.c.Label == $"≤{ContactSheetPolicy.DefaultLongEdge} px");
             Fill(fallback.c.Label is null ? 0 : fallback.i);
         }
         else
@@ -301,9 +300,7 @@ internal sealed class VideoConversionEditor : UserControl
     {
         if (!_customGroup.IsVisible) return;
         var size = OutputSize(-1);
-        _customHeight.Text = Format == RecordingExportFormat.ContactSheet
-            ? $"× {size.Height}（输出 {ContactSheetPolicy.SheetSize(size, FrameCount).Width} × {ContactSheetPolicy.SheetSize(size, FrameCount).Height}）"
-            : $"× {size.Height}";
+        _customHeight.Text = $"× {size.Height}";
     }
 
     internal RecordingExportOptions Options()

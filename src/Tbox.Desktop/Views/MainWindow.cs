@@ -158,6 +158,9 @@ public sealed class MainWindow : Window
             Child = new DockPanel { Children = { _status, _body } }
         };
         var root = new Grid { ColumnDefinitions = new ColumnDefinitions("172,*"), Children = { Sidebar(), Ui.Column(card, 1) } };
+        var titleBar = Ui.TitleBarDragRegion();
+        Grid.SetColumnSpan(titleBar, 2);
+        root.Children.Add(titleBar);
         Content = root;
         Navigate(MainPage.Capture);
         Refresh();
@@ -447,7 +450,13 @@ public sealed class MainWindow : Window
             Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty,
             Disclosure("快捷键", Ui.Rows([.. captureShortcuts])), Disclosure("截图设置", Ui.Rows(_cache, history)));
 
-        AddPage(MainPage.VideoConverter, Converter);
+        Converter.Margin = new Thickness(26, 20, 26, 20);
+        _pages[MainPage.VideoConverter] = new ScrollViewer
+        {
+            Content = Converter, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch
+        };
         AddPage(MainPage.Folders, PageHeader("文件夹跳转", _folderToggle),
             Spaced(_folderHero, 12), Ui.GroupHeader("文件对话框"),
             Ui.Rows(new SettingsLine("显示跳转栏", "在打开或保存对话框旁显示文件夹、搜索、收藏和最近跳转", _folderBarToggle)));

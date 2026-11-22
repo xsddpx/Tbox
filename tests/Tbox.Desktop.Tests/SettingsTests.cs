@@ -47,8 +47,10 @@ public sealed class SettingsTests
                 if (page == MainPage.VideoConverter)
                 {
                     var actions = window.CurrentPageView.GetVisualDescendants().OfType<Button>().Select(AutomationProperties.GetName);
-                    Assert.Contains("导入", actions);
+                    Assert.Equal(1, actions.Count(name => name == "选择文件…"));
+                    Assert.DoesNotContain("导入", actions);
                     Assert.DoesNotContain("重新录屏", actions);
+                    AssertConverterFits(window, "保存视频…");
                 }
                 // Model-service fields are intentional inputs, not the removed application-search box.
                 if (page is not (MainPage.Settings or MainPage.Translation))
@@ -74,6 +76,76 @@ public sealed class SettingsTests
             }
         }
         controller.Dispose(); window.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task LoadedConverterFillsTheWindowWithoutHidingTimelineOrExport()
+    {
+        if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        var window = controller.Main = new MainWindow(controller);
+        var workspace = new RecordingWorkspace();
+        var repository = new DirectoryInfo(AppContext.BaseDirectory);
+        while (repository is not null && !File.Exists(Path.Combine(repository.FullName, "assets", "media-test", "fixture.mp4"))) repository = repository.Parent;
+        Assert.NotNull(repository);
+        var fixture = Path.Combine(repository.FullName, "assets", "media-test", "fixture.mp4");
+        var duration = TimeSpan.FromSeconds(2);
+        window.Show();
+        window.Navigate(MainPage.VideoConverter);
+        window.Converter.SetSource(workspace, new(fixture, "2026-11-21_12-19-10.mp4", new(320, 240), duration, 10, true, false));
+        try
+        {
+            foreach (var (width, height) in new[] { (680, 520), (800, 600), (1015, 532), (1280, 760) })
+            {
+                window.Width = width; window.Height = height; window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+                var buttons = window.CurrentPageView.GetVisualDescendants().OfType<Button>().Where(button => button.IsEffectivelyVisible).ToArray();
+                Assert.DoesNotContain(buttons, button => AutomationProperties.GetName(button) is "导入" or "选择文件…");
+                Assert.Contains(buttons, button => AutomationProperties.GetName(button) == "移除素材");
+                AssertConverterFits(window, "保存视频…");
+                var editor = window.Converter.Editor!;
+                var track = editor.Track;
+                var trackEnd = track.TranslatePoint(new Point(track.Bounds.Width, track.Bounds.Height), window)!.Value;
+                Assert.InRange(trackEnd.Y, 0, window.ClientSize.Height - 18);
+                Assert.InRange(trackEnd.X, 0, window.ClientSize.Width);
+            }
+            var format = window.CurrentPageView.GetVisualDescendants().OfType<Button>().Single(button => AutomationProperties.GetName(button) == "WebP");
+            format.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(15, window.Converter.Editor!.Options().FramesPerSecond);
+            format = window.CurrentPageView.GetVisualDescendants().OfType<Button>().Single(button => AutomationProperties.GetName(button) == "宫格图");
+            format.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            window.Width = MainWindow.MinimumWidth; window.Height = MainWindow.MinimumHeight; window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            AssertConverterFits(window, "保存宫格图…");
+            for (var wait = 0; wait < 50 && File.Exists(RecordingExporter.FfmpegPath) && window.Converter.Editor!.LoadedThumbnails < 6; wait++)
+                await Task.Delay(20);
+            TaskToolbarTests.Preview(window, "video-converter-minimum-loaded");
+            var remove = window.CurrentPageView.GetVisualDescendants().OfType<Button>().Single(button => AutomationProperties.GetName(button) == "移除素材");
+            remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            for (var wait = 0; wait < 50 && window.Converter.Editor is not null; wait++) await Task.Delay(20);
+            Assert.Null(window.Converter.Editor);
+            Assert.True(File.Exists(fixture));
+            Assert.Contains(window.CurrentPageView.GetVisualDescendants().OfType<Button>(), button =>
+                button.IsEffectivelyVisible && AutomationProperties.GetName(button) == "选择文件…");
+        }
+        finally
+        {
+            await window.Converter.RequestCloseAsync(window, true, () => { });
+            window.Close();
+        }
+    }
+
+    private static void AssertConverterFits(MainWindow window, string saveLabel)
+    {
+        var controls = window.CurrentPageView.GetVisualDescendants().OfType<Button>().Where(button => button.IsEffectivelyVisible).ToArray();
+        var segments = controls.Where(button => AutomationProperties.GetName(button) is "MP4" or "GIF" or "WebP" or "宫格图").ToArray();
+        Assert.Equal(4, segments.Length);
+        Assert.All(segments, segment =>
+        {
+            Assert.True(segment.Bounds.Width > 30);
+            Assert.InRange(Math.Abs(segment.Bounds.Width - segments[0].Bounds.Width), 0, 1);
+        });
+        var save = controls.Single(button => AutomationProperties.GetName(button) == saveLabel);
+        var saveBottom = save.TranslatePoint(new Point(0, save.Bounds.Height), window)!.Value.Y;
+        Assert.InRange(window.ClientSize.Height - saveBottom, 19, 37);
     }
 
     // The model page opens on its connection list, which always offers "添加连接" regardless of this machine's saved models.

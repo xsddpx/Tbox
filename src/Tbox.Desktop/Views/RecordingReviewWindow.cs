@@ -35,7 +35,7 @@ internal sealed class RecordingReviewWindow : Window
             { Margin = new Thickness(16, 32, 16, 14) };
         _converter.SetSource(workspace, new(output.FilePath, "屏幕录制", new(area.PixelWidth, area.PixelHeight),
             duration, RecordingFrameRatePolicy.RecordingFrameRate, output.HasSystemAudio, true));
-        Content = new ScrollViewer { Content = _converter, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        Content = new Grid { Children = { _converter, Ui.TitleBarDragRegion() } };
         Opened += (_, _) => _converter.Start();
         Closed += (_, _) => { if (!controller.IsQuitting) restoreForeground?.Invoke(); };
         Closing += (_, args) => { if (!_allowClose) { args.Cancel = true; controller.Run(async () => { await RequestCloseAsync(); }); } };

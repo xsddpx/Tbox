@@ -1040,14 +1040,14 @@ public sealed class TaskToolbarTests
             Preview(review, "recording-review-gif-trimmed");
 
             Click(Chip("WebP")); Layout(review);
-            Assert.Equal((25, new VideoSize(2560, 1440)), (review.Options().FramesPerSecond, review.Options().Size));
+            Assert.Equal((15, new VideoSize(2560, 1440)), (review.Options().FramesPerSecond, review.Options().Size));
             Assert.False(review.CustomWidth.IsEffectivelyVisible);
 
             // 六宫格: no frame rate, per-cell long edge defaults to 320, six sample ticks inside the range.
             Click(Chip("宫格图")); Layout(review);
             Assert.False(review.FrameRate.IsEffectivelyVisible);
             Assert.Equal(new RecordingExportOptions(RecordingExportFormat.ContactSheet, 0, new(320, 180), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
-            Assert.Equal(["原尺寸", "每格 ≤ 640 px", "每格 ≤ 480 px", "每格 ≤ 320 px", "每格 ≤ 200 px", "自定义"],
+            Assert.Equal(["原尺寸", "≤640 px", "≤480 px", "≤320 px", "≤200 px", "自定义"],
                 (string[])review.Size.ItemsSource!);
             Assert.Equal(6, review.Track.Ticks.Count);
             Assert.Equal(TimeSpan.FromSeconds(5), review.Track.Ticks[0]);
@@ -1059,9 +1059,11 @@ public sealed class TaskToolbarTests
             var panel = review.Size.TranslatePoint(default, review)!.Value;
             var timeline = review.Track.TranslatePoint(default, review)!.Value;
             Assert.True(panel.X > timeline.X + review.Track.Bounds.Width);
-            review.Width = 540; Layout(review);
-            Assert.True(review.Size.TranslatePoint(default, review)!.Value.Y > review.Track.TranslatePoint(default, review)!.Value.Y);
-            review.Width = 940; Layout(review);
+            review.Width = 480; review.Height = 395; Layout(review);
+            Assert.True(review.Size.TranslatePoint(default, review)!.Value.X > review.Track.TranslatePoint(new Point(review.Track.Bounds.Width, 0), review)!.Value.X);
+            var save = Chip("保存宫格图…");
+            Assert.InRange(save.TranslatePoint(new Point(0, save.Bounds.Height), review)!.Value.Y, 0, review.ClientSize.Height);
+            review.Width = 940; review.Height = 650; Layout(review);
             Preview(review, "recording-review-contact-sheet");
 
             Click(Chip("恢复全部")); Layout(review);
