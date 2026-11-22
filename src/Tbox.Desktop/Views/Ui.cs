@@ -386,17 +386,6 @@ internal static class Ui
     public static Border WindowDragRegion(Control? content = null)
     {
         var region = new Border { Background = Brushes.Transparent, Child = content };
-        if (!OperatingSystem.IsMacOS())
-        {
-            region.PointerPressed += (_, e) =>
-            {
-                if (!e.GetCurrentPoint(region).Properties.IsLeftButtonPressed || TopLevel.GetTopLevel(region) is not Window window) return;
-                window.BeginMoveDrag(e);
-                e.Handled = true;
-            };
-            return region;
-        }
-
         (IPointer Pointer, Window Window, PixelPoint PointerOrigin, PixelPoint WindowOrigin)? drag = null;
         region.PointerPressed += (_, e) =>
         {

@@ -3,6 +3,9 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Headless.XUnit;
+using Avalonia.Headless;
+using Avalonia.Input;
+using Avalonia.Input.Raw;
 using Avalonia.Interactivity;
 using Avalonia.Themes.Fluent;
 using Avalonia.Threading;
@@ -21,6 +24,36 @@ namespace Tbox.Desktop.Tests;
 
 public sealed class SettingsTests
 {
+    [AvaloniaTheory]
+    [InlineData(17)]
+    [InlineData(68)]
+    public void ConverterTitleAreasMoveTheWindowOnlyWhileHeld(int titleY)
+    {
+        using var controller = new DesktopController(new FakePlatform(), new ClassicDesktopStyleApplicationLifetime());
+        var window = controller.Main = new MainWindow(controller);
+        window.Show();
+        try
+        {
+            window.Navigate(MainPage.VideoConverter);
+            window.UpdateLayout();
+            var origin = window.Position;
+            var start = new Point(430, titleY);
+            var end = start + new Vector(40, 24);
+            window.MouseDown(start, MouseButton.Right, RawInputModifiers.None);
+            window.MouseMove(end, RawInputModifiers.RightMouseButton);
+            window.MouseUp(end, MouseButton.Right, RawInputModifiers.None);
+            Assert.Equal(origin, window.Position);
+
+            window.MouseDown(start, MouseButton.Left, RawInputModifiers.None);
+            window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+            Assert.Equal(origin + new PixelPoint(40, 24), window.Position);
+            window.MouseUp(start, MouseButton.Left, RawInputModifiers.None);
+            window.MouseMove(start + new Vector(8, 5), RawInputModifiers.None);
+            Assert.Equal(origin + new PixelPoint(40, 24), window.Position);
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public void AllPagesFitWideMediumAndNarrowWindows()
     {
