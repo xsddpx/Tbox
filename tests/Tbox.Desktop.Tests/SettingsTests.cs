@@ -44,6 +44,12 @@ public sealed class SettingsTests
                     Assert.False(string.IsNullOrWhiteSpace(banner.Title.Text));
                     Assert.Equal(DesignTokens.PageTitle, banner.Title.FontSize);
                 }
+                if (page == MainPage.VideoConverter)
+                {
+                    var actions = window.CurrentPageView.GetVisualDescendants().OfType<Button>().Select(AutomationProperties.GetName);
+                    Assert.Contains("导入", actions);
+                    Assert.DoesNotContain("重新录屏", actions);
+                }
                 // Model-service fields are intentional inputs, not the removed application-search box.
                 if (page is not (MainPage.Settings or MainPage.Translation))
                     Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
