@@ -51,6 +51,8 @@ public interface IPlatformServices : IDisposable
     bool RequestScreenPermission();
     void OpenScreenPermissionSettings();
     Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken);
+    // The returned action may restore the original foreground app after the screenshot overlay releases focus.
+    Action? SnapshotCaptureForeground(bool dashboardHidden = false) => null;
     Task<CapturedPixels> CaptureRegionAsync(DesktopPlacement region, CancellationToken cancellationToken);
     Task<RecognitionResult> RecognizeAsync(byte[] png, CancellationToken cancellationToken);
     // Take a snapshot of the input before yielding; the OCR window can close or replace its bitmap.

@@ -40,7 +40,7 @@ if [[ "${1:-}" == --verify-identity-only ]]; then
   codesign --verify --strict "$TARGET"
 else
   bash scripts/package-macos.sh osx-arm64
-  TARGET=TEMP/build/osx-arm64/Tbox.app
+  TARGET=TEMP/build.noindex/osx-arm64/Tbox.app
 fi
 # Check the actual signer as well as the imported identity.
 CERT_DIR="$(mktemp -d "$RUNNER_TEMP/tbox-signer.XXXXXX")"

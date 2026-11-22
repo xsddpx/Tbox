@@ -59,16 +59,15 @@ internal sealed class TranslationPage : UserControl, IDisposable
         _unconfigured = Ui.Row(Ui.Description("请先在模型服务中添加连接和模型。"), Ui.Link("配置模型", configure));
         var heading = new Grid
         {
-            ColumnDefinitions = new("Auto,*,Auto"), ColumnSpacing = 12,
+            ColumnDefinitions = new("*,Auto"), MinHeight = 36, ColumnSpacing = 12,
             Children =
             {
-                Ui.IconChip(IconKind.Translate, ToolTone.Violet, 40, 20),
-                Ui.Column(new TextBlock
+                new TextBlock
                 {
                     Text = "翻译", FontSize = DesignTokens.PageTitle, FontWeight = FontWeight.SemiBold,
                     VerticalAlignment = VerticalAlignment.Center
-                }, 1),
-                Ui.Column(Model, 2)
+                },
+                Ui.Column(Model, 1)
             }
         };
         Model.VerticalAlignment = VerticalAlignment.Center;

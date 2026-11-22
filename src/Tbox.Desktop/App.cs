@@ -68,7 +68,7 @@ public sealed class App : Application
                 if (command == 3) return await PermissionDiagnostics.RunAsync(platform);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (command == 2) _controller.Quit(); else if (command == 1) _controller.ShowMain();
+                    if (command == 2) _controller.Quit(); else if (command == 1) _controller.ShowMainOnReopen();
                 });
                 return null;
             });
@@ -107,7 +107,9 @@ public sealed class App : Application
     {
         // macOS reopens an existing process through the application lifetime,
         // without starting the second process handled by SingleInstance.
-        if (args.Kind == ActivationKind.Reopen)
+        // Reject events received during capture as well as those dispatched during capture.
+        // Closing the overlay can clear the session before the dispatcher runs this callback.
+        if (args.Kind == ActivationKind.Reopen && controller.CanRestoreMainOnReopen)
             Dispatcher.UIThread.Post(controller.ShowMainOnReopen);
     }
 }

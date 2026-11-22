@@ -20,6 +20,10 @@ select_destination() {
   fi
 }
 
+backup_path() {
+  printf '%s/Tbox-%s-%s.previous\n' "$1" "$(date +%Y%m%d-%H%M%S)" "$$"
+}
+
 macos_version_supported() {
   local minimum="$1" current="$2"
   local version_pattern='^[0-9]+\.[0-9]+(\.[0-9]+)?$'
@@ -32,7 +36,7 @@ main() {
   local IDENTIFIER EXISTING_ID REQUIREMENT MINIMUM_MACOS BACKUP=""
   local system_app="/Applications/Tbox.app" user_app="$HOME/Applications/Tbox.app"
   ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-  SOURCE="$ROOT/TEMP/build/osx-arm64/Tbox.app"
+  SOURCE="$ROOT/TEMP/build.noindex/osx-arm64/Tbox.app"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --destination)
@@ -79,7 +83,7 @@ main() {
   fi
   local destination_parent
   destination_parent="$(dirname "$DESTINATION")"
-  mkdir -p "$destination_parent" "$ROOT/TEMP/install-backups"
+  mkdir -p "$destination_parent" "$ROOT/TEMP/install-backups.noindex"
   STAGE="$(mktemp -d "$destination_parent/.tbox-install.XXXXXX")"
   trap 'rm -rf "$STAGE"' EXIT
   ditto "$SOURCE" "$STAGE/Tbox.app"
@@ -106,7 +110,7 @@ main() {
     fi
   fi
   if [[ -d "$DESTINATION" ]]; then
-    BACKUP="$ROOT/TEMP/install-backups/Tbox-$(date +%Y%m%d-%H%M%S)-$$.app"
+    BACKUP="$(backup_path "$ROOT/TEMP/install-backups.noindex")"
     mv "$DESTINATION" "$BACKUP"
   fi
   if ! mv "$STAGE/Tbox.app" "$DESTINATION"; then

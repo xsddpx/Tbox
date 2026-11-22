@@ -262,9 +262,22 @@ public sealed class MainWindowTests
         scope.Controller.ShowMain(); Layout(main);
         Assert.Equal(MainPage.Capture, main.CurrentPage);
         Assert.Equal(MainWindow.MinimumWidth, main.MinWidth); Assert.Equal(MainWindow.MinimumHeight, main.MinHeight);
+        main.Navigate(MainPage.Settings);
+        Layout(main);
+        var headings = main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).ToArray();
+        Assert.Equal(18, Assert.Single(headings, t => t.Text == "设置").FontSize);
+        foreach (var group in new[] { "应用行为", "模型服务", "版本与反馈" })
+            Assert.Equal(DesignTokens.Caption, Assert.Single(headings, t => t.Text == group).FontSize);
+        main.Navigate(MainPage.Capture);
+        Layout(main);
+        var actions = new[] { "贴出剪贴板", "长截图", "录屏", "识别文字" }.Select(label => Find(main, label)).ToArray();
+        Assert.All(actions, button => Assert.Same(actions[0].Parent, button.Parent));
+        var settings = Find(main, "设置", sidebar: true);
+        Assert.True(settings.TranslatePoint(default, main)!.Value.Y > main.Bounds.Height * .7);
+        ExpandGroup(main, "截图设置");
         foreach (var tool in new[] { "截图", "贴出剪贴板", "长截图", "录屏", "识别文字", "更改保存位置" })
             Assert.True(Find(main, tool).IsEffectivelyEnabled, tool);
-        foreach (var (label, page) in new[] { ("文件夹跳转", MainPage.Folders), ("翻译", MainPage.Translation), ("保持唤醒", MainPage.KeepAwake), ("模型服务", MainPage.Models), ("通用", MainPage.General), ("关于", MainPage.About), ("截图", MainPage.Capture) })
+        foreach (var (label, page) in new[] { ("文件夹跳转", MainPage.Folders), ("翻译", MainPage.Translation), ("保持唤醒", MainPage.KeepAwake), ("设置", MainPage.Settings), ("截图", MainPage.Capture) })
         {
             Click(main, label, sidebar: true);
             Assert.Equal(page, main.CurrentPage);
@@ -334,17 +347,19 @@ public sealed class MainWindowTests
     [InlineData(true, false)]
     public async Task NormalCaptureKeepsTheMainWindowInItsCurrentState(bool useShortcut, bool mainVisible)
     {
+        var restores = 0;
         using var frame = DesktopController.RenderText("Screen capture");
         var size = frame.Bitmap.PixelSize;
         var platform = new FakePlatform
         {
             HasScreenPermission = true,
+            CaptureForegroundRestore = () => restores++,
             Displays = [new(1, 0, 0, size.Width, size.Height, frame.Png)]
         };
         using var scope = new Scope(platform);
         await scope.InitializeAsync();
         var main = scope.Controller.Main;
-        var page = useShortcut ? MainPage.About : MainPage.Capture;
+        var page = useShortcut ? MainPage.Settings : MainPage.Capture;
         if (mainVisible) { scope.Controller.ShowMain(page); Layout(main); }
 
         if (useShortcut) platform.HotkeyHandler!(HotkeyAction.Capture);
@@ -356,10 +371,35 @@ public sealed class MainWindowTests
         Assert.Equal(1, platform.CaptureRequests);
         var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
         Assert.Equal(mainVisible, main.IsVisible);
+        // A reopen request arrives while the overlay is showing, then the capture ends before it is dispatched.
+        App.RestoreOnReopen(scope.Controller, new ActivatedEventArgs(ActivationKind.Reopen));
         overlay.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Dispatcher.UIThread.RunJobs();
         Assert.Empty(scope.Lifetime.Windows.OfType<CaptureWindow>());
+        Assert.Equal(1, restores);
         Assert.Equal(mainVisible, main.IsVisible);
         if (mainVisible) Assert.Equal(page, main.CurrentPage);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CancelingRegionSelectionReturnsInputToTheWindowUncoveredByTheDashboard(bool recording)
+    {
+        var restored = 0;
+        using var frame = DesktopController.RenderText("Capture fixture");
+        var size = frame.Bitmap.PixelSize;
+        var platform = new FakePlatform { HasScreenPermission = true, UncoveredWindowRestore = () => restored++,
+            Displays = [new(1, 0, 0, size.Width, size.Height, frame.Png)] };
+        using var scope = new Scope(platform);
+        scope.Controller.ShowMain();
+        await (recording ? scope.Controller.RecordRegionAsync() : scope.Controller.LongCaptureAsync());
+        var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
+        Assert.False(scope.Controller.Main.IsVisible);
+        overlay.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, restored);
+        Assert.False(scope.Controller.Main.IsVisible);
     }
 
     [AvaloniaFact]
@@ -380,9 +420,9 @@ public sealed class MainWindowTests
     {
         using var scope = new Scope(new FakePlatform());
         var main = scope.Controller.Main;
-        scope.Controller.ShowMain(); main.Navigate(MainPage.About);
+        scope.Controller.ShowMain(); main.Navigate(MainPage.Settings);
         scope.Controller.ShowMain();
-        Assert.Equal(MainPage.About, main.CurrentPage); // Already open: stays where the user is.
+        Assert.Equal(MainPage.Settings, main.CurrentPage); // Already open: stays where the user is.
         main.Hide(); scope.Controller.ShowMain();
         Assert.Equal(MainPage.Capture, main.CurrentPage);
     }
@@ -532,6 +572,7 @@ public sealed class MainWindowTests
         var controller = scope.Controller;
         controller.ShowMain();
         Layout(controller.Main);
+        ExpandGroup(controller.Main, "快捷键");
         var option = Assert.Single(controller.Main.GetVisualDescendants().OfType<ToggleSwitch>(),
             t => Name(t) == "接管 macOS 全屏截图快捷键");
         Assert.False(option.IsChecked);
@@ -624,6 +665,7 @@ public sealed class MainWindowTests
         var controller = scope.Controller; var main = controller.Main;
         await scope.InitializeAsync();
         controller.ShowMain(); Layout(main);
+        ExpandGroup(main, "快捷键");
         var row = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>(), r => Name(r.Recorder) == "修改截图快捷键");
         var mac = OperatingSystem.IsMacOS();
         var captureDefault = ShortcutPolicy.Default(HotkeyAction.Capture, mac);
@@ -705,6 +747,7 @@ public sealed class MainWindowTests
         await scope.InitializeAsync();
         controller.ShowMain(); Layout(main);
         Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Capture)); Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Folder));
+        ExpandGroup(main, "快捷键");
         var rows = main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>().ToDictionary(r => Name(r.Recorder)!);
         Assert.Equal("被其他应用占用，请换一个组合", rows["修改贴出剪贴板快捷键"].Description);
         Assert.Equal("框选区域后标注、贴图或识别文字", rows["修改截图快捷键"].Description);
@@ -811,6 +854,13 @@ public sealed class MainWindowTests
         Assert.Equal(expected, RecentCaptureLabel.Format(DateTime.Parse(captured), new DateTime(2026, 11, 8, 12, 14, 0)));
 
     private static void Layout(Window window) { window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout(); }
+
+    private static void ExpandGroup(MainWindow window, string title)
+    {
+        var expander = Assert.Single(window.CurrentPageView.GetVisualDescendants().OfType<Expander>(), e => Name(e) == title);
+        expander.IsExpanded = true;
+        Layout(window);
+    }
 
     private static Button Find(MainWindow window, string label, bool sidebar = false)
     {

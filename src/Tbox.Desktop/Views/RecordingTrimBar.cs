@@ -14,11 +14,19 @@ namespace Tbox.Desktop.Views;
 /// </summary>
 internal sealed class RecordingTrimBar : Control
 {
-    private const double HandleWidth = 10, HandleHeight = 24, HeadSize = 16, RailHeight = 4, Inset = HandleWidth / 2 + 1, Snap = 8;
-    private static readonly IBrush Rail = Brush.Parse("#E6E4EE"), Band = new SolidColorBrush(Color.Parse("#E5484D"), .26),
-        Tip = Brush.Parse("#1D1D24"), Muted = Brush.Parse("#5F6270");
+    private const double HandleWidth = 10, HeadSize = 16, Inset = 6, Snap = 8;
+    private static readonly IBrush Rail = Brush.Parse("#DCE3EA"), Tip = Brush.Parse("#22272F"), Muted = Brush.Parse("#54606E");
+    internal Func<TimeSpan, IImage?>? ThumbnailAt { get; set; }
+    private IReadOnlyList<TimeSpan> _frameTimes = [];
+    internal IReadOnlyList<TimeSpan> FrameTimes
+    {
+        get => _frameTimes;
+        set { _frameTimes = value; InvalidateVisual(); }
+    }
+
     private enum Part { None, Start, End, Head }
     private Part _drag;
+    private (double X, int Index)? _pressedFrame;
     private TimeSpan _duration, _position;
     private RecordingTimeRange _range;
     private IReadOnlyList<TimeSpan> _ticks = [];
@@ -30,7 +38,7 @@ internal sealed class RecordingTrimBar : Control
 
     public RecordingTrimBar()
     {
-        Height = 40; MinWidth = 100; Focusable = true; Cursor = new Cursor(StandardCursorType.Hand); ClipToBounds = false;
+        Height = 54; MinWidth = 100; Focusable = true; Cursor = new Cursor(StandardCursorType.Hand); ClipToBounds = false;
         AutomationProperties.SetName(this, "播放进度与导出范围");
     }
 
@@ -64,31 +72,40 @@ internal sealed class RecordingTrimBar : Control
     private double Track => Math.Max(1, Bounds.Width - 2 * Inset);
     private double X(TimeSpan time) => Inset + (_duration > TimeSpan.Zero ? Math.Clamp(time / _duration, 0, 1) : 0) * Track;
     private TimeSpan Time(double x) => _duration * Math.Clamp((x - Inset) / Track, 0, 1);
-    private double Mid => Bounds.Height - HandleHeight / 2 - 2;
+    private double Mid => Bounds.Height - 14;
 
     public override void Render(DrawingContext context)
     {
         context.FillRectangle(Brushes.Transparent, new Rect(Bounds.Size));
-        var mid = Mid;
-        context.FillRectangle(Rail, new Rect(Inset, mid - RailHeight / 2, Track, RailHeight), 2);
+        var rail = new Rect(Inset, 4, Track, 32);
+        context.FillRectangle(Rail, rail, 4);
         double start = X(_range.Start), end = X(_range.End), head = X(_position);
-        context.FillRectangle(Band, new Rect(start, mid - RailHeight / 2, end - start, RailHeight), 2);
-        var red = Ui.RecordRed;
-        if (head > start) context.FillRectangle(red, new Rect(start, mid - RailHeight / 2, Math.Min(head, end) - start, RailHeight), 2);
-        for (var i = 0; i < _ticks.Count; i++)
+        var left = _ticks.Count > 0 ? start : rail.X;
+        var width = (_ticks.Count > 0 ? end - start : rail.Width) / Math.Max(1, _frameTimes.Count);
+        if (width > 0)
         {
-            var x = X(_ticks[i]);
-            var marker = i == _hot || _ticks[i] == _position ? red : Muted;
-            context.FillRectangle(marker, new Rect(x - .75, mid - 4, 1.5, 8), .75f);
-            Label(context, (i + 1).ToString("00"), x, 0, marker, 10, null);
+            using var clip = context.PushClip(new RoundedRect(rail, 4));
+            for (var i = 0; i < _frameTimes.Count; i++)
+            {
+                if (ThumbnailAt?.Invoke(_frameTimes[i]) is not { } image) continue;
+                var cell = new Rect(left + i * width, rail.Y, width, rail.Height);
+                var scale = Math.Max(cell.Width / image.Size.Width, cell.Height / image.Size.Height);
+                var source = new Rect(image.Size).CenterRect(new Rect(cell.Size / scale));
+                context.DrawImage(image, source, cell);
+            }
         }
+        var red = Ui.RecordRed;
+        context.DrawRectangle(null, new Pen(red, 1), new Rect(start, rail.Y, Math.Max(0, end - start), rail.Height));
+        for (var i = 0; i < _ticks.Count; i++)
+            Label(context, (i + 1).ToString("00"), X(_ticks[i]), rail.Bottom + 2, i == _hot ? red : Muted, 10, null);
         foreach (var x in new[] { start, end })
         {
-            context.FillRectangle(red, new Rect(x - 4, mid - 12, 8, 20), 3);
-            context.FillRectangle(new SolidColorBrush(Colors.White, .8), new Rect(x - 1, mid - 5, 2, 10), 1);
+            context.FillRectangle(red, new Rect(x - 3, rail.Y, 6, rail.Height), 2);
+            context.FillRectangle(Brushes.White, new Rect(x - .65, rail.Center.Y - 4, 1.3, 8), 1);
         }
-        context.DrawRectangle(Brushes.White, new Pen(red, 1.5),
-            new RoundedRect(new Rect(head - HeadSize / 2, mid + 3 - HeadSize / 2, HeadSize, HeadSize), HeadSize / 2));
+        context.FillRectangle(Brushes.White, new Rect(head - 2, 0, 4, rail.Bottom + 2), 2);
+        context.FillRectangle(Tip, new Rect(head - 1, 0, 2, rail.Bottom + 2), 1);
+        context.FillRectangle(Tip, new Rect(head - 3, 0, 6, 5), 2);
         if (_drag is Part.Start or Part.End)
         {
             var at = _drag == Part.Start ? _range.Start : _range.End;
@@ -133,6 +150,8 @@ internal sealed class RecordingTrimBar : Control
             : Math.Abs(x - start) <= HandleWidth && Math.Abs(x - start) <= Math.Abs(x - end) ? Part.Start
             : Math.Abs(x - end) <= HandleWidth ? Part.End : Part.Head;
         if (_drag != Part.Head) SetHot(-1);
+        var frame = FrameAt(point);
+        _pressedFrame = _drag == Part.Head && frame >= 0 ? (x, frame) : null;
         e.Pointer.Capture(this); Move(x); e.Handled = true;
     }
 
@@ -141,7 +160,8 @@ internal sealed class RecordingTrimBar : Control
         base.OnPointerMoved(e);
         var x = e.GetPosition(this).X;
         if (_drag != Part.None) { Move(x); e.Handled = true; return; }
-        SetHot(NearTick(x));
+        var frame = FrameAt(e.GetPosition(this));
+        SetHot(frame >= 0 ? frame : NearTick(x));
     }
 
     protected override void OnPointerExited(PointerEventArgs e)
@@ -151,6 +171,14 @@ internal sealed class RecordingTrimBar : Control
     }
 
     // Nearest tick within the snap distance, preferring the closer one when two are near.
+    private int FrameAt(Point point)
+    {
+        if (_ticks.Count == 0 || point.Y < 4 || point.Y > 36) return -1;
+        double left = X(_range.Start), right = X(_range.End);
+        if (point.X < left || point.X > right || right <= left) return -1;
+        return Math.Min(_ticks.Count - 1, (int)((point.X - left) / (right - left) * _ticks.Count));
+    }
+
     private int NearTick(double x)
     {
         var best = -1; var distance = Snap;
@@ -165,11 +193,12 @@ internal sealed class RecordingTrimBar : Control
         if (_drag == Part.None) return;
         Move(e.GetPosition(this).X);
         var trimmed = _drag != Part.Head; _drag = Part.None; e.Pointer.Capture(null);
-        SetHot(IsPointerOver ? NearTick(e.GetPosition(this).X) : -1); InvalidateVisual();
+        var frame = FrameAt(e.GetPosition(this));
+        SetHot(IsPointerOver ? (frame >= 0 ? frame : NearTick(e.GetPosition(this).X)) : -1); InvalidateVisual();
         if (trimmed) RangeChanged?.Invoke(_range);
     }
 
-    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e) { base.OnPointerCaptureLost(e); _drag = Part.None; SetHot(-1); InvalidateVisual(); }
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e) { base.OnPointerCaptureLost(e); _drag = Part.None; _pressedFrame = null; SetHot(-1); InvalidateVisual(); }
 
     private void Move(double x)
     {
@@ -180,7 +209,8 @@ internal sealed class RecordingTrimBar : Control
             case Part.End: _range = RecordingTimeRange.Normalize(_range.Start, time, _duration); Seek(_range.End); break;
             case Part.Head:
                 // Contact sheet: the playhead lightly snaps onto a sample so the video shows exactly that frame.
-                SetHot(NearTick(x));
+                if (_pressedFrame is { } pressed && Math.Abs(pressed.X - x) > 3) _pressedFrame = null;
+                SetHot(_pressedFrame?.Index ?? NearTick(x));
                 if (_hot >= 0) time = _ticks[_hot];
                 Seek(time < _range.Start ? _range.Start : time > _range.End ? _range.End : time); break;
         }

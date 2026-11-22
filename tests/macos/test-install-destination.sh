@@ -34,4 +34,11 @@ if macos_version_supported 26.0 15.7.2 || macos_version_supported invalid 26.2.1
   echo "应拒绝最低系统版本无效或不满足要求的安装包。" >&2
   exit 1
 fi
-echo "Mac 安装路径与系统版本检查通过。"
+backup="$(backup_path "$fixture/backups.noindex")"
+[[ "$backup" == "$fixture"/backups.noindex/*.previous ]]
+mkdir -p "$(dirname "$backup")"
+mv "$user_app" "$backup"
+[[ -d "$backup" && ! -e "$user_app" ]]
+mv "$backup" "$user_app"
+[[ -d "$user_app" ]]
+echo "Mac 安装路径、回滚副本与系统版本检查通过。"

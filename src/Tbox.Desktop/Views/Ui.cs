@@ -129,13 +129,13 @@ internal static class Ui
         Text = text, FontSize = strong ? 12 : 13, FontWeight = strong ? FontWeight.SemiBold : FontWeight.Normal,
         Foreground = Brush.Parse(DesignTokens.TaskSecondaryText), Margin = new Thickness(8, 0), VerticalAlignment = VerticalAlignment.Center
     };
-    // Tick a toolbar icon white while its item is selected (filled amethyst).
+    // Tick a toolbar icon white while its item is selected (light surface).
     public static void SetToolbarSelected(Button button, bool selected)
     {
         button.Classes.Set("selected", selected);
-        button.Background = selected ? Brush.Parse(DesignTokens.Accent) : Brushes.Transparent;
-        button.Resources["ButtonBackgroundPointerOver"] = selected ? Brush.Parse(DesignTokens.Accent) : Brush.Parse(DesignTokens.TaskHover);
-        if (button.Content is LineIcon icon && !button.Classes.Contains("tinted")) icon.Stroke = selected ? Brushes.White : ToolbarText;
+        button.Background = selected ? Brush.Parse(DesignTokens.TaskSelected) : Brushes.Transparent;
+        button.Resources["ButtonBackgroundPointerOver"] = selected ? Brush.Parse(DesignTokens.TaskSelected) : Brush.Parse(DesignTokens.TaskHover);
+        if (button.Content is LineIcon icon && !button.Classes.Contains("tinted")) icon.Stroke = selected ? Brush.Parse(DesignTokens.TaskBackground) : ToolbarText;
     }
     // Dark segmented choice used by the recording frame rate.
     public static Border ToolbarSegmented(IReadOnlyList<string> options, int selected, out Func<int> current, out Action<bool> enable)
@@ -270,12 +270,8 @@ internal static class Ui
     }
     public static StackPanel Rows(params Control[] rows)
     {
-        var panel = new StackPanel();
-        for (var i = 0; i < rows.Length; i++)
-        {
-            if (i > 0) panel.Children.Add(new Border { Height = 1, Background = Brush.Parse(DesignTokens.Hairline) });
-            panel.Children.Add(rows[i]);
-        }
+        var panel = new StackPanel { Spacing = 4 };
+        panel.Children.AddRange(rows);
         return panel;
     }
     public static TextBlock Description(string text) => new()
@@ -324,20 +320,11 @@ internal static class Ui
     // Soft square behind a tool icon. Each tool keeps one colour everywhere.
     public static Border IconChip(IconKind icon, ToolTone tone, double size = 28, double glyph = 16)
     {
-        var (background, foreground) = tone switch
-        {
-            ToolTone.Amber => ("#FFF3DA", "#B7791F"), ToolTone.Blue => ("#E7F0FF", "#2F6BDB"),
-            ToolTone.Red => ("#FFE9EA", "#D9363E"), ToolTone.Green => ("#E2F5EC", "#1C8A58"), ToolTone.Grey => ("#F0EFF5", "#5F6270"),
-            _ => ("#F2EDFF", DesignTokens.Accent)
-        };
         return new Border
         {
             Width = size, Height = size, CornerRadius = new CornerRadius(size >= 40 ? 12 : 8),
-            Background = tone == ToolTone.Violet
-                ? new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 1, RelativeUnit.Relative),
-                    GradientStops = { new GradientStop(Color.Parse("#F2EDFF"), 0), new GradientStop(Color.Parse("#E3D9FF"), 1) } }
-                : Brush.Parse(background),
-            Child = new LineIcon(icon, brush: Brush.Parse(foreground)) { Width = glyph, Height = glyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+            Background = Brush.Parse("#E7EBEF"),
+            Child = new LineIcon(icon, brush: Brush.Parse("#38424E")) { Width = glyph, Height = glyph, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
         };
     }
     public static T Column<T>(T control, int column) where T : Control { Grid.SetColumn(control, column); return control; }
@@ -416,7 +403,7 @@ internal static class Ui
         for (var i = 0; i < options.Count; i++)
         {
             var position = i;
-            var button = new Button { Content = options[i], Height = 26, MinHeight = 26, Padding = new Thickness(12, 0), FontSize = 13,
+            var button = new Button { Content = options[i], Height = 26, MinHeight = 26, Padding = new Thickness(8, 0), FontSize = 13,
                 CornerRadius = new CornerRadius(7), BorderThickness = default, Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
             AutomationProperties.SetName(button, options[i]);
             button.Resources["ButtonBackgroundPressed"] = Brushes.Transparent;
@@ -427,22 +414,17 @@ internal static class Ui
         }
         Paint();
         current = () => index;
-        var surface = new Border { Padding = new Thickness(3), CornerRadius = new CornerRadius(9), Background = Brush.Parse("#F0EFF5"), Child = row,
+        var surface = new Border { Padding = new Thickness(3), CornerRadius = new CornerRadius(9), Background = Brush.Parse("#E7EBEF"), Child = row,
             VerticalAlignment = VerticalAlignment.Center };
         enable = on => { surface.IsEnabled = on; surface.Opacity = on ? 1 : .5; };
         return surface;
     }
 
-    // Soft violet banner holding a page's main entry (spec ③).
+    // Neutral surface holding a page's main entry (spec ③).
     public static Border Hero(Control content, double minHeight = 112) => new()
     {
         MinHeight = minHeight, CornerRadius = new CornerRadius(14), Padding = new Thickness(20, 18), ClipToBounds = true,
-        BorderBrush = Brush.Parse("#ECE6FD"), BorderThickness = new Thickness(1), Child = content,
-        Background = new LinearGradientBrush
-        {
-            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, .45, RelativeUnit.Relative),
-            GradientStops = { new GradientStop(Color.Parse("#F2EEFF"), 0), new GradientStop(Color.Parse("#F8F6FF"), .55), new GradientStop(Color.Parse("#FDFDFF"), 1) }
-        }
+        Background = Brush.Parse("#F0F3F6"), Child = content
     };
 
     public static void Configure(Window window, string title, int width, int height)

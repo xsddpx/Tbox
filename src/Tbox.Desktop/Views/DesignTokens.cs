@@ -10,21 +10,22 @@ namespace Tbox.Desktop.Views;
 // One set of tokens for both Windows and macOS. Platform code must not restyle pages.
 internal static class DesignTokens
 {
-    public const double PageTitle = 20, SectionTitle = 16, Body = 14, Description = 12.5, Caption = 12;
+    public const double PageTitle = 18, SectionTitle = 16, Body = 14, Description = 12.5, Caption = 12;
     public const double CardRadius = 12, ControlRadius = 8, TaskRadius = 10, PanelRadius = 14;
     public const double ControlHeight = 32;
-    // Amethyst from the approved app icon; the dark variant is lightened to keep AA contrast.
-    public const string Accent = "#6D4AE8";
+    // Neutral action surfaces keep state colours reserved for capture and recording.
+    public const string Accent = "#191E26";
     // Task surfaces (capture toolbars, recording controls, playback) stay dark over any content.
-    public const string TaskBackground = "#1D1D24", TaskBorder = "#3A3A46", TaskHover = "#2E2E39", TaskText = "#F2F2F6";
+    public const string TaskBackground = "#22272F", TaskBorder = "#414852", TaskHover = "#343B45", TaskText = "#F4F6F8";
+    public const string TaskSelected = "#E3E8EE";
     public const string Recording = "#E5484D", Ready = "#1F9D61";
     // Selection colour tells the mode (spec ⑤): capture blue, long-capture yellow, recording red.
     public const string CaptureBlue = "#3D7BFF", LongYellow = "#E8A13A", TaskSecondaryText = "#A6A9B6";
     // Light-only page colors from spec ①: group titles, row hairlines, statuses and the yellow attention state.
-    public const string Hint = "#8C8F9B", Hairline = "#F1F0F5", Error = "#D9363E", Attention = "#B7791F", AttentionDot = "#E8A13A";
+    public const string Hint = "#626C78", Hairline = "#F1F0F5", Error = "#D9363E", Attention = "#B7791F", AttentionDot = "#E8A13A";
     public static ThemeColors Colors(bool dark) => dark
-        ? new("#131318", "#1D1D24", "#18181E", "#2A2A33", "#30303A", "#F2F2F6", "#A6A9B6", "#2C2645", "#B4A0FF", "#F2B65A")
-        : new("#F4F3F8", "#FFFFFF", "#F7F6FB", "#EFEEF4", "#ECEBF2", "#1A1B22", "#5F6270", "#F2EDFF", Accent, "#9A6A12");
+        ? new("#131318", "#22272F", "#18181E", "#2A2A33", "#30303A", "#F4F6F8", "#A6A9B6", "#343B45", "#E2E7EE", "#F2B65A")
+        : new("#EDF0F4", "#FFFFFF", "#F5F7F9", "#E4E8ED", "#DBE0E6", "#161B22", "#54606E", "#E6EBEF", Accent, "#9A6A12");
 
     public static FluentTheme CreateTheme()
     {
@@ -42,6 +43,9 @@ internal static class DesignTokens
             // Theme dictionaries on the theme itself are found before Fluent's own control resources.
             theme.Resources.ThemeDictionaries[variant] = ControlResources(c, variant == ThemeVariant.Dark);
         }
+        theme.Add(new Style(x => x.OfType<ComboBox>()) { Setters = {
+            new Setter(ComboBox.PaddingProperty, new Thickness(10, 4, 4, 4)),
+            new Setter(ComboBox.VerticalContentAlignmentProperty, Avalonia.Layout.VerticalAlignment.Center) } });
         theme.Resources["ControlCornerRadius"] = new CornerRadius(ControlRadius);
         theme.Resources["OverlayCornerRadius"] = new CornerRadius(CardRadius);
         theme.Resources["TextControlBorderThemeThicknessFocused"] = new Thickness(1);
@@ -83,8 +87,8 @@ internal static class DesignTokens
         Set(new Thickness(1), "ButtonBorderThemeThickness", "ToggleButtonBorderThemeThickness");
 
         Set(fill, "AccentButtonBackground", "ToggleButtonBackgroundChecked");
-        Set(B("#5E3DD8"), "AccentButtonBackgroundPointerOver", "ToggleButtonBackgroundCheckedPointerOver");
-        Set(B("#5232C4"), "AccentButtonBackgroundPressed", "ToggleButtonBackgroundCheckedPressed");
+        Set(B("#303742"), "AccentButtonBackgroundPointerOver", "ToggleButtonBackgroundCheckedPointerOver");
+        Set(B("#11161B"), "AccentButtonBackgroundPressed", "ToggleButtonBackgroundCheckedPressed");
         Set(B("#CFC5F5"), "AccentButtonBackgroundDisabled", "ToggleButtonBackgroundCheckedDisabled");
         Set(transparent, "AccentButtonBorderBrush", "AccentButtonBorderBrushPointerOver", "AccentButtonBorderBrushPressed", "AccentButtonBorderBrushDisabled",
             "ToggleButtonBorderBrushChecked", "ToggleButtonBorderBrushCheckedPointerOver", "ToggleButtonBorderBrushCheckedPressed", "ToggleButtonBorderBrushCheckedDisabled");
@@ -121,15 +125,15 @@ internal static class DesignTokens
 
         Set(fill, "ToggleSwitchFillOn", "ToggleSwitchStrokeOn", "CheckBoxCheckBackgroundFillChecked", "CheckBoxCheckBackgroundFillCheckedPointerOver",
             "CheckBoxCheckBackgroundFillCheckedPressed");
-        Set(B("#5E3DD8"), "ToggleSwitchFillOnPointerOver", "ToggleSwitchStrokeOnPointerOver");
-        Set(B("#5232C4"), "ToggleSwitchFillOnPressed", "ToggleSwitchStrokeOnPressed");
+        Set(B("#303742"), "ToggleSwitchFillOnPointerOver", "ToggleSwitchStrokeOnPointerOver");
+        Set(B("#11161B"), "ToggleSwitchFillOnPressed", "ToggleSwitchStrokeOnPressed");
         // An off switch is a flat grey track with a white knob, as in spec ②.
         var offTrack = dark ? hover : B("#D9D8E2");
         Set(offTrack, "ToggleSwitchFillOff", "ToggleSwitchFillOffPointerOver", "ToggleSwitchFillOffPressed");
         Set(dark ? muted : offTrack, "ToggleSwitchStrokeOff", "ToggleSwitchStrokeOffPointerOver", "ToggleSwitchStrokeOffPressed");
         Set(dark ? muted : onFill, "ToggleSwitchKnobFillOff", "ToggleSwitchKnobFillOffPointerOver", "ToggleSwitchKnobFillOffPressed");
         Set(B(dark ? c.Hover : "#E6E5EC"), "ToggleSwitchFillOffDisabled", "ToggleSwitchStrokeOffDisabled", "ToggleSwitchFillOnDisabled", "ToggleSwitchStrokeOnDisabled");
-        Set(B(dark ? c.SecondaryText : "#F7F6FB"), "ToggleSwitchKnobFillOffDisabled", "ToggleSwitchKnobFillOnDisabled");
+        Set(B(dark ? c.SecondaryText : "#F5F7F9"), "ToggleSwitchKnobFillOffDisabled", "ToggleSwitchKnobFillOnDisabled");
         Set(onFill, "ToggleSwitchKnobFillOn", "ToggleSwitchKnobFillOnPointerOver", "ToggleSwitchKnobFillOnPressed");
 
         Set(surface, "CheckBoxCheckBackgroundFillUnchecked", "CheckBoxCheckBackgroundFillUncheckedPointerOver");

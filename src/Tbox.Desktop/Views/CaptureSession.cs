@@ -12,6 +12,7 @@ internal sealed class CaptureSession
 {
     private readonly DesktopController _controller;
     private readonly Action _closed;
+    private readonly Action? _restoreForeground;
     private readonly List<CaptureWindow> _windows = [];
     internal IReadOnlyList<CaptureWindow> Windows => _windows;
     private readonly ICaptureTargetSource _targets;
@@ -30,9 +31,10 @@ internal sealed class CaptureSession
     public CaptureAction? Preset { get; }
 
     public CaptureSession(DesktopController controller, IReadOnlyList<CapturedDisplay> displays, Action closed,
-        CaptureAction? preset = null, ICaptureTargetSource? targets = null)
+        CaptureAction? preset = null, ICaptureTargetSource? targets = null, Action? restoreForeground = null)
     {
         _controller = controller; _closed = closed;
+        _restoreForeground = restoreForeground;
         Preset = preset is CaptureAction.Record or CaptureAction.Long ? preset : null;
         _targets = targets ?? controller.Platform.CreateCaptureTargets();
         foreach (var display in displays)
@@ -236,14 +238,14 @@ internal sealed class CaptureSession
             placement = new DesktopPlacement(display.Left + region.Left * display.Width / pixelWidth, display.Top + region.Top * display.Height / pixelHeight,
                 region.Width * display.Width / pixelWidth, region.Height * display.Height / pixelHeight);
             if (!State.TryComplete()) return;
-            _controller.Run(() => _controller.StartRecordingAsync(new RecordingArea(placement, region.Width, region.Height)));
+            _controller.Run(() => _controller.StartRecordingAsync(new RecordingArea(placement, region.Width, region.Height), _restoreForeground));
             Close();
             return;
         }
         if (!State.TryComplete()) return;
         if (action == CaptureAction.Long)
         {
-            _controller.Run(() => _controller.StartLongCaptureAsync(placement));
+            _controller.Run(() => _controller.StartLongCaptureAsync(placement, _restoreForeground));
             Close();
             return;
         }
@@ -254,10 +256,16 @@ internal sealed class CaptureSession
         var annotations = action == CaptureAction.Pin ? window.Editor.Document.Commands
             .Select(command => AnnotationTransform.Translate(command, -region.Left, -region.Top)).ToArray() : [];
         Close();
-        _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations, frame: frame));
+        _controller.Run(() => _controller.CompleteCaptureAsync(picture, placement, action, annotations, frame: frame,
+            restoreForeground: _restoreForeground));
     }
 
-    public void Cancel() { State.Cancel(); Close(); }
+    public void Cancel()
+    {
+        State.Cancel();
+        Close();
+        if (!_controller.IsQuitting) _restoreForeground?.Invoke();
+    }
     private void Close()
     {
         foreach (var window in _windows) window.Close();

@@ -441,9 +441,12 @@ public sealed class DesktopController : IDisposable
     // Tray click, app reopen and a second launch all bring the main window to the front.
     // A hidden window reopens on 截图; one that is already open keeps its page unless a page is requested.
     public void ShowMain() => ShowMain(null);
+    internal bool CanRestoreMainOnReopen =>
+        !IsQuitting && !_capturing && _capture is null && _longCapture is null && _recording is null && _reviews.Count == 0;
+
     internal void ShowMainOnReopen()
     {
-        if (!_capturing && _capture is null && _longCapture is null && _recording is null && _reviews.Count == 0) ShowMain();
+        if (CanRestoreMainOnReopen) ShowMain();
     }
 
     internal void ShowMain(MainPage? page)
@@ -503,6 +506,14 @@ public sealed class DesktopController : IDisposable
         var timer = Stopwatch.StartNew();
         try
         {
+            var restoreForeground = Platform.SnapshotCaptureForeground();
+            if (preset is not null && Main.IsVisible)
+            {
+                Main.Hide();
+                // Let the compositor remove the dashboard before freezing the screen for region selection.
+                await Task.Delay(150, _stop.Token);
+                restoreForeground ??= Platform.SnapshotCaptureForeground(dashboardHidden: true);
+            }
             // Snapshot external targets before overlays exist, alongside screen capture, not on the input thread.
             var targetsTask = Task.Run(Platform.CreateCaptureTargets, _stop.Token);
             var displaysTask = Platform.CaptureAsync(_stop.Token);
@@ -510,7 +521,7 @@ public sealed class DesktopController : IDisposable
             var displays = await displaysTask;
             var capturedMs = timer.Elapsed.TotalMilliseconds;
             if (IsQuitting || _installingUpdate) return;
-            _capture = new CaptureSession(this, displays, () => _capture = null, preset, await targetsTask);
+            _capture = new CaptureSession(this, displays, () => _capture = null, preset, await targetsTask, restoreForeground);
             _capture.Show();
             AppLog.Write($"Capture ready: acquisition={capturedMs:F1}ms, overlay-shown={timer.Elapsed.TotalMilliseconds:F1}ms, displays={displays.Count}");
         }
@@ -518,14 +529,19 @@ public sealed class DesktopController : IDisposable
     }
 
     internal async Task CompleteCaptureAsync(Picture picture, DesktopPlacement placement, CaptureAction action,
-        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null, CaptureFrame? frame = null)
+        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null, CaptureFrame? frame = null,
+        Action? restoreForeground = null)
     {
         using (picture)
         {
             if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             Picture? pinned = null;
             if (action == CaptureAction.Pin) { pinned = picture.Clone(); Pin(pinned, pinPlacement ?? placement, annotations); }
-            if (action == CaptureAction.Copy) await CopyAsync(picture);
+            if (action == CaptureAction.Copy)
+            {
+                try { await CopyAsync(picture); }
+                finally { if (!IsQuitting) restoreForeground?.Invoke(); }
+            }
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
             await CacheAsync(picture, pinned);
             CaptureHistory.Remember(placement);
@@ -586,15 +602,18 @@ public sealed class DesktopController : IDisposable
         catch (FileNotFoundException) { Main.Refresh(); throw new InvalidOperationException("这张截图已被清理或移动。"); }
     }
 
-    internal async Task StartLongCaptureAsync(DesktopPlacement region)
+    internal async Task StartLongCaptureAsync(DesktopPlacement region, Action? restoreForeground = null)
     {
         _capturing = true;
         try
         {
+            var hideDashboard = Main.IsVisible;
+            if (hideDashboard) Main.Hide();
             await Task.Delay(150, _stop.Token);
             if (IsQuitting || _installingUpdate) return;
+            if (hideDashboard) restoreForeground ??= Platform.SnapshotCaptureForeground(dashboardHidden: true);
             _longCapture?.Stop();
-            var session = new LongCaptureSession(this, region, () => _longCapture = null);
+            var session = new LongCaptureSession(this, region, () => _longCapture = null, restoreForeground);
             _longCapture = session;
             try { session.Start(); }
             catch { session.Stop(); throw; }
@@ -609,15 +628,18 @@ public sealed class DesktopController : IDisposable
         catch { picture.Dispose(); throw; }
     }
 
-    internal async Task StartRecordingAsync(RecordingArea area)
+    internal async Task StartRecordingAsync(RecordingArea area, Action? restoreForeground = null)
     {
         if (_recording is not null || _quitRequested) return;
         _capturing = true;
         try
         {
+            var hideDashboard = Main.IsVisible;
+            if (hideDashboard) Main.Hide();
             await Task.Delay(150, _stop.Token);
             if (IsQuitting || _installingUpdate) return;
-            var session = new RecordingControlWindow(this, area);
+            if (hideDashboard) restoreForeground ??= Platform.SnapshotCaptureForeground(dashboardHidden: true);
+            var session = new RecordingControlWindow(this, area, restoreForeground);
             _recording = session;
             session.Released += () => { if (ReferenceEquals(_recording, session)) _recording = null; };
             session.Show(); CaptureHistory.Remember(area.Bounds);
@@ -625,10 +647,10 @@ public sealed class DesktopController : IDisposable
         finally { _capturing = false; }
     }
 
-    internal void ShowRecordingReview(RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
+    internal void ShowRecordingReview(RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration, Action? restoreForeground = null)
     {
         if (IsQuitting || _installingUpdate) { workspace.Dispose(); return; }
-        var review = new RecordingReviewWindow(this, workspace, area, output, duration);
+        var review = new RecordingReviewWindow(this, workspace, area, output, duration, restoreForeground);
         _reviews.Add(review); review.Released += () => _reviews.Remove(review); review.Show();
     }
 

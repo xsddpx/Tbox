@@ -6,6 +6,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -383,8 +384,8 @@ public sealed class TaskToolbarTests
         // The selected tool is filled amethyst with a white icon; clicking it again clears the selection.
         var rectangle = toolbar.MainRow.GetVisualDescendants().OfType<Button>().First();
         Click(rectangle);
-        Assert.Equal(Color.Parse(DesignTokens.Accent), ((ISolidColorBrush)rectangle.Background!).Color);
-        Assert.Equal(Colors.White, ((ISolidColorBrush)((LineIcon)rectangle.Content!).Stroke!).Color);
+        Assert.Equal(Color.Parse(DesignTokens.TaskSelected), ((ISolidColorBrush)rectangle.Background!).Color);
+        Assert.Equal(Color.Parse(DesignTokens.TaskBackground), ((ISolidColorBrush)((LineIcon)rectangle.Content!).Stroke!).Color);
         Click(rectangle);
         Assert.Null(window.Editor.Tool);
         Assert.Equal(Color.Parse(DesignTokens.TaskText), ((ISolidColorBrush)((LineIcon)rectangle.Content!).Stroke!).Color);
@@ -439,7 +440,7 @@ public sealed class TaskToolbarTests
         Assert.Equal(Ui.ToolbarBackground, surface.Background);
         Assert.Equal(Orientation.Horizontal, Assert.IsType<StackPanel>(surface.Child).Orientation);
         var swatches = surface.GetVisualDescendants().OfType<Button>().Where(b => AutomationProperties.GetName(b)?.StartsWith("颜色 ") == true).ToArray();
-        Assert.Equal(new[] { "颜色 E5484D", "颜色 F5B400", "颜色 1F9D61", "颜色 3D7BFF", "颜色 6D4AE8", "颜色 1A1B22" }, swatches.Select(b => AutomationProperties.GetName(b)!));
+        Assert.Equal(new[] { "颜色 E5484D", "颜色 F5B400", "颜色 1F9D61", "颜色 3D7BFF", "颜色 6D4AE8" }, swatches.Select(b => AutomationProperties.GetName(b)!));
         Assert.Equal(0xFFE5484D, scope.Window.Editor.Color);
         var blue = Assert.IsType<ToggleButton>(swatches[3]);
         var ring = Assert.IsType<Border>(blue.Content);
@@ -617,8 +618,8 @@ public sealed class TaskToolbarTests
             var ellipse = toolbar.MainRow.GetVisualDescendants().OfType<Button>().Single(b => AutomationProperties.GetName(b) == "椭圆");
             Click(ellipse);
             Assert.Equal(AnnotationTool.Ellipse, pin.Editor.Tool);
-            var propertySlider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
-            propertySlider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            var stepButton = StepButton(toolbar.PropertiesSurface, "增大线宽");
+            stepButton.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             Assert.True(pin.CanAnnotate);
             Assert.True(toolbar.PropertiesPopup.IsOpen);
             Click(ellipse);
@@ -686,46 +687,39 @@ public sealed class TaskToolbarTests
         Assert.InRange(Math.Abs(titleCenter.X - dividerLeft / 2), 0, 1);
         Assert.InRange(Math.Abs(titleCenter.Y - surface.Bounds.Height / 2), 0, 1);
 
-        var slider = Assert.Single(surface.GetVisualDescendants().OfType<Slider>());
-        Assert.Equal(name, AutomationProperties.GetName(slider));
-        slider.Value = value; Layout(scope.Window);
+        Assert.Empty(surface.GetVisualDescendants().OfType<Slider>());
+        var increase = StepButton(surface, "增大" + name);
+        var decrease = StepButton(surface, "减小" + name);
+        for (var attempt = 0; attempt < 120 && scope.Window.Editor.CurrentSize != value; attempt++)
+            Click(scope.Window.Editor.CurrentSize < value ? increase : decrease);
+        Layout(scope.Window);
         Assert.Equal(value, scope.Window.Editor.CurrentSize);
         Assert.Contains(toolbar.PropertiesSurface.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == expected);
         var colors = toolbar.PropertiesSurface.GetVisualDescendants().OfType<Button>().Count(b => AutomationProperties.GetName(b)?.StartsWith("颜色 ") == true);
-        Assert.Equal(tool is AnnotationTool.Mosaic or AnnotationTool.Eraser ? 0 : 6, colors);
+        Assert.Equal(tool is AnnotationTool.Mosaic or AnnotationTool.Eraser ? 0 : 5, colors);
     }
 
     [AvaloniaFact]
-    public async Task EllipseWidthSliderStaysCenteredAndCanBeDragged()
+    public async Task EllipseWidthButtonsUpdateTheDrawingAndStopAtBothLimits()
     {
         using var scope = await CaptureScope.StartAsync(null);
         var window = scope.Window;
         var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
         window.Editor.Select(AnnotationTool.Ellipse);
         Layout(window);
-        var surface = toolbar.PropertiesSurface;
-        var slider = Assert.Single(surface.GetVisualDescendants().OfType<Slider>());
-        var track = Assert.Single(slider.GetVisualDescendants().OfType<Track>());
-        var thumb = Assert.Single(track.GetVisualDescendants().OfType<Thumb>());
-        var label = Assert.Single(surface.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == "线宽");
-        var thumbOrigin = thumb.TranslatePoint(default, slider)!.Value;
-        Assert.True(thumbOrigin.Y >= 0 && thumbOrigin.Y + thumb.Bounds.Height <= slider.Bounds.Height);
-        var thumbCenter = thumb.TranslatePoint(new Point(thumb.Bounds.Width / 2, thumb.Bounds.Height / 2), surface)!.Value;
-        var labelCenter = label.TranslatePoint(new Point(0, label.Bounds.Height / 2), surface)!.Value;
-        Assert.InRange(Math.Abs(thumbCenter.Y - labelCenter.Y), 0, 1);
-        var segment = Assert.Single(track.IncreaseButton!.GetVisualDescendants().OfType<Border>(), border => border.Name == "TrackBackground");
-        var trackCenter = segment.TranslatePoint(new Point(0, segment.Bounds.Height / 2), surface)!.Value;
-        Assert.InRange(Math.Abs(trackCenter.Y - thumbCenter.Y), 0, 1);
-
-        var start = surface.TranslatePoint(thumbCenter, window)!.Value;
-        window.MouseDown(start, MouseButton.Left, RawInputModifiers.None);
-        var end = start + new Vector(28, 0);
-        window.MouseMove(end, RawInputModifiers.LeftMouseButton);
-        window.MouseUp(end, MouseButton.Left, RawInputModifiers.None);
-        Assert.True(window.Editor.StrokeWidth > 3);
-        Assert.Contains(surface.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == $"{window.Editor.StrokeWidth:0} px");
+        var minus = StepButton(toolbar.PropertiesSurface, "减小线宽");
+        var plus = StepButton(toolbar.PropertiesSurface, "增大线宽");
+        Click(plus);
+        Assert.Equal(4, window.Editor.CurrentSize);
+        while (minus.IsEnabled) Click(minus);
+        Assert.Equal(1, window.Editor.CurrentSize);
+        while (plus.IsEnabled) Click(plus);
+        Assert.Equal(32, window.Editor.CurrentSize);
         Assert.True(toolbar.PropertiesPopup.IsOpen);
     }
+
+    private static Button StepButton(Control surface, string label) => Assert.Single(
+        surface.GetVisualDescendants().OfType<Button>(), button => AutomationProperties.GetName(button) == label);
 
     [AvaloniaFact]
     public async Task EscapeClosesPropertiesBeforeClearingToolOrEndingCapture()
@@ -734,11 +728,11 @@ public sealed class TaskToolbarTests
         var window = scope.Window;
         var toolbar = Assert.Single(window.GetVisualDescendants().OfType<AnnotationToolbar>());
         window.Editor.Select(AnnotationTool.Text); Layout(window);
-        var slider = Assert.Single(toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>());
-        slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        var sizeButton = StepButton(toolbar.PropertiesSurface, "增大字号");
+        sizeButton.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
         Assert.True(window.IsVisible);
         Assert.True(toolbar.PropertiesPopup.IsOpen);
-        slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        sizeButton.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
         Assert.False(toolbar.PropertiesPopup.IsOpen);
         Assert.Equal(AnnotationTool.Text, window.Editor.Tool);
         Assert.True(window.IsVisible);
@@ -851,17 +845,17 @@ public sealed class TaskToolbarTests
     [InlineData(CaptureAction.Record, false, true)]
     [InlineData(CaptureAction.Record, true, false)]
     [InlineData(CaptureAction.Record, true, true)]
-    public async Task LongCaptureAndRecordingPreserveTheMainWindowVisibility(CaptureAction mode, bool fromScreenshot, bool mainVisible)
+    public async Task LongCaptureAndRecordingKeepTheDashboardHiddenFromHandoffThroughDismissal(CaptureAction mode, bool fromScreenshot, bool mainVisible)
     {
         using var scope = await CaptureScope.StartAsync(fromScreenshot ? null : mode, mainVisible: mainVisible);
-        void CheckVisibility()
+        void CheckVisibility(bool expected = false)
         {
             App.RestoreOnReopen(scope.Controller, new ActivatedEventArgs(ActivationKind.Reopen));
             Dispatcher.UIThread.RunJobs();
-            Assert.Equal(mainVisible, scope.Controller.Main.IsVisible);
+            Assert.Equal(expected, scope.Controller.Main.IsVisible);
         }
 
-        CheckVisibility();
+        CheckVisibility(fromScreenshot && mainVisible);
         var longCapture = mode == CaptureAction.Long;
         if (fromScreenshot)
         {
@@ -878,7 +872,28 @@ public sealed class TaskToolbarTests
         Assert.NotNull(toolbar);
         CheckVisibility();
         toolbar.Close();
-        Assert.Equal(mainVisible, scope.Controller.Main.IsVisible);
+        Assert.False(scope.Controller.Main.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task CopyingACaptureRestoresThePreviousAppAfterWritingTheClipboard()
+    {
+        var restored = new TaskCompletionSource();
+        using var scope = await CaptureScope.StartAsync(null, restoreForeground: () => restored.TrySetResult());
+        var cache = Directory.CreateTempSubdirectory("tbox-capture-focus-");
+        try
+        {
+            scope.Controller.UseCacheDirectoryForTests(cache.FullName);
+            scope.Window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+            await restored.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(scope.Controller.Main.IsVisible);
+            Assert.False(scope.Window.IsVisible);
+            using var copied = await scope.Controller.Main.Clipboard!.TryGetBitmapAsync();
+            Assert.NotNull(copied);
+            for (var attempt = 0; attempt < 100 && !cache.GetFiles("*.png").Any(); attempt++) await Task.Delay(10);
+            Assert.Single(cache.GetFiles("*.png"));
+        }
+        finally { cache.Delete(recursive: true); }
     }
 
     [AvaloniaFact]
@@ -909,6 +924,14 @@ public sealed class TaskToolbarTests
             for (var wait = 0; decodes && wait < 200 && review.LoadedThumbnails < 6; wait++) { await Task.Delay(50); Dispatcher.UIThread.RunJobs(); }
             Assert.Equal(decodes ? 6 : 0, review.LoadedThumbnails);
 
+            Assert.Equal(ticks, track.FrameTimes);
+            foreach (var index in Enumerable.Range(0, 6))
+            {
+                var center = track.TranslatePoint(new Point(6 + (track.Bounds.Width - 12) * (index + .5) / 6, 18), review)!.Value;
+                review.MouseDown(center, MouseButton.Left, RawInputModifiers.None);
+                review.MouseUp(center, MouseButton.Left, RawInputModifiers.None);
+                Assert.Equal(ticks[index], track.Position);
+            }
             // Dragging the playhead 5 px past node 04 lands exactly on its sample time.
             Point At(int tick, double offset) => track.TranslatePoint(new Point(6 + (track.Bounds.Width - 12) * (ticks[tick] / track.Duration) + offset, track.Bounds.Height - 14), review)!.Value;
             review.MouseDown(At(1, 30), MouseButton.Left, RawInputModifiers.None);
@@ -957,7 +980,7 @@ public sealed class TaskToolbarTests
         try
         {
             Assert.True(Shows("2560 × 1440 · 00:42.0 · 30 FPS · 静音"));
-            Assert.True(Shows("导出全部 · 00:00.0 – 00:42.0　拖动两端红色手柄截取"));
+            Assert.True(Shows("导出全部 · 00:00.0 – 00:42.0"));
             Assert.Equal(["MP4", "GIF", "WebP", "六宫格"], RecordingReviewWindow.Formats.Select(f => AutomationProperties.GetName(Chip(f switch
             {
                 RecordingExportFormat.Mp4 => "MP4", RecordingExportFormat.Gif => "GIF", RecordingExportFormat.WebP => "WebP", _ => "六宫格"
@@ -966,7 +989,8 @@ public sealed class TaskToolbarTests
             var options = review.Options();
             Assert.Equal(new RecordingExportOptions(RecordingExportFormat.Mp4, 30, new(2560, 1440), new(TimeSpan.Zero, TimeSpan.FromSeconds(42))), options);
             Assert.True(options.CopiesMaster(new(2560, 1440), TimeSpan.FromSeconds(42)));
-            Assert.Equal(["100%   2560 × 1440", "75%   1920 × 1080", "50%   1280 × 720", "25%   640 × 360", "自定义"], (string[])review.Size.ItemsSource!);
+            Assert.Equal(["100%", "75%", "50%", "25%", "自定义"], (string[])review.Size.ItemsSource!);
+            Assert.True(Shows("输出 2560 × 1440"));
             Preview(review, "recording-review-mp4");
 
             // Trimming moves into the exported options and shows the reset link.
@@ -995,10 +1019,21 @@ public sealed class TaskToolbarTests
             Click(Chip("六宫格")); Layout(review);
             Assert.False(review.FrameRate.IsEffectivelyVisible);
             Assert.Equal(new RecordingExportOptions(RecordingExportFormat.ContactSheet, 0, new(320, 180), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
-            Assert.Equal(["原尺寸   7728 × 2972", "每格 ≤ 640 px   1968 × 812", "每格 ≤ 480 px   1488 × 632", "每格 ≤ 320 px   1008 × 452", "每格 ≤ 200 px   648 × 316", "自定义"],
+            Assert.Equal(["原尺寸", "每格 ≤ 640 px", "每格 ≤ 480 px", "每格 ≤ 320 px", "每格 ≤ 200 px", "自定义"],
                 (string[])review.Size.ItemsSource!);
             Assert.Equal(6, review.Track.Ticks.Count);
             Assert.Equal(TimeSpan.FromSeconds(5), review.Track.Ticks[0]);
+            Assert.Equal(ContactSheetPolicy.SampleTimes(review.Options().Range, RecordingFrameRatePolicy.RecordingFrameRate), review.Track.FrameTimes);
+            Assert.True(Shows("输出 1008 × 452"));
+            review.Size.SelectedIndex = 0; Layout(review);
+            Assert.True(Shows("输出 7728 × 2972"));
+            review.Size.SelectedIndex = 3; Layout(review);
+            var panel = review.Size.TranslatePoint(default, review)!.Value;
+            var timeline = review.Track.TranslatePoint(default, review)!.Value;
+            Assert.True(panel.X > timeline.X + review.Track.Bounds.Width);
+            review.Width = 540; Layout(review);
+            Assert.True(review.Size.TranslatePoint(default, review)!.Value.Y > review.Track.TranslatePoint(default, review)!.Value.Y);
+            review.Width = 940; Layout(review);
             Preview(review, "recording-review-contact-sheet");
 
             Click(Chip("恢复全部")); Layout(review);
@@ -1104,7 +1139,8 @@ public sealed class TaskToolbarTests
             return null;
         }
 
-        public static async Task<CaptureScope> StartAsync(CaptureAction? preset, double topSafeInset = 0, bool mainVisible = false)
+        public static async Task<CaptureScope> StartAsync(CaptureAction? preset, double topSafeInset = 0, bool mainVisible = false,
+            Action? restoreForeground = null)
         {
             if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
             var frame = Desktop(1200, 720);
@@ -1114,6 +1150,7 @@ public sealed class TaskToolbarTests
             var platform = new FakePlatform
             {
                 HasScreenPermission = true,
+                CaptureForegroundRestore = restoreForeground,
                 Displays = [new CapturedDisplay(1, 0, 0, 1200, 720, frame.Png)],
                 CaptureRegion = async token => { await Task.Delay(Timeout.Infinite, token); return frame.Png; },
                 Recorder = new FakeRecorder(),

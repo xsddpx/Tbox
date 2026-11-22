@@ -309,13 +309,13 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     {
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
         {
-            new TextBlock { Text = "模型服务", FontSize = DesignTokens.PageTitle, LineHeight = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong },
+            Ui.GroupTitle("模型服务"),
             new TextBlock { Text = "管理 OpenAI 兼容接口的连接与模型，供翻译等工具复用", FontSize = DesignTokens.Description, LineHeight = 18, Foreground = Secondary }
         } };
         _addButton.VerticalAlignment = VerticalAlignment.Center;
-        return new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 14, Children =
+        return new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 14, Children =
         {
-            Ui.IconChip(IconKind.Model, ToolTone.Violet, 40, 20), Ui.Column(titles, 1), Ui.Column(_addButton, 2)
+            titles, Ui.Column(_addButton, 1)
         } };
     }
 
@@ -332,7 +332,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             new Border { Margin = new Thickness(0, 16, 0, 0), HorizontalAlignment = HorizontalAlignment.Center, Child = add }
         } };
         return new Border { IsVisible = false, Margin = new Thickness(0, 14, 0, 0), Padding = new Thickness(28, 20), CornerRadius = new CornerRadius(14),
-            BorderBrush = Brush.Parse("#EEEDF3"), BorderThickness = new Thickness(1), Background = Brush.Parse("#FEFEFF"), Child = content };
+            BorderBrush = Brush.Parse("#E0E5EA"), BorderThickness = new Thickness(1), Background = Brush.Parse("#FEFEFF"), Child = content };
     }
 
     private Border BuildModelsEmpty() => new()
@@ -443,9 +443,9 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
         return new Border
         {
             Width = 32, Height = 32, CornerRadius = new CornerRadius(9), VerticalAlignment = VerticalAlignment.Center,
-            Background = Brush.Parse(preset?.Background ?? "#F2EDFF"),
+            Background = Brush.Parse(preset?.Background ?? "#E7EBEF"),
             Child = new TextBlock { Text = letter, FontSize = 13, FontWeight = FontWeight.SemiBold,
-                Foreground = Brush.Parse(preset?.Foreground ?? "#6D4AE8"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
+                Foreground = Brush.Parse(preset?.Foreground ?? DesignTokens.Accent), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
         };
     }
 
@@ -525,7 +525,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
             {
                 Height = 42, Padding = new Thickness(8, 0), CornerRadius = new CornerRadius(9),
                 Background = selected ? Brush.Parse("#FAF7FF") : Brushes.White,
-                BorderBrush = Brush.Parse(selected ? DesignTokens.Accent : "#EEEDF3"),
+                BorderBrush = Brush.Parse(selected ? DesignTokens.Accent : "#E0E5EA"),
                 BorderThickness = new Thickness(1), Child = content
             };
             var button = new SurfaceButton(preset.Name, () => SelectPreset(index)) { Content = tile };
