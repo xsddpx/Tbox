@@ -537,3 +537,12 @@ UTM Windows 11（内部版本 26300）从 1.1.126.0 覆盖安装签名 MSIX。�
 | 窗口状态 | 长截图和录屏选区取消、复制或保存后主窗口保持隐藏，键盘焦点回到样页 | 长截图复制后主窗口保持隐藏，录屏保存后主窗口与预览均已关闭 |
 
 [功能与界面 PR](https://github.com/xsddpx/Tbox/pull/128) · [签名构建与发布](https://github.com/xsddpx/Tbox/actions/runs/45032982998) · [正式安装包](https://github.com/xsddpx/Tbox/releases/tag/v1.1.142)
+
+## 自动发布 v1.1.144
+
+两平台使用持久证书签名。
+
+| 版本 | 平台 | 打包时间（Asia/Shanghai） | SHA-256 |
+| --- | --- | --- | --- |
+| 1.1.144 | macOS osx-arm64 | 2026-11-22 23:32:11 +0800 | `b3f9fd7ea28762e6158f5e0a4cb42c57619137e19843fe57a3a4c73793bb9459` |
+| 1.1.144.0 | Windows win-x64 | 2026-11-22 23:29:16 +0800 | `7ab4a187d28a3bf195c1a9218c0a3bfbe874dcafb2d276a85d5d1cf0eb58b788` |
