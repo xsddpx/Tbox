@@ -37,12 +37,11 @@ internal static class ToolbarSmokeTest
                 var gap = above ? barPoint.Y - propertyPoint.Y - row.Bounds.Height : propertyPoint.Y - barPoint.Y - toolbar.Bounds.Height;
                 if (Math.Abs(gap - 6) > 1 || propertyPoint.X < 0 || propertyPoint.X + row.Bounds.Width > window.ClientSize.Width + 1 || row.Bounds.Height > 48)
                     throw new InvalidOperationException("截图单排属性未按下方优先/上方回退规则摆放。");
-                var slider = row.GetVisualDescendants().OfType<Slider>().Single(); slider.Value = 32;
-                if (window.Editor.FontSize != 32) throw new InvalidOperationException("字号调节未更新标注模型。");
+                var step = VerifySteps(row, "字号", () => window.Editor.FontSize);
                 Render(toolbar, Path.Combine(directory, "toolbar-main.png"));
                 Render(row, Path.Combine(directory, above ? "toolbar-properties-above.png" : "toolbar-properties-below.png"));
                 placements.Add(new { above, gap, width = toolbar.Bounds.Width, height = toolbar.Bounds.Height, propertyWidth = row.Bounds.Width, propertyHeight = row.Bounds.Height });
-                slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+                step.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
                 if (toolbar.PropertiesPopup.IsOpen || window.Editor.Tool != AnnotationTool.Text || !window.IsVisible)
                     throw new InvalidOperationException("Esc 未先关闭属性条并保留当前工具。");
                 window.Editor.Select(null);
@@ -73,11 +72,10 @@ internal static class ToolbarSmokeTest
             var toolbar = (AnnotationToolbar)barWindow.Content!;
             if (!toolbar.PropertiesPopup.IsOpen || toolbar.PropertiesPopup.IsUsingOverlayLayer)
                 throw new InvalidOperationException("贴图属性没有使用可伸出主条窗口的原生浮层。");
-            var slider = toolbar.PropertiesSurface.GetVisualDescendants().OfType<Slider>().Single(); slider.Value = 36;
-            if (pin.Editor.NumberSize != 36) throw new InvalidOperationException("贴图序号大小未更新。");
-            slider.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            var step = VerifySteps(toolbar.PropertiesSurface, "序号大小", () => pin.Editor.NumberSize);
+            step.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             if (!pin.CanAnnotate || !toolbar.PropertiesPopup.IsOpen)
-                throw new InvalidOperationException("属性滑条上的 Enter 不应结束贴图编辑。");
+                throw new InvalidOperationException("属性按钮上的 Enter 不应结束贴图编辑。");
             Render(toolbar, Path.Combine(directory, "pin-toolbar-main.png"));
             Render(toolbar.PropertiesSurface, Path.Combine(directory, "pin-toolbar-properties.png"));
             toolbar.DismissPopover(); pin.FinishEditing();
@@ -86,6 +84,19 @@ internal static class ToolbarSmokeTest
         }
         finally { pin.Close(); }
         return new { success = true, capturePlacements = placements, nativePinProperties = true, contextualSize = true, layeredEscape = true, moreMenu = true, pinZoom };
+    }
+
+    private static Button VerifySteps(Control surface, string label, Func<double> readSize)
+    {
+        var buttons = surface.GetVisualDescendants().OfType<Button>().ToArray();
+        var increase = buttons.Single(button => AutomationProperties.GetName(button) == "增大" + label);
+        var decrease = buttons.Single(button => AutomationProperties.GetName(button) == "减小" + label);
+        var original = readSize();
+        increase.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (readSize() != original + 2) throw new InvalidOperationException(label + "加号没有增大两个像素。");
+        decrease.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        if (readSize() != original) throw new InvalidOperationException(label + "减号没有恢复原值。");
+        return increase;
     }
 
     private static async Task<object> VerifyPinZoomAsync(IPlatformServices platform, PinnedWindow pin, string directory)
