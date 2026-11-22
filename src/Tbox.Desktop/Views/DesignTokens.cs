@@ -44,7 +44,7 @@ internal static class DesignTokens
             theme.Resources.ThemeDictionaries[variant] = ControlResources(c, variant == ThemeVariant.Dark);
         }
         theme.Add(new Style(x => x.OfType<ComboBox>()) { Setters = {
-            new Setter(ComboBox.PaddingProperty, new Thickness(10, 4, 32, 4)),
+            new Setter(ComboBox.PaddingProperty, new Thickness(10, 4, 4, 4)),
             new Setter(ComboBox.VerticalContentAlignmentProperty, Avalonia.Layout.VerticalAlignment.Center) } });
         theme.Resources["ControlCornerRadius"] = new CornerRadius(ControlRadius);
         theme.Resources["OverlayCornerRadius"] = new CornerRadius(CardRadius);

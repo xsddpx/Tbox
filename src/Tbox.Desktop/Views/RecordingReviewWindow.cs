@@ -39,6 +39,7 @@ internal sealed class RecordingReviewWindow : Window
     private readonly Func<int> _formatIndex;
     private readonly Action<bool> _enableFormat;
     private readonly Control _frameRateGroup, _customGroup;
+    private readonly TextBlock _presetDimensions = Ui.Description("");
     private readonly TextBlock _customHeight = new() { FontSize = 13, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
     private readonly Button _play, _save, _cancelExport, _rerecord, _resetRange;
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromMilliseconds(100) };
@@ -119,8 +120,8 @@ internal sealed class RecordingReviewWindow : Window
         _frameRateGroup = Group("帧率", FrameRate);
         _customGroup = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, IsVisible = false,
             Children = { CustomWidth, _customHeight } };
-        var sizeGroup = Group("尺寸", Size, _customGroup);
-        Size.SelectionChanged += (_, _) => { _customGroup.IsVisible = Size.SelectedIndex == _sizes.Count; UpdateCustomHeight(); };
+        var sizeGroup = Group("尺寸", Size, _presetDimensions, _customGroup);
+        Size.SelectionChanged += (_, _) => UpdateSizeDetails();
         CustomWidth.TextChanged += (_, _) => UpdateCustomHeight();
         _track.RangeChanged += _ => UpdateRange();
         _thumbnailFrame.Child = _thumbnailImage;
@@ -224,13 +225,23 @@ internal sealed class RecordingReviewWindow : Window
 
     private void Fill(int selected)
     {
-        var sheet = Format == RecordingExportFormat.ContactSheet;
-        var items = _sizes.Select(c =>
+        Size.ItemsSource = _sizes.Select(choice => choice.Label).Append("自定义").ToArray();
+        Size.SelectedIndex = selected;
+        UpdateSizeDetails();
+    }
+
+    private void UpdateSizeDetails()
+    {
+        var index = Size.SelectedIndex;
+        _customGroup.IsVisible = index == _sizes.Count;
+        _presetDimensions.IsVisible = index >= 0 && index < _sizes.Count;
+        if (_presetDimensions.IsVisible)
         {
-            var shown = sheet ? ContactSheetPolicy.SheetSize(c.Size) : c.Size;
-            return $"{c.Label}   {shown.Width} × {shown.Height}";
-        }).Append("自定义").ToArray();
-        Size.ItemsSource = items; Size.SelectedIndex = selected;
+            var size = _sizes[index].Size;
+            if (Format == RecordingExportFormat.ContactSheet) size = ContactSheetPolicy.SheetSize(size);
+            _presetDimensions.Text = $"输出 {size.Width} × {size.Height}";
+        }
+        UpdateCustomHeight();
     }
 
     private VideoSize OutputSize(int index)

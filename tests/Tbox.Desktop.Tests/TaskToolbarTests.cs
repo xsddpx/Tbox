@@ -989,7 +989,8 @@ public sealed class TaskToolbarTests
             var options = review.Options();
             Assert.Equal(new RecordingExportOptions(RecordingExportFormat.Mp4, 30, new(2560, 1440), new(TimeSpan.Zero, TimeSpan.FromSeconds(42))), options);
             Assert.True(options.CopiesMaster(new(2560, 1440), TimeSpan.FromSeconds(42)));
-            Assert.Equal(["100%   2560 × 1440", "75%   1920 × 1080", "50%   1280 × 720", "25%   640 × 360", "自定义"], (string[])review.Size.ItemsSource!);
+            Assert.Equal(["100%", "75%", "50%", "25%", "自定义"], (string[])review.Size.ItemsSource!);
+            Assert.True(Shows("输出 2560 × 1440"));
             Preview(review, "recording-review-mp4");
 
             // Trimming moves into the exported options and shows the reset link.
@@ -1018,11 +1019,15 @@ public sealed class TaskToolbarTests
             Click(Chip("六宫格")); Layout(review);
             Assert.False(review.FrameRate.IsEffectivelyVisible);
             Assert.Equal(new RecordingExportOptions(RecordingExportFormat.ContactSheet, 0, new(320, 180), new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(29.8))), review.Options());
-            Assert.Equal(["原尺寸   7728 × 2972", "每格 ≤ 640 px   1968 × 812", "每格 ≤ 480 px   1488 × 632", "每格 ≤ 320 px   1008 × 452", "每格 ≤ 200 px   648 × 316", "自定义"],
+            Assert.Equal(["原尺寸", "每格 ≤ 640 px", "每格 ≤ 480 px", "每格 ≤ 320 px", "每格 ≤ 200 px", "自定义"],
                 (string[])review.Size.ItemsSource!);
             Assert.Equal(6, review.Track.Ticks.Count);
             Assert.Equal(TimeSpan.FromSeconds(5), review.Track.Ticks[0]);
             Assert.Equal(ContactSheetPolicy.SampleTimes(review.Options().Range, RecordingFrameRatePolicy.RecordingFrameRate), review.Track.FrameTimes);
+            Assert.True(Shows("输出 1008 × 452"));
+            review.Size.SelectedIndex = 0; Layout(review);
+            Assert.True(Shows("输出 7728 × 2972"));
+            review.Size.SelectedIndex = 3; Layout(review);
             var panel = review.Size.TranslatePoint(default, review)!.Value;
             var timeline = review.Track.TranslatePoint(default, review)!.Value;
             Assert.True(panel.X > timeline.X + review.Track.Bounds.Width);
