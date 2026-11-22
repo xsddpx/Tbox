@@ -780,8 +780,21 @@ public sealed class MainWindowTests
         controller.ShowMain(MainPage.WindowTopmost);
         Assert.DoesNotContain(HotkeyAction.WindowTopmost, platform.Hotkeys.Keys);
         Assert.True(platform.Topmost.BorderVisible);
+        Layout(main);
+        var page = main.CurrentPageView;
+        var banner = Assert.Single(page.GetVisualDescendants().OfType<ToolBanner>());
+        var recorder = Assert.Single(banner.GetVisualDescendants().OfType<ShortcutRow>());
+        var clear = Assert.Single(page.GetVisualDescendants().OfType<Button>(), b => Name(b) == "解除全部窗口置顶");
+        Assert.Equal("窗口置顶已关闭", banner.Title.Text);
+        Assert.False(recorder.IsEffectivelyEnabled);
+        Assert.False(clear.IsEffectivelyVisible);
+
 
         await controller.SetWindowTopmostEnabledAsync(true);
+        Assert.Equal("暂无置顶窗口", banner.Title.Text);
+        Assert.True(recorder.IsEffectivelyEnabled);
+        await Press(recorder, Key.Escape);
+        Assert.False(clear.IsEffectivelyVisible);
         Assert.Equal(ShortcutPolicy.Default(HotkeyAction.WindowTopmost, OperatingSystem.IsMacOS()), platform.Hotkeys[HotkeyAction.WindowTopmost]);
         platform.HotkeyHandler!(HotkeyAction.WindowTopmost);
         Dispatcher.UIThread.RunJobs();
@@ -791,6 +804,11 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(2, platform.Topmost.Windows.Count);
         Layout(main);
+        Assert.True(clear.IsEffectivelyVisible);
+        Assert.Equal("2 个窗口已置顶", banner.Title.Text);
+        var firstWindow = Find(main, "解除参考笔记置顶");
+        var appearance = Assert.Single(page.GetVisualDescendants().OfType<ToggleSwitch>(), t => Name(t) == "显示紫色边框");
+        Assert.True(firstWindow.TranslatePoint(default, main)!.Value.Y < appearance.TranslatePoint(default, main)!.Value.Y);
         TaskToolbarTests.Preview(main, "main-window-topmost");
 
         var remove = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<Button>(), button => Name(button) == "解除参考笔记置顶");

@@ -36,6 +36,14 @@ public sealed class SettingsTests
             {
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Empty(window.GetVisualDescendants().OfType<SplitView>());
+                if (page != MainPage.Settings)
+                {
+                    var banner = Assert.Single(window.CurrentPageView.GetVisualDescendants().OfType<ToolBanner>());
+                    Assert.True(banner.IsEffectivelyVisible);
+                    Assert.Contains(banner.GetVisualDescendants(), visual => visual is LineIcon);
+                    Assert.False(string.IsNullOrWhiteSpace(banner.Title.Text));
+                    Assert.Equal(DesignTokens.PageTitle, banner.Title.FontSize);
+                }
                 // Model-service fields are intentional inputs, not the removed application-search box.
                 if (page is not (MainPage.Settings or MainPage.Translation))
                     Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
