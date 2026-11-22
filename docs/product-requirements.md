@@ -573,3 +573,5 @@ Windows 参考 [PowerToys Always On Top](https://learn.microsoft.com/zh-cn/windo
 2026-11-21：用户撤销 [#116](https://github.com/xsddpx/Tbox/pull/116) 的三项优化。Mac 截图选区可见 P95 复测慢 17%。Windows 4K 像素处理达标，但一轮选区可见 P95 增幅超过 5%。Mac 录屏暂停和导出通过，恢复后的音画同步结果波动。三项候选结束验收。
 
 2026-11-22：用户撤回账号登录、设备发现、偏好和截图云同步及远程控制需求。[候选 PR #115](https://github.com/xsddpx/Tbox/pull/115) 已关闭，正式版 1.1.126 未包含这些功能。Mac 与 Windows 11 测试机退出账号并原位回退至原签名正式版，两端通过截图取帧、离线 OCR、裁剪和界面渲染验证。Mac 远控组件的录屏与辅助功能授权已撤回。专用账号服务已停用并取消开机启动，会合及中继测试服务已停止，数据库保留。
+
+2026-11-22：用户确认移除账号、会合和中继服务及永久删除 Tbox 云端数据。VPS 已删除专用服务、部署配置、运行数据、PostgreSQL 数据库与角色、已发现的专用备份及 Caddy 站点和证书。已删除专用 GitHub OAuth 应用与 DNS A 记录，复核其他 Caddy 站点配置及 PostgreSQL 数据库。Mac 和 Windows 11 测试机已清理 Tbox 账号凭据、云同步设置和远控运行状态。正式安装版仍为 1.1.126。
