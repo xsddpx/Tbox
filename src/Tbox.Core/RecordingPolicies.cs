@@ -48,7 +48,7 @@ public static class RecordingExportProfiles
         RecordingExportFormat.Gif => new(format, "GIF", "图像，兼容性高，质量较低", ".gif", 10, 1280, null, false),
         RecordingExportFormat.WebP => new(format, "WEBP", "图像，质量好，兼容性适中", ".webp", 25, null, 80, false),
         RecordingExportFormat.Mp4 => new(format, "MP4", "视频，体积小，质量好", ".mp4", RecordingFrameRatePolicy.RecordingFrameRate, null, null, true),
-        RecordingExportFormat.ContactSheet => new(format, "六宫格", "图片，范围内均匀取 6 帧拼成 3×2", ".jpg", 0, null, 90, false),
+        RecordingExportFormat.ContactSheet => new(format, "宫格图", "图片，在截取范围内均匀取帧", ".jpg", 0, null, 90, false),
         _ => throw new ArgumentOutOfRangeException(nameof(format))
     };
 }
@@ -114,7 +114,8 @@ public readonly record struct RecordingExportOptions(
     RecordingExportFormat Format,
     int FramesPerSecond,
     VideoSize Size,
-    RecordingTimeRange Range)
+    RecordingTimeRange Range,
+    int FrameCount = ContactSheetPolicy.DefaultCount)
 {
     /// <summary>An unchanged MP4 is copied from the master without re-encoding.</summary>
     public bool CopiesMaster(VideoSize source, TimeSpan duration) =>
@@ -124,39 +125,55 @@ public readonly record struct RecordingExportOptions(
 
 public readonly record struct SheetCell(int X, int Y, int LabelX, int LabelY, string Label);
 
-/// <summary>3 × 2 contact sheet: 12 px margins and gaps, a 28 px label strip under each frame, numbers 01–06.</summary>
 public static class ContactSheetPolicy
 {
-    public const int Count = 6, Columns = 3, Rows = 2, Margin = 12, LabelStrip = 28, LabelSize = 12;
+    public const int MinCount = 2, DefaultCount = 6, MaxCount = 24, Margin = 12, LabelStrip = 28, LabelSize = 12;
+    public const int Count = DefaultCount;
     public static IReadOnlyList<int> LongEdges { get; } = [640, 480, 320, 200];
     public const int DefaultLongEdge = 320;
 
     /// <summary>Frame indices spaced evenly from the first to the last frame, inclusive.</summary>
-    public static IReadOnlyList<long> SampleFrames(long first, long last)
+    public static IReadOnlyList<long> SampleFrames(long first, long last, int count = DefaultCount)
     {
         if (last < first) throw new ArgumentOutOfRangeException(nameof(last), "范围内没有可采样的帧。");
-        return Enumerable.Range(0, Count).Select(i => first + (long)Math.Round((last - first) * i / (double)(Count - 1), MidpointRounding.AwayFromZero)).ToArray();
+        count = Math.Clamp(count, MinCount, MaxCount);
+        return Enumerable.Range(0, count).Select(i => first + (long)Math.Round((last - first) * i / (double)(count - 1), MidpointRounding.AwayFromZero)).ToArray();
     }
 
     /// <summary>Sample times for a range at the master frame rate.</summary>
-    public static IReadOnlyList<TimeSpan> SampleTimes(RecordingTimeRange range, int framesPerSecond)
+    public static IReadOnlyList<TimeSpan> SampleTimes(RecordingTimeRange range, int framesPerSecond, int count = DefaultCount)
     {
         var first = (long)Math.Ceiling(range.Start.TotalSeconds * framesPerSecond - 1e-5);
         var last = Math.Max(first, (long)Math.Ceiling(range.End.TotalSeconds * framesPerSecond - 1e-5) - 1);
-        return SampleFrames(first, last).Select(f => TimeSpan.FromSeconds(f / (double)framesPerSecond)).ToArray();
+        return SampleFrames(first, last, count).Select(f => TimeSpan.FromSeconds(f / (double)framesPerSecond)).ToArray();
     }
 
     public static bool HasRepeats(IReadOnlyList<TimeSpan> samples) => samples.Distinct().Count() < samples.Count;
 
-    public static VideoSize SheetSize(VideoSize cell) =>
-        new(Columns * cell.Width + (Columns + 1) * Margin, Rows * (cell.Height + LabelStrip) + (Rows + 1) * Margin);
-
-    public static IReadOnlyList<SheetCell> Layout(VideoSize cell) => Enumerable.Range(0, Count).Select(i =>
+    public static (int Columns, int Rows) Grid(int count)
     {
-        var x = Margin + i % Columns * (cell.Width + Margin);
-        var y = Margin + i / Columns * (cell.Height + LabelStrip + Margin);
-        return new SheetCell(x, y, x + 5, y + cell.Height + 8, (i + 1).ToString("00"));
-    }).ToArray();
+        count = Math.Clamp(count, MinCount, MaxCount);
+        var columns = count <= 4 ? 2 : count <= 6 || count == 9 ? 3 : count <= 16 ? 4 : 5;
+        return (columns, (count + columns - 1) / columns);
+    }
+
+    public static VideoSize SheetSize(VideoSize cell, int count = DefaultCount)
+    {
+        var (columns, rows) = Grid(count);
+        return new(columns * cell.Width + (columns + 1) * Margin, rows * (cell.Height + LabelStrip) + (rows + 1) * Margin);
+    }
+
+    public static IReadOnlyList<SheetCell> Layout(VideoSize cell, int count = DefaultCount)
+    {
+        count = Math.Clamp(count, MinCount, MaxCount);
+        var (columns, _) = Grid(count);
+        return Enumerable.Range(0, count).Select(i =>
+        {
+            var x = Margin + i % columns * (cell.Width + Margin);
+            var y = Margin + i / columns * (cell.Height + LabelStrip + Margin);
+            return new SheetCell(x, y, x + 5, y + cell.Height + 8, (i + 1).ToString("00"));
+        }).ToArray();
+    }
 }
 
 public static class RecordingRegionPolicy

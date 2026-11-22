@@ -11,7 +11,7 @@ internal enum IconKind
     Rectangle, Ellipse, Line, Polyline, Arrow, Number, Pen, Highlighter, Mosaic, Text, Eraser,
     Undo, Redo, Save, Close, Check, FullScreen, Play, Pause, Stop, Minus, Plus, More, Update, Help, Keyboard, Theme, Startup, Bell, Info, Warn, Sliders, Image, Speaker, Mute,
     QuickLook, OpenFile, Unpin, File,
-    Awake, Display, Laptop
+    Awake, Display, Laptop, Film, Import
 }
 
 // 24-unit line icons drawn with one stroke weight. Filled glyphs (record dot, play, stop) set Fill.
@@ -33,6 +33,8 @@ internal sealed class LineIcon : Control
             IconKind.Translate => "M3 5 H15 M9 3 V5 M5 5 Q6 12 14 16 M13 5 Q12 12 3 17 M14 21 L18 10 L22 21 M15.5 17 H20.5",
             IconKind.Grip => "M9 6 H9.1 M15 6 H15.1 M9 12 H9.1 M15 12 H15.1 M9 18 H9.1 M15 18 H15.1",
             IconKind.Folder => "M3 6 L9 6 L11 8 L21 8 L21 20 L3 20 Z M3 11 L21 11",
+            IconKind.Film => "M3 5 H21 V19 H3 Z M7 5 V19 M17 5 V19 M3 9 H7 M3 15 H7 M17 9 H21 M17 15 H21 M10 9 L14 12 L10 15 Z",
+            IconKind.Import => "M12 3 V15 M8 11 L12 15 L16 11 M4 16 V21 H20 V16",
             IconKind.Capture => "M3 8 L3 3 L8 3 M16 3 L21 3 L21 8 M21 16 L21 21 L16 21 M8 21 L3 21 L3 16 M8 8 L16 8 L16 16 L8 16 Z",
             IconKind.Pin => "M8 3 L16 3 L15 10 L19 14 L13 14 L12 21 L11 14 L5 14 L9 10 Z",
             IconKind.Ocr => "M3 8 V3 H8 M16 3 H21 V8 M21 16 V21 H16 M8 21 H3 V16 M7 9 H17 M7 13 H17 M7 17 H13",

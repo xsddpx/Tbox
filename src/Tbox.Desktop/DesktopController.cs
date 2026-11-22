@@ -1047,6 +1047,7 @@ public sealed class DesktopController : IDisposable
             foreach (var review in _reviews.ToArray()) if (!await review.RequestCloseAsync()) return;
             if (_recording is { } recording) await recording.CancelAsync();
             if (_installingUpdate) return;
+            await Main.Converter.RequestCloseAsync(Main, true, () => { });
             await SavePinsForUpgradeAsync();
             if (_installingUpdate || IsQuitting) return;
             await ReleaseKeepAwakeAsync();
@@ -1063,6 +1064,7 @@ public sealed class DesktopController : IDisposable
         {
             if (_recording is { } recording) await recording.CancelAsync();
             foreach (var review in _reviews.ToArray()) await review.RequestCloseAsync(discardUnsaved: true);
+            await Main.Converter.RequestCloseAsync(Main, true, () => { });
             await SavePinsForUpgradeAsync();
             launchInstaller();
             IsQuitting = true; _shutdown();

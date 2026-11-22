@@ -12,9 +12,9 @@ public static class RecordingExporter
 
     private static string Seconds(TimeSpan value) => value.TotalSeconds.ToString("0.###", CultureInfo.InvariantCulture);
 
-    public static IReadOnlyList<string> Arguments(string source, string destination, RecordingExportOptions options)
+    public static IReadOnlyList<string> Arguments(string source, string destination, RecordingExportOptions options, bool recording = true)
     {
-        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-y" };
+        var args = new List<string> { "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-protocol_whitelist", "file,pipe" };
         // Input seeking keeps long recordings fast; -t then bounds the decoded length.
         if (options.Range.Start > TimeSpan.Zero) args.AddRange(["-ss", Seconds(options.Range.Start)]);
         args.AddRange(["-i", source, "-t", Seconds(options.Range.Length)]);
@@ -23,54 +23,74 @@ public static class RecordingExporter
         switch (options.Format)
         {
             case RecordingExportFormat.Gif:
-                args.AddRange(["-an", "-filter_complex", $"{fps},{scale},split[base][palette_source];[palette_source]palettegen=stats_mode=diff[palette];" +
-                    "[base][palette]paletteuse=dither=sierra2_4a", "-loop", "0"]);
+                args.AddRange(["-an", "-filter_complex", $"[0:V:0]{fps},{scale},split[base][palette_source];[palette_source]palettegen=stats_mode=diff[palette];" +
+                    "[base][palette]paletteuse=dither=sierra2_4a[out]", "-loop", "0"]);
+                args.AddRange(["-map", "[out]"]);
                 break;
             case RecordingExportFormat.WebP:
-                args.AddRange(["-an", "-vf", $"{fps},{scale}", "-c:v", "libwebp_anim", "-quality", "80", "-loop", "0"]);
+                args.AddRange(["-map", "0:V:0", "-an", "-vf", $"{fps},{scale}", "-c:v", "libwebp_anim", "-quality", "80", "-loop", "0"]);
                 break;
             case RecordingExportFormat.Mp4:
                 var bitrate = RecordingRegionPolicy.CalculateVideoBitrate(options.Size.Width, options.Size.Height, options.FramesPerSecond);
-                args.AddRange(["-vf", $"{fps},{scale},format=nv12", "-c:v", OperatingSystem.IsMacOS() ? "h264_videotoolbox" : "h264_mf"]);
+                args.AddRange(["-map", "0:V:0", "-vf", $"{fps},{scale},format=nv12", "-c:v", OperatingSystem.IsMacOS() ? "h264_videotoolbox" : "h264_mf"]);
                 // camera_record keeps Media Foundation at constant frame rate instead of dropping frames; VideoToolbox may fall back to software.
                 args.AddRange(OperatingSystem.IsMacOS() ? ["-allow_sw", "1"] : ["-scenario", "camera_record", "-rate_control", "cbr"]);
                 args.AddRange(["-b:v", bitrate.ToString(CultureInfo.InvariantCulture), "-g", (options.FramesPerSecond * 2).ToString(CultureInfo.InvariantCulture),
-                    // The bundled runtime has no AAC encoder, so the recorded AAC track is copied as-is.
-                    "-c:a", "copy", "-movflags", "+faststart"]);
+                    "-map", "0:a:0?", "-c:a", recording ? "copy" : "aac", "-movflags", "+faststart"]);
                 break;
-            default: throw new ArgumentOutOfRangeException(nameof(options), "六宫格通过逐帧截取生成。");
+            default: throw new ArgumentOutOfRangeException(nameof(options), "宫格图通过逐帧截取生成。");
         }
         args.AddRange(["-progress", "pipe:1", "-nostats", destination]); return args;
     }
 
     public static IReadOnlyList<string> FrameArguments(string source, TimeSpan time, VideoSize size) =>
     [
-        "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", Seconds(time), "-i", source, "-frames:v", "1", "-an",
+        "-hide_banner", "-loglevel", "error", "-nostdin", "-protocol_whitelist", "file,pipe", "-ss", Seconds(time), "-i", source, "-map", "0:V:0", "-frames:v", "1", "-an",
         "-vf", $"scale={size.Width}:{size.Height}:flags=lanczos,format=bgra", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"
     ];
 
-    // destination belongs to the session workspace, never directly to the user's selected file.
-    public static async Task<string> ExportAsync(string source, string destination, RecordingExportOptions options, VideoSize sourceSize,
-        TimeSpan duration, IProgress<double>? progress, CancellationToken cancellationToken)
+    public static Task<string> ExportAsync(string source, string destination, RecordingExportOptions options, VideoSize size,
+        TimeSpan duration, IProgress<double>? progress, CancellationToken token) =>
+        ExportAsync(source, destination, options, size, duration, progress, token, null);
+
+    internal static async Task<string> ProbeAsync(string path, string demuxer, CancellationToken token)
     {
-        if (options.CopiesMaster(sourceSize, duration)) return source;
+        using var process = Start(["-hide_banner", "-nostdin", "-protocol_whitelist", "file,pipe", "-f", demuxer, "-i", path,
+            "-map", "0:V:0", "-frames:v", "1", "-an", "-c:v", "rawvideo", "-f", "null", "pipe:1"]);
+        var output = process.StandardError.ReadToEndAsync(token);
+        await RunProcessAsync(process, () => Task.WhenAll(process.StandardOutput.BaseStream.CopyToAsync(Stream.Null, token), output), output, token);
+        return await output;
+    }
+
+    internal static async Task AssembleAnimationAsync(string manifest, string destination, CancellationToken token)
+    {
+        using var process = Start(["-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-protocol_whitelist", "file,pipe",
+            "-f", "concat", "-safe", "0", "-i", manifest, "-c:v", "qtrle", "-pix_fmt", "argb", "-fps_mode", "passthrough", "-enc_time_base", "demux", "-video_track_timescale", "1000", destination]);
+        await RunAsync(process, () => process.StandardOutput.BaseStream.CopyToAsync(Stream.Null, token), token);
+    }
+
+    // destination belongs to the session workspace, never directly to the user's selected file.
+    internal static async Task<string> ExportAsync(string source, string destination, RecordingExportOptions options, VideoSize sourceSize,
+        TimeSpan duration, IProgress<double>? progress, CancellationToken cancellationToken, VideoConversionSource? media)
+    {
+        if ((media is null || media.IsRecording) && options.CopiesMaster(sourceSize, duration)) return source;
         if (!File.Exists(FfmpegPath)) throw new FileNotFoundException("导出组件缺失，仍可保存未修改的 MP4。", FfmpegPath);
         var success = false;
         try
         {
-            if (options.Format == RecordingExportFormat.ContactSheet) await ExportSheetAsync(source, destination, options, progress, cancellationToken);
-            else await TranscodeAsync(source, destination, options, progress, cancellationToken);
-            if (!File.Exists(destination) || new FileInfo(destination).Length == 0) throw new InvalidOperationException("导出失败，母版仍保留。");
+            if (options.Format == RecordingExportFormat.ContactSheet) await ExportSheetAsync(source, destination, options, progress, cancellationToken, media);
+            else await TranscodeAsync(source, destination, options, progress, cancellationToken, media is null || media.IsRecording);
+            if (!File.Exists(destination) || new FileInfo(destination).Length == 0) throw new InvalidOperationException("导出失败，源素材仍保留。");
             success = true; progress?.Report(1); return destination;
         }
         finally { if (!success) try { File.Delete(destination); } catch (IOException) { } }
     }
 
     private static async Task TranscodeAsync(string source, string destination, RecordingExportOptions options, IProgress<double>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool recording)
     {
         var length = options.Range.Length;
-        using var process = Start(Arguments(source, destination, options));
+        using var process = Start(Arguments(source, destination, options, recording));
         await RunAsync(process, async () =>
         {
             while (await process.StandardOutput.ReadLineAsync(cancellationToken) is { } line)
@@ -81,14 +101,16 @@ public static class RecordingExporter
     }
 
     private static async Task ExportSheetAsync(string source, string destination, RecordingExportOptions options, IProgress<double>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, VideoConversionSource? media)
     {
         var cell = options.Size;
         var frames = new List<byte[]>();
-        foreach (var time in ContactSheetPolicy.SampleTimes(options.Range, RecordingFrameRatePolicy.RecordingFrameRate))
+        var count = Math.Clamp(options.FrameCount, ContactSheetPolicy.MinCount, ContactSheetPolicy.MaxCount);
+        var times = media?.SampleTimes(options.Range, count) ?? ContactSheetPolicy.SampleTimes(options.Range, RecordingFrameRatePolicy.RecordingFrameRate, count);
+        foreach (var time in times)
         {
             frames.Add(await ReadFrameAsync(source, time, cell, cancellationToken));
-            progress?.Report(frames.Count / (ContactSheetPolicy.Count + 1.0));
+            progress?.Report(frames.Count / (count + 1.0));
         }
         cancellationToken.ThrowIfCancellationRequested();
         await File.WriteAllBytesAsync(destination, ComposeSheet(frames, cell), cancellationToken);
@@ -96,13 +118,13 @@ public static class RecordingExporter
 
     internal static byte[] ComposeSheet(IReadOnlyList<byte[]> bgraFrames, VideoSize cell)
     {
-        var sheet = ContactSheetPolicy.SheetSize(cell);
+        var sheet = ContactSheetPolicy.SheetSize(cell, bgraFrames.Count);
         using var surface = SKSurface.Create(new SKImageInfo(sheet.Width, sheet.Height, SKColorType.Bgra8888, SKAlphaType.Opaque))
             ?? throw new InvalidOperationException("无法创建六宫格画布。");
         var canvas = surface.Canvas; canvas.Clear(SKColors.Black);
         using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold) ?? SKTypeface.Default;
         using var paint = new SKPaint { Color = SKColors.White, IsAntialias = true, Typeface = typeface, TextSize = ContactSheetPolicy.LabelSize };
-        var layout = ContactSheetPolicy.Layout(cell);
+        var layout = ContactSheetPolicy.Layout(cell, bgraFrames.Count);
         for (var i = 0; i < layout.Count; i++)
         {
             var info = new SKImageInfo(cell.Width, cell.Height, SKColorType.Bgra8888, SKAlphaType.Opaque);
@@ -126,7 +148,7 @@ public static class RecordingExporter
             var at = time - TimeSpan.FromSeconds(attempt / (double)RecordingFrameRatePolicy.RecordingFrameRate);
             if (await TryReadFrameAsync(source, at < TimeSpan.Zero ? TimeSpan.Zero : at, size, cancellationToken) is { } frame) return frame;
         }
-        throw new InvalidOperationException("截取六宫格画面失败，母版仍保留。");
+        throw new InvalidOperationException("截取宫格图画面失败，源素材仍保留。");
     }
 
     private static async Task<byte[]?> TryReadFrameAsync(string source, TimeSpan time, VideoSize size, CancellationToken cancellationToken)
@@ -153,18 +175,20 @@ public static class RecordingExporter
         return process;
     }
 
-    private static async Task RunAsync(Process process, Func<Task> readOutput, CancellationToken cancellationToken)
+    private static Task RunAsync(Process process, Func<Task> readOutput, CancellationToken cancellationToken) =>
+        RunProcessAsync(process, readOutput, process.StandardError.ReadToEndAsync(), cancellationToken);
+
+    private static async Task RunProcessAsync(Process process, Func<Task> readOutput, Task<string> errors, CancellationToken cancellationToken)
     {
         var success = false;
         try
         {
             using var registration = cancellationToken.Register(() => Kill(process));
-            var errors = process.StandardError.ReadToEndAsync();
             await readOutput();
             await process.WaitForExitAsync(cancellationToken);
             var error = await errors;
             cancellationToken.ThrowIfCancellationRequested();
-            if (process.ExitCode != 0) throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "导出失败，母版仍保留。" : error.Trim());
+            if (process.ExitCode != 0) throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "导出失败，源素材仍保留。" : error.Trim());
             success = true;
         }
         finally

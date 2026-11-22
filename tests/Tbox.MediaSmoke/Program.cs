@@ -85,10 +85,40 @@ using (var image = SkiaSharp.SKBitmap.Decode(sheet) ?? throw new InvalidOperatio
     if (Sum(image.GetPixel(4, 4)) > 40 || Sum(image.GetPixel(12 + cell.Width / 2, 12 + cell.Height / 2)) < 120 || !label)
         throw new InvalidOperationException("六宫格版式或画面错误。");
 }
+var importedChecks = new List<object>();
+foreach (var input in new[] { source, gif, webp })
+{
+    using var workspace = new RecordingWorkspace(output);
+    var imported = await VideoConversionSource.OpenAsync(input, workspace, CancellationToken.None);
+    if (imported.Size != fixtureSize || Math.Abs(imported.Duration.TotalMilliseconds - 2000) > 150)
+        throw new InvalidOperationException("导入尺寸或时长错误：" + input);
+    var selected = new RecordingTimeRange(TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(1500));
+    var sampleTimes = imported.SampleTimes(selected, 8);
+    if (sampleTimes.Count != 8 || sampleTimes.First() < selected.Start || sampleTimes.Last() >= selected.End)
+        throw new InvalidOperationException("宫格取帧超出截取范围：" + input);
+    if (input != source)
+    {
+        var first = await RecordingExporter.ReadFrameAsync(imported.Path, sampleTimes.First(), cell, CancellationToken.None);
+        var last = await RecordingExporter.ReadFrameAsync(imported.Path, sampleTimes.Last(), cell, CancellationToken.None);
+        if (first.SequenceEqual(last)) throw new InvalidOperationException("导入动图后没有保留连续画面：" + input);
+    }
+    var importedSheet = Path.Combine(output, Path.GetExtension(input).TrimStart('.') + "-grid-8.jpg");
+    await RecordingExporter.ExportAsync(imported.Path, importedSheet, new(RecordingExportFormat.ContactSheet, 0, cell, selected, 8),
+        fixtureSize, imported.Duration, null, CancellationToken.None, imported);
+    using var image = SkiaSharp.SKBitmap.Decode(importedSheet);
+    var dimensions = ContactSheetPolicy.SheetSize(cell, 8);
+    if (image is null || image.Width != dimensions.Width || image.Height != dimensions.Height)
+        throw new InvalidOperationException("8 帧宫格 JPG 尺寸错误：" + input);
+    var converted = Path.Combine(output, Path.GetExtension(input).TrimStart('.') + "-to-mp4.mp4");
+    await RecordingExporter.ExportAsync(imported.Path, converted, new(RecordingExportFormat.Mp4, 10, new(160, 120), selected),
+        fixtureSize, imported.Duration, null, CancellationToken.None, imported);
+    if (await Probe(converted) != (160, 120, 10)) throw new InvalidOperationException("导入素材转 MP4 失败：" + input);
+    importedChecks.Add(new { file = Path.GetExtension(input), grid = dimensions, count = 8 });
+}
 var json = JsonSerializer.Serialize(new { success = true, player = engine.Version, decodedFrames = frames,
     gifBytes = gifBytes.Length, gifFrames, gifDurationMs = gifDuration, webpBytes = webpBytes.Length,
     webpFrames = animatedFrames, webpDurationMs = webpDuration, mp4CopyIdentical = true, trimmedMp4 = new { mp4.Width, mp4.Height, mp4.Frames },
-    sheetBytes = new FileInfo(sheet).Length });
+    sheetBytes = new FileInfo(sheet).Length, importedChecks });
 await File.WriteAllTextAsync(Path.Combine(output, "result.json"), json);
 Console.WriteLine(json);
 
