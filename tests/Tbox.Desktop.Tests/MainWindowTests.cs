@@ -262,6 +262,10 @@ public sealed class MainWindowTests
         scope.Controller.ShowMain(); Layout(main);
         Assert.Equal(MainPage.Capture, main.CurrentPage);
         Assert.Equal(MainWindow.MinimumWidth, main.MinWidth); Assert.Equal(MainWindow.MinimumHeight, main.MinHeight);
+        var actions = new[] { "贴出剪贴板", "长截图", "录屏", "识别文字" }.Select(label => Find(main, label)).ToArray();
+        Assert.All(actions, button => Assert.Same(actions[0].Parent, button.Parent));
+        var settings = Find(main, "设置", sidebar: true);
+        Assert.True(settings.TranslatePoint(default, main)!.Value.Y > main.Bounds.Height * .7);
         ExpandGroup(main, "截图设置");
         foreach (var tool in new[] { "截图", "贴出剪贴板", "长截图", "录屏", "识别文字", "更改保存位置" })
             Assert.True(Find(main, tool).IsEffectivelyEnabled, tool);
@@ -367,6 +371,27 @@ public sealed class MainWindowTests
         Assert.Equal(1, restores);
         Assert.Equal(mainVisible, main.IsVisible);
         if (mainVisible) Assert.Equal(page, main.CurrentPage);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CancelingRegionSelectionReturnsInputToTheWindowUncoveredByTheDashboard(bool recording)
+    {
+        var restored = 0;
+        using var frame = DesktopController.RenderText("Capture fixture");
+        var size = frame.Bitmap.PixelSize;
+        var platform = new FakePlatform { HasScreenPermission = true, UncoveredWindowRestore = () => restored++,
+            Displays = [new(1, 0, 0, size.Width, size.Height, frame.Png)] };
+        using var scope = new Scope(platform);
+        scope.Controller.ShowMain();
+        await (recording ? scope.Controller.RecordRegionAsync() : scope.Controller.LongCaptureAsync());
+        var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
+        Assert.False(scope.Controller.Main.IsVisible);
+        overlay.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, restored);
+        Assert.False(scope.Controller.Main.IsVisible);
     }
 
     [AvaloniaFact]

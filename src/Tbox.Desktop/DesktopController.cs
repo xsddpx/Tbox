@@ -512,7 +512,7 @@ public sealed class DesktopController : IDisposable
                 Main.Hide();
                 // Let the compositor remove the dashboard before freezing the screen for region selection.
                 await Task.Delay(150, _stop.Token);
-                restoreForeground ??= Platform.SnapshotCaptureForeground();
+                restoreForeground ??= Platform.SnapshotCaptureForeground(dashboardHidden: true);
             }
             // Snapshot external targets before overlays exist, alongside screen capture, not on the input thread.
             var targetsTask = Task.Run(Platform.CreateCaptureTargets, _stop.Token);
@@ -607,9 +607,11 @@ public sealed class DesktopController : IDisposable
         _capturing = true;
         try
         {
-            if (Main.IsVisible) Main.Hide();
+            var hideDashboard = Main.IsVisible;
+            if (hideDashboard) Main.Hide();
             await Task.Delay(150, _stop.Token);
             if (IsQuitting || _installingUpdate) return;
+            if (hideDashboard) restoreForeground ??= Platform.SnapshotCaptureForeground(dashboardHidden: true);
             _longCapture?.Stop();
             var session = new LongCaptureSession(this, region, () => _longCapture = null, restoreForeground);
             _longCapture = session;
@@ -632,9 +634,11 @@ public sealed class DesktopController : IDisposable
         _capturing = true;
         try
         {
-            if (Main.IsVisible) Main.Hide();
+            var hideDashboard = Main.IsVisible;
+            if (hideDashboard) Main.Hide();
             await Task.Delay(150, _stop.Token);
             if (IsQuitting || _installingUpdate) return;
+            if (hideDashboard) restoreForeground ??= Platform.SnapshotCaptureForeground(dashboardHidden: true);
             var session = new RecordingControlWindow(this, area, restoreForeground);
             _recording = session;
             session.Released += () => { if (ReferenceEquals(_recording, session)) _recording = null; };

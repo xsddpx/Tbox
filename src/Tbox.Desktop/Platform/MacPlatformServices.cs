@@ -19,9 +19,9 @@ public sealed class MacPlatformServices : IPlatformServices
     public Task<IReadOnlyList<CapturedDisplay>> CaptureAsync(CancellationToken cancellationToken) =>
         Task.Run(() => CapturePixels(null, cancellationToken), cancellationToken);
 
-    public Action? SnapshotCaptureForeground()
+    public Action? SnapshotCaptureForeground(bool dashboardHidden = false)
     {
-        var processId = NativeCaptureForeground();
+        var processId = NativeCaptureForeground(dashboardHidden ? 1 : 0);
         return processId == 0 ? null : () => NativeRestoreCaptureForeground(processId);
     }
 
@@ -180,7 +180,7 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_open_permission_settings")] private static extern void NativeOpenPermissionSettings();
     [DllImport(Library, EntryPoint = "tbox_capture_pixels")] private static extern nint NativeCapturePixels(
         int regionOnly, double left, double top, double width, double height, CaptureFrameCallback receive);
-    [DllImport(Library, EntryPoint = "tbox_capture_foreground")] private static extern int NativeCaptureForeground();
+    [DllImport(Library, EntryPoint = "tbox_capture_foreground")] private static extern int NativeCaptureForeground(int dashboardHidden);
     [DllImport(Library, EntryPoint = "tbox_restore_capture_foreground")] private static extern void NativeRestoreCaptureForeground(int processId);
     [DllImport(Library, EntryPoint = "tbox_capture_overlay")] private static extern void NativeCaptureOverlay(nint handle, int clickThrough);
     [DllImport(Library, EntryPoint = "tbox_recognize_pixels")] private static extern nint NativeRecognizePixels(byte[] pixels, int length, int width, int height);

@@ -53,7 +53,9 @@ internal sealed class FakePlatform : IPlatformServices
     }
     public void StopSystemScreenshotShortcutTakeover() => SystemScreenshotShortcutHandler = null;
     public Action? CaptureForegroundRestore { get; init; }
-    public Action? SnapshotCaptureForeground() => CaptureForegroundRestore;
+    public Action? UncoveredWindowRestore { get; set; }
+    public Action? SnapshotCaptureForeground(bool dashboardHidden = false) =>
+        dashboardHidden ? UncoveredWindowRestore ?? CaptureForegroundRestore : CaptureForegroundRestore;
     public Action<DesktopPlacement, bool>? WindowPlaced { get; set; }
     public DesktopPlacement? WindowPlacementOverride { get; set; }
     // Optional second display to the right of the primary one; window handles are not tracked, so only regions can reach it.

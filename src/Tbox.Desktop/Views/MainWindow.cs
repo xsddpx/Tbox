@@ -407,16 +407,22 @@ public sealed class MainWindow : Window
         var items = new StackPanel { Spacing = 2 };
         void Group(string title) => items.Children.Add(new TextBlock { Text = title, FontSize = 11.5, FontWeight = FontWeight.SemiBold,
             Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 12, 0, 6), IsHitTestVisible = false });
-        void Item(MainPage page, IconKind icon, string title) { var item = new NavItem(icon, title, () => Navigate(page)); _nav[page] = item; items.Children.Add(item); }
-        Group("工具"); Item(MainPage.Capture, IconKind.Capture, "截图"); Item(MainPage.Folders, IconKind.Jump, "文件夹跳转");
-        if (_controller.SupportsQuickLook) Item(MainPage.QuickLook, IconKind.QuickLook, "速览");
-        if (_controller.WindowTopmost is not null) Item(MainPage.WindowTopmost, IconKind.Pin, "窗口置顶");
-        Item(MainPage.Translation, IconKind.Translate, "翻译"); Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒");
-        Item(MainPage.Settings, IconKind.Sliders, "设置");
+        NavItem Item(MainPage page, IconKind icon, string title)
+        {
+            var item = new NavItem(icon, title, () => Navigate(page));
+            _nav[page] = item;
+            return item;
+        }
+        Group("工具"); items.Children.Add(Item(MainPage.Capture, IconKind.Capture, "截图")); items.Children.Add(Item(MainPage.Folders, IconKind.Jump, "文件夹跳转"));
+        if (_controller.SupportsQuickLook) items.Children.Add(Item(MainPage.QuickLook, IconKind.QuickLook, "速览"));
+        if (_controller.WindowTopmost is not null) items.Children.Add(Item(MainPage.WindowTopmost, IconKind.Pin, "窗口置顶"));
+        items.Children.Add(Item(MainPage.Translation, IconKind.Translate, "翻译")); items.Children.Add(Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒"));
+        var settings = Item(MainPage.Settings, IconKind.Sliders, "设置");
         var version = new TextBlock { Text = $"v{Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
-        DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(version, Dock.Bottom);
+        var footer = new StackPanel { Spacing = 10, Children = { settings, version } };
+        DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(footer, Dock.Bottom);
         // macOS draws the traffic lights over the top-left corner, so the brand moves below them.
-        return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, version, items } };
+        return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, footer, items } };
     }
 
     private void BuildPages()
@@ -427,31 +433,30 @@ public sealed class MainWindow : Window
             Ui.Button("清除…", () => _controller.Run(_controller.ClearCaptureHistoryAsync), "清除截图历史"));
         var captureShortcuts = new List<Control> { _shortcuts[HotkeyAction.Capture], _shortcuts[HotkeyAction.Pin], _shortcuts[HotkeyAction.Toggle] };
         if (_systemScreenshotShortcut.IsVisible) captureShortcuts.Add(_systemScreenshotShortcut);
-        AddPage(MainPage.Capture, PageHeader(IconKind.Capture, "截图", "截图后可标注、贴图、识别文字", _captureToggle),
+        AddPage(MainPage.Capture, PageHeader("截图", _captureToggle),
             Spaced(_capturePermission, 14), Spaced(_captureOff, 16), _captureTools,
             Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty,
             Disclosure("快捷键", Ui.Rows([.. captureShortcuts])), Disclosure("截图设置", Ui.Rows(_cache, history)));
 
-        AddPage(MainPage.Folders, PageHeader(IconKind.Jump, "文件夹跳转", "打开或保存文件时，一键跳到正在用的文件夹", _folderToggle),
+        AddPage(MainPage.Folders, PageHeader("文件夹跳转", _folderToggle),
             Spaced(_folderPermission, 14), Spaced(_folderOff, 16), _folderHero,
             Ui.GroupHeader("状态"), Ui.Rows(_shortcuts[HotkeyAction.Folder], _folderTarget,
                 new SettingsLine("显示跳转栏", "在系统文件对话框旁显示已打开的文件夹、搜索、收藏和最近跳转", _folderBarToggle)));
 
         if (_controller.SupportsQuickLook)
-            AddPage(MainPage.QuickLook, PageHeader(IconKind.QuickLook, "速览", "在资源管理器中选中文件后按空格，快速查看内容", _quickLookToggle),
+            AddPage(MainPage.QuickLook, PageHeader("速览", _quickLookToggle),
                 Spaced(_quickLookOff, 16), _quickLookSettings);
         _awakeLid.Trailing = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _awakeLidApproval, _awakeLidToggle } };
         if (_controller.WindowTopmost is not null)
         {
             var pinnedHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"),
                 Children = { Ui.GroupHeader("已置顶的窗口"), Ui.Column(_topmostClear, 1) } };
-            AddPage(MainPage.WindowTopmost, PageHeader(IconKind.Pin, "窗口置顶", OperatingSystem.IsMacOS()
-                    ? "在实时浮窗里查看当前窗口，点击浮窗回到原窗口" : "让当前窗口保持在其他窗口上方", _topmostToggle),
+            AddPage(MainPage.WindowTopmost, PageHeader("窗口置顶", _topmostToggle),
                 Spaced(_topmostScreenPermission, 12), Spaced(_topmostAccessPermission, 12),
                 Ui.GroupHeader("操作"), Ui.Rows(_shortcuts[HotkeyAction.WindowTopmost], new SettingsLine("显示紫色边框", "", _topmostBorder)),
                 Spaced(pinnedHeader, 16), Spaced(_topmostList, 8));
         }
-        AddPage(MainPage.KeepAwake, PageHeader(IconKind.Awake, "保持唤醒", "让电脑暂时不自动睡眠", _awakeToggle),
+        AddPage(MainPage.KeepAwake, PageHeader("保持唤醒", _awakeToggle),
             KeepAwakeHero(),
             Ui.GroupHeader("行为"), Ui.Rows(new SettingsLine("保持屏幕常亮", "关闭后屏幕可按系统设置熄灭，电脑不睡眠", _awakeDisplayToggle), _awakeLid),
             Spaced(Ui.Note("开关状态会被记住，下次启动 Tbox 时自动恢复。退出 Tbox 后，电脑恢复系统原来的睡眠设置。"), 18));
@@ -464,7 +469,7 @@ public sealed class MainWindow : Window
         }));
         feedback.Content = new SettingsLine("反馈问题", "在 GitHub 提交问题或建议", new LineIcon(IconKind.Chevron, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16 });
         Hover(feedback, "#F7F6FB", 8);
-        AddPage(MainPage.Settings, PageHeader(IconKind.Sliders, "设置", "应用行为、模型服务与版本", null),
+        AddPage(MainPage.Settings, PageHeader("设置", null),
             Ui.GroupHeader("应用行为"), Ui.Rows(_startup, new SettingsLine("失败时提示", "操作失败时在屏幕角落说明原因", _failureToggle)),
             Spaced(_models, 24), Ui.GroupHeader("版本与反馈"), _update, feedback);
     }
@@ -489,24 +494,20 @@ public sealed class MainWindow : Window
 
     private static T Spaced<T>(T control, double top) where T : Control { control.Margin = new Thickness(0, top, 0, 0); return control; }
 
-    private static Grid PageHeader(IconKind icon, string title, string description, ToggleSwitch? toggle)
+    private static Grid PageHeader(string title, ToggleSwitch? toggle)
     {
-        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
-        {
-            new TextBlock { Text = title, FontSize = DesignTokens.PageTitle, LineHeight = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong },
-            Ui.Description(description)
-        } };
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 14,
-            Children = { Ui.IconChip(icon, ToolTone.Violet, 40, 20), Ui.Column(titles, 1) } };
-        if (toggle is not null) { toggle.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(Ui.Column(toggle, 2)); }
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), MinHeight = 36,
+            Children = { new TextBlock { Text = title, FontSize = DesignTokens.PageTitle, FontWeight = FontWeight.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center, Foreground = Strong } } };
+        if (toggle is not null) { toggle.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(Ui.Column(toggle, 1)); }
         return header;
     }
 
     private Control CaptureTools()
     {
-        var hero = TaskPanel(IconKind.Capture, new StackPanel { Spacing = 3, Children =
+        var hero = TaskPanel(new StackPanel { Spacing = 3, Children =
         {
-            Ui.Text("区域截图", DesignTokens.SectionTitle),
+            new TextBlock { Text = "区域截图", FontSize = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong },
             Ui.Description("拖动框选区域，或单击选中窗口。")
         } }, _captureButton);
 
@@ -514,14 +515,15 @@ public sealed class MainWindow : Window
         ocrMenu.Items.Add(MenuItem("识别剪贴板图片", () => _controller.Run(_controller.OcrClipboardAsync)));
         ocrMenu.Items.Add(MenuItem("选择图片…", () => _controller.Run(_controller.OpenImageForOcrAsync)));
         SurfaceButton? ocr = null;
-        var cards = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 10, Margin = new Thickness(0, 12, 0, 0), Children =
+        var cards = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*"), ColumnSpacing = 2, Children =
         {
-            (_pinFeature = Feature("贴出剪贴板", IconKind.Pin, ToolTone.Amber, ShortcutLabels.Pin, () => _controller.Run(_controller.PinClipboardAsync))),
-            Ui.Column(Feature("长截图", IconKind.Long, ToolTone.Blue, null, () => _controller.Run(_controller.LongCaptureAsync)), 1),
-            Ui.Column(Feature("录屏", IconKind.Record, ToolTone.Red, null, () => _controller.Run(_controller.RecordRegionAsync)), 2),
-            Ui.Column(ocr = Feature("识别文字", IconKind.Ocr, ToolTone.Green, null, () => ocrMenu.ShowAt(ocr!)), 3)
+            (_pinFeature = Feature("贴出剪贴板", IconKind.Pin, ShortcutLabels.Pin, () => _controller.Run(_controller.PinClipboardAsync))),
+            Ui.Column(Feature("长截图", IconKind.Long, null, () => _controller.Run(_controller.LongCaptureAsync)), 1),
+            Ui.Column(Feature("录屏", IconKind.Record, null, () => _controller.Run(_controller.RecordRegionAsync)), 2),
+            Ui.Column(ocr = Feature("识别文字", IconKind.Ocr, null, () => ocrMenu.ShowAt(ocr!)), 3)
         } };
-        return new StackPanel { Margin = new Thickness(0, 16, 0, 0), Children = { hero, cards } };
+        return new StackPanel { Margin = new Thickness(0, 16, 0, 0), Spacing = 12, Children = { hero, new Border
+            { CornerRadius = new CornerRadius(12), Background = Brush.Parse("#F0F3F6"), Padding = new Thickness(3), Child = cards } } };
     }
 
     private void SetCaptureButton(bool primary)
@@ -537,23 +539,18 @@ public sealed class MainWindow : Window
     {
         var tip = $"{title} · {shortcut}";
         AutomationProperties.SetName(button, tip); ToolTip.SetTip(button, tip);
-        if (button.Content is Border { Child: Grid layout } && layout.Children.OfType<Border>().FirstOrDefault(b => b.Child is TextBlock) is { Child: TextBlock key })
-            key.Text = shortcut;
     }
 
-    private static SurfaceButton Feature(string title, IconKind icon, ToolTone tone, string? shortcut, Action action)
+    private static SurfaceButton Feature(string title, IconKind icon, string? shortcut, Action action)
     {
-        var button = new SurfaceButton(shortcut is null ? title : $"{title} · {shortcut}", action) { Height = 62, CornerRadius = new CornerRadius(12) };
-        var layout = new Grid { Margin = new Thickness(12, 10), RowDefinitions = new RowDefinitions("Auto,*,Auto"), Children =
-        {
-            Ui.IconChip(icon, tone),
-            new TextBlock { Text = title, FontSize = 13, FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Bottom,
-                TextTrimming = TextTrimming.CharacterEllipsis, [Grid.RowProperty] = 2 }
-        } };
-        ((Control)layout.Children[0]).HorizontalAlignment = HorizontalAlignment.Left;
-        if (shortcut is not null) { var key = Ui.Key(shortcut); key.HorizontalAlignment = HorizontalAlignment.Right; key.VerticalAlignment = VerticalAlignment.Top; key.Margin = new Thickness(0, 2, 0, 0); layout.Children.Add(key); }
-        button.Content = new Border { CornerRadius = new CornerRadius(12), Background = Brush.Parse("#F0F3F6"), Child = layout };
-        Hover(button, "#F7F6FB", 12);
+        var button = new SurfaceButton(shortcut is null ? title : $"{title} · {shortcut}", action) { MinHeight = 42 };
+        button.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6,
+            VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Children =
+            {
+                new LineIcon(icon, brush: Strong) { Width = 16, Height = 16 },
+                new TextBlock { Text = title, FontSize = 13, VerticalAlignment = VerticalAlignment.Center }
+            } };
+        Hover(button, "#E2E7EC", 9);
         return button;
     }
 
@@ -613,21 +610,21 @@ public sealed class MainWindow : Window
         } };
     }
 
-    private static Border TaskPanel(IconKind icon, Control summary, Control? action = null)
+    private static Border TaskPanel(Control summary, Control? action = null)
     {
-        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12,
-            Children = { Ui.IconChip(icon, ToolTone.Grey, 36, 20), Ui.Column(summary, 1) } };
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12,
+            Children = { summary } };
         summary.VerticalAlignment = VerticalAlignment.Center;
-        if (action is not null) row.Children.Add(Ui.Column(action, 2));
-        return Ui.Hero(row, 76);
+        if (action is not null) row.Children.Add(Ui.Column(action, 1));
+        return Ui.Hero(row, 106);
     }
 
-    private Control FolderHero() => Spaced(TaskPanel(IconKind.Jump, new StackPanel { Spacing = 3, Children =
+    private Control FolderHero() => Spaced(TaskPanel(new StackPanel { Spacing = 3, Children =
     {
         _folderTitle, Ui.Description("在打开或保存对话框中，跳到最近使用的文件夹。")
     } }), 16);
 
-    private Control KeepAwakeHero() => Spaced(TaskPanel(IconKind.Awake, new StackPanel { Spacing = 3, Children =
+    private Control KeepAwakeHero() => Spaced(TaskPanel(new StackPanel { Spacing = 3, Children =
     {
         _awakeTitle, _awakeStatus, _awakeHint
     } }), 16);
@@ -681,12 +678,8 @@ public sealed class MainWindow : Window
     {
         var path = file.Path;
         var label = RecentCaptureLabel.Format(file.ModifiedUtc.ToLocalTime(), DateTime.Now);
-        var time = new Border
-        {
-            Background = new SolidColorBrush(Color.FromArgb(153, 12, 14, 24)), CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(6, 0), Margin = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom,
-            Child = new TextBlock { Text = label, FontSize = 10, FontWeight = FontWeight.SemiBold, LineHeight = 16, Foreground = Brushes.White }
-        };
+        var time = Ui.Caption(label);
+        time.Margin = new Thickness(2, 4, 0, 0);
         var pin = OverlayButton(IconKind.Pin, $"贴到屏幕 · {label}", () => _controller.Run(() => _controller.PinFileAsync(path)));
         var copy = OverlayButton(IconKind.Copy, $"复制截图 · {label}", () => _controller.Run(() => _controller.CopyFileAsync(path)));
         var actions = new Border
@@ -698,7 +691,7 @@ public sealed class MainWindow : Window
         var frame = new Border
         {
             CornerRadius = new CornerRadius(10), ClipToBounds = true, BorderThickness = new Thickness(1), BorderBrush = Brush.Parse("#0F101220"),
-            Child = new Grid { Children = { new Image { Source = bitmap, Stretch = Stretch.UniformToFill }, time, actions } }
+            Child = new Grid { Children = { new Image { Source = bitmap, Stretch = Stretch.UniformToFill }, actions } }
         };
         var card = new SurfaceButton($"打开截图 · {label}", () => _controller.Run(() => _controller.OpenCachedAsync(path))) { Content = frame, CornerRadius = new CornerRadius(10) };
         ToolTip.SetTip(card, $"{label} · {System.IO.Path.GetFileName(path)}");
@@ -710,7 +703,7 @@ public sealed class MainWindow : Window
         card.PointerExited += (_, _) => Show(false);
         // Keyboard users reach the two actions directly, so focus also reveals them.
         foreach (var button in new[] { card, pin, copy }) { button.GotFocus += (_, _) => Show(true); button.LostFocus += (_, _) => Show(card.IsPointerOver); }
-        return card;
+        return new StackPanel { Children = { card, time } };
     }
 
     private static Button OverlayButton(IconKind icon, string label, Action action)

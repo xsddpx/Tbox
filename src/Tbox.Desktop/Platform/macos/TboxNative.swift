@@ -259,9 +259,22 @@ public func captureOverlay(_ pointer: UnsafeRawPointer?, _ clickThrough: Int32) 
 }
 
 @_cdecl("tbox_capture_foreground")
-public func captureForeground() -> Int32 {
-    let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
-    return pid == ProcessInfo.processInfo.processIdentifier ? 0 : pid
+public func captureForeground(_ dashboardHidden: Int32) -> Int32 {
+    let own = ProcessInfo.processInfo.processIdentifier
+    guard let front = NSWorkspace.shared.frontmostApplication else { return 0 }
+    if front.processIdentifier != own { return front.processIdentifier }
+    guard dashboardHidden != 0 else { return 0 }
+    // Ordering out the dashboard can leave our windowless app active. WindowServer
+    // returns the exposed windows front to back, including across separate Spaces.
+    let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+    for info in windows {
+        guard info[kCGWindowLayer as String] as? Int == 0,
+              let pid = info[kCGWindowOwnerPID as String] as? Int32, pid != own,
+              (info[kCGWindowAlpha as String] as? Double ?? 0) > 0,
+              let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular else { continue }
+        return pid
+    }
+    return 0
 }
 
 @_cdecl("tbox_restore_capture_foreground")
