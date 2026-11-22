@@ -10,7 +10,7 @@ namespace Tbox.Desktop.Views;
 // One set of tokens for both Windows and macOS. Platform code must not restyle pages.
 internal static class DesignTokens
 {
-    public const double PageTitle = 23, SectionTitle = 16, Body = 14, Description = 12.5, Caption = 12;
+    public const double PageTitle = 18, SectionTitle = 16, Body = 14, Description = 12.5, Caption = 12;
     public const double CardRadius = 12, ControlRadius = 8, TaskRadius = 10, PanelRadius = 14;
     public const double ControlHeight = 32;
     // Neutral action surfaces keep state colours reserved for capture and recording.

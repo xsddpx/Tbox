@@ -309,7 +309,7 @@ internal sealed class ModelServicesPage : UserControl, IDisposable
     {
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
         {
-            new TextBlock { Text = "模型服务", FontSize = DesignTokens.SectionTitle, LineHeight = 26, FontWeight = FontWeight.SemiBold, Foreground = Strong },
+            Ui.GroupTitle("模型服务"),
             new TextBlock { Text = "管理 OpenAI 兼容接口的连接与模型，供翻译等工具复用", FontSize = DesignTokens.Description, LineHeight = 18, Foreground = Secondary }
         } };
         _addButton.VerticalAlignment = VerticalAlignment.Center;

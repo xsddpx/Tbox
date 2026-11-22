@@ -262,6 +262,14 @@ public sealed class MainWindowTests
         scope.Controller.ShowMain(); Layout(main);
         Assert.Equal(MainPage.Capture, main.CurrentPage);
         Assert.Equal(MainWindow.MinimumWidth, main.MinWidth); Assert.Equal(MainWindow.MinimumHeight, main.MinHeight);
+        main.Navigate(MainPage.Settings);
+        Layout(main);
+        var headings = main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).ToArray();
+        Assert.Equal(18, Assert.Single(headings, t => t.Text == "设置").FontSize);
+        foreach (var group in new[] { "应用行为", "模型服务", "版本与反馈" })
+            Assert.Equal(DesignTokens.Caption, Assert.Single(headings, t => t.Text == group).FontSize);
+        main.Navigate(MainPage.Capture);
+        Layout(main);
         var actions = new[] { "贴出剪贴板", "长截图", "录屏", "识别文字" }.Select(label => Find(main, label)).ToArray();
         Assert.All(actions, button => Assert.Same(actions[0].Parent, button.Parent));
         var settings = Find(main, "设置", sidebar: true);
