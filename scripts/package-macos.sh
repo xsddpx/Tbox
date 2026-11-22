@@ -35,6 +35,7 @@ mkdir -p artifacts
 TEMP_PACKAGE="$(mktemp "$ROOT/artifacts/.tbox-${VERSION}-XXXXXX.zip")"
 trap 'rm -f "$TEMP_PACKAGE"' EXIT
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$TEMP_PACKAGE"
+python3 scripts/verify-macos-lid-package.py "$TEMP_PACKAGE"
 # Atomic no-overwrite publication; a concurrent invocation cannot overwrite this version.
 ln "$TEMP_PACKAGE" "$PACKAGE"
 HASH="$(shasum -a 256 "$PACKAGE" | cut -d ' ' -f 1)"
