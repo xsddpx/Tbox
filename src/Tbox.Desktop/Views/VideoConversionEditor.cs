@@ -32,6 +32,8 @@ internal sealed class VideoConversionEditor : UserControl
     private readonly TextBlock _time = new() { FontSize = 12, FontFeatures = new FontFeatureCollection { FontFeature.Parse("tnum") },
         FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _recordingDetails = Ui.Description("");
+    private readonly Grid _ruler = new() { Margin = new Thickness(5, 0) };
+    private TimeSpan _rulerDuration;
     private readonly TextBlock _range = new() { FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _status = Ui.Description("");
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 6, MinHeight = 6, Width = 140, CornerRadius = new CornerRadius(3), IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
@@ -156,7 +158,7 @@ internal sealed class VideoConversionEditor : UserControl
         DockPanel.SetDock(actions, Dock.Bottom);
         var export = Panel(new DockPanel { Children = { actions, fields } }, "#F4F7FA", 13);
         var timeline = new Border { Padding = new Thickness(12, 8),
-            Child = new StackPanel { Spacing = 3, Children = { transport, _track, _range, ThumbnailPopup } } };
+            Child = new StackPanel { Spacing = 3, Children = { transport, _ruler, _track, _range, ThumbnailPopup } } };
         var canvas = new Border { Background = Brush.Parse("#202B37"),
             ClipToBounds = true, Child = new Grid { Children = { _video, _scrubImage } } };
         var removeButton = Ui.IconButton(IconKind.Close, "移除素材", remove);
@@ -167,7 +169,7 @@ internal sealed class VideoConversionEditor : UserControl
         var workspaceGrid = new Grid { ColumnSpacing = 12, RowSpacing = 9, Children = { editor, export } };
         void ArrangeWorkspace(double width)
         {
-            var stacked = width < 582;
+            var stacked = width < 546;
             workspaceGrid.ColumnDefinitions = new ColumnDefinitions(stacked ? "*" : "*,258");
             workspaceGrid.RowDefinitions = new RowDefinitions(stacked ? "Auto,Auto" : "*");
             Grid.SetColumn(export, stacked ? 0 : 1);
@@ -319,6 +321,18 @@ internal sealed class VideoConversionEditor : UserControl
         _range.Text = full ? $"导出全部 · {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)}"
             : $"截取 {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)} · 共 {RecordingTrimBar.FormatPrecise(range.Length)}";
         _resetRange.IsVisible = !full;
+        if (_rulerDuration != _track.Duration)
+        {
+            _rulerDuration = _track.Duration;
+            _ruler.Children.Clear(); _ruler.ColumnDefinitions = new("*,*,*,*,*");
+            for (var i = 0; i <= 4; i++)
+            {
+                var time = Ui.Description(RecordingTrimBar.FormatPrecise(_track.Duration * (i / 4d)));
+                time.FontSize = 10;
+                time.HorizontalAlignment = i == 0 ? HorizontalAlignment.Left : i == 4 ? HorizontalAlignment.Right : HorizontalAlignment.Center;
+                _ruler.Children.Add(Ui.Column(time, i));
+            }
+        }
         var ticks = Format == RecordingExportFormat.ContactSheet ? _mediaSource.SampleTimes(range, FrameCount) : [];
         if (!ticks.SequenceEqual(_track.Ticks)) { _track.Ticks = ticks; BuildGrid(ticks); }
         var frames = ticks.Count > 0 ? ticks : _mediaSource.SampleTimes(new(TimeSpan.Zero, _track.Duration), ContactSheetPolicy.DefaultCount);

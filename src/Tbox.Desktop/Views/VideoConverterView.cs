@@ -47,7 +47,16 @@ internal sealed class VideoConverterView : UserControl
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Children =
             { Ui.IconChip(IconKind.Film, ToolTone.Grey, 50, 25), emptyTitle, Ui.Description("支持 MP4、MOV、WebM、GIF、WebP 等"), _choose } };
         foreach (var child in dropContent.Children) child.HorizontalAlignment = HorizontalAlignment.Center;
-        var emptySettings = new StackPanel { Spacing = 11, Children = { options, Ui.Description("等待导入素材"), save } };
+        var formats = Ui.Segmented(["MP4", "GIF", "WebP", "宫格图"], 0, _ => { }, out _, out var enableFormats);
+        enableFormats(false);
+        var rate = new ComboBox { ItemsSource = new[] { "30 FPS" }, SelectedIndex = 0, IsEnabled = false, Width = 132 };
+        var size = new ComboBox { ItemsSource = new[] { "100%" }, SelectedIndex = 0, IsEnabled = false, Width = 132 };
+        var emptySettings = new DockPanel { LastChildFill = true, Children =
+        {
+            new StackPanel { Spacing = 5, Children = { Ui.Description("等待导入素材"), save } },
+            new StackPanel { Spacing = 8, Children = { options, Ui.Description("格式"), formats, Setting("帧率", rate), Setting("尺寸", size) } }
+        } };
+        DockPanel.SetDock(emptySettings.Children[0], Dock.Bottom);
         var empty = new Grid { ColumnDefinitions = new("*,258"), ColumnSpacing = 12, RowSpacing = 9,
             Children = { new Border { MinHeight = 330, Padding = new Thickness(10), Background = Brushes.White,
                 BorderBrush = Brush.Parse("#DCE4EC"), BorderThickness = new Thickness(1), CornerRadius = new(11),
@@ -57,7 +66,7 @@ internal sealed class VideoConverterView : UserControl
         var settings = empty.Children[1];
         empty.SizeChanged += (_, e) =>
         {
-            var stacked = e.NewSize.Width < 582;
+            var stacked = e.NewSize.Width < 546;
             empty.ColumnDefinitions = new(stacked ? "*" : "*,258");
             empty.RowDefinitions = new(stacked ? "Auto,Auto" : "*");
             Grid.SetColumn(settings, stacked ? 0 : 1); Grid.SetRow(settings, stacked ? 1 : 0);
@@ -90,6 +99,13 @@ internal sealed class VideoConverterView : UserControl
             _controller.Run(() => ImportAsync(path));
     }
 #pragma warning restore CS0618
+
+    private static Grid Setting(string name, Control control)
+    {
+        var label = Ui.Description(name);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        return new Grid { ColumnDefinitions = new("*,Auto"), Children = { label, Ui.Column(control, 1) } };
+    }
 
     private void Highlight(bool on) => _dropSurface.Stroke = Brush.Parse(on ? "#41678F" : "#AEBED0");
 
@@ -148,7 +164,7 @@ internal sealed class VideoConverterView : UserControl
             workspace?.Dispose();
             _importCancellation = null;
             _reading = false;
-            if (Editor is { } current) current.IsEnabled = true;
+            if (Editor is { } active) active.IsEnabled = true;
             SetBusy(false);
         }
     }
