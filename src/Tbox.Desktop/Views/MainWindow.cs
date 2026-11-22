@@ -402,8 +402,10 @@ public sealed class MainWindow : Window
     private Control Sidebar()
     {
         var name = new TextBlock { Text = "Tbox", FontSize = 15, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        var version = new TextBlock { Text = $"v{Version}", FontSize = 11, Foreground = Brush.Parse(DesignTokens.Hint) };
+        var brandText = new StackPanel { Children = { name, version } };
         var brand = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Margin = new Thickness(8, 0, 0, 18), IsHitTestVisible = false,
-            Children = { new Image { Source = _brand, Width = 28, Height = 28, IsHitTestVisible = false }, name } };
+            Children = { new Image { Source = _brand, Width = 28, Height = 28, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false }, brandText } };
         var items = new StackPanel { Spacing = 2 };
         void Group(string title) => items.Children.Add(new TextBlock { Text = title, FontSize = 11.5, FontWeight = FontWeight.SemiBold,
             Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 12, 0, 6), IsHitTestVisible = false });
@@ -418,11 +420,9 @@ public sealed class MainWindow : Window
         if (_controller.WindowTopmost is not null) items.Children.Add(Item(MainPage.WindowTopmost, IconKind.Pin, "窗口置顶"));
         items.Children.Add(Item(MainPage.Translation, IconKind.Translate, "翻译")); items.Children.Add(Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒"));
         var settings = Item(MainPage.Settings, IconKind.Sliders, "设置");
-        var version = new TextBlock { Text = $"v{Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
-        var footer = new StackPanel { Spacing = 10, Children = { settings, version } };
-        DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(footer, Dock.Bottom);
+        DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(settings, Dock.Bottom);
         // macOS draws the traffic lights over the top-left corner, so the brand moves below them.
-        return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, footer, items } };
+        return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, settings, items } };
     }
 
     private void BuildPages()
@@ -469,9 +469,9 @@ public sealed class MainWindow : Window
         }));
         feedback.Content = new SettingsLine("反馈问题", "在 GitHub 提交问题或建议", new LineIcon(IconKind.Chevron, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16 });
         Hover(feedback, "#F7F6FB", 8);
-        AddPage(MainPage.Settings, PageHeader("设置", null),
+        AddPage(MainPage.Settings, PageHeader("设置", null), Spaced(_update, 10),
             Ui.GroupHeader("应用行为"), Ui.Rows(_startup, new SettingsLine("失败时提示", "操作失败时在屏幕角落说明原因", _failureToggle)),
-            Spaced(_models, 24), Ui.GroupHeader("版本与反馈"), _update, feedback);
+            Spaced(_models, 24), Spaced(feedback, 20));
     }
 
     private static Expander Disclosure(string name, Control content)

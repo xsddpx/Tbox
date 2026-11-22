@@ -21,8 +21,13 @@ internal sealed class SelectionOutline(IBrush color, bool handles = true) : Cont
         var pen = new Pen(color, 1.5, dashed ? new DashStyle([4, 3], 0) : null);
         context.DrawRectangle(null, pen, r);
         if (!handles) return;
-        foreach (var p in new[] { r.TopLeft, new Point(r.Center.X, r.Top), r.TopRight, new Point(r.Right, r.Center.Y),
-            r.BottomRight, new Point(r.Center.X, r.Bottom), r.BottomLeft, new Point(r.Left, r.Center.Y) })
-            context.DrawRectangle(Brushes.White, pen, new RoundedRect(new Rect(p.X - 4, p.Y - 4, 8, 8), 2));
+        foreach (var p in new[] { r.TopLeft, r.TopRight, r.BottomRight, r.BottomLeft })
+            DrawHandle(p, 5);
+        foreach (var p in new[] { new Point(r.Center.X, r.Top), new Point(r.Right, r.Center.Y),
+            new Point(r.Center.X, r.Bottom), new Point(r.Left, r.Center.Y) })
+            DrawHandle(p, 4);
+
+        void DrawHandle(Point point, double radius) => context.DrawRectangle(Brushes.White, pen,
+            new RoundedRect(new Rect(point.X - radius, point.Y - radius, radius * 2, radius * 2), 2));
     }
 }
