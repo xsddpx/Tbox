@@ -17,6 +17,7 @@ internal sealed class RecordingControlWindow : Window
 {
     private readonly DesktopController _controller;
     private readonly RecordingArea _area;
+    private readonly Action? _restoreForeground;
     private readonly RecordingOperation _operation;
     private readonly Window _border;
     private readonly SelectionOutline _outline = new(Ui.RecordRed, handles: false);
@@ -37,14 +38,14 @@ internal sealed class RecordingControlWindow : Window
     private bool _busy, _closing, _allowClose, _released;
     public event Action? Released;
 
-    public RecordingControlWindow(DesktopController controller, RecordingArea area)
+    public RecordingControlWindow(DesktopController controller, RecordingArea area, Action? restoreForeground = null)
     {
-        _controller = controller; _area = area;
+        _controller = controller; _restoreForeground = restoreForeground; _area = area;
         _operation = new RecordingOperation((audio, cursor, fps) => controller.Platform.CreateRecorder(area, audio, cursor, fps));
         Title = "Tbox 录屏控制"; ConfigureFloating(this);
         _border = new Window { Title = "Tbox 录屏区域", Content = _outline, ShowActivated = false };
         ConfigureFloating(_border);
-                _start = Ui.RecordButton("开始录制 · Enter", () => controller.Run(StartAsync));
+        _start = Ui.RecordButton("开始录制 · Enter", () => controller.Run(StartAsync));
         _pause = AnnotationToolbar.IconButton(IconKind.Pause, "暂停 · Space", TogglePause);
         _stop = AnnotationToolbar.IconButton(IconKind.Stop, "停止并预览 · Enter", () => controller.Run(StopAsync));
         var cancel = AnnotationToolbar.IconButton(IconKind.Close, "取消 · Esc", () => controller.Run(CancelAsync));
@@ -117,7 +118,7 @@ internal sealed class RecordingControlWindow : Window
         _pause.Content = new LineIcon(paused ? IconKind.Play : IconKind.Pause, brush: Ui.ToolbarText) { Width = 18, Height = 18 };
         var pauseName = paused ? "继续 · Space" : "暂停 · Space";
         ToolTip.SetTip(_pause, pauseName); AutomationProperties.SetName(_pause, pauseName);
-        _dot.Fill = paused ? Brush.Parse(DesignTokens.TaskSecondaryText) : Ui.RecordRed;
+        _dot.Fill = paused ? Brush.Parse(DesignTokens.LongYellow) : Ui.RecordRed;
         // Once recording starts the area can no longer be adjusted, so the outline turns dashed.
         _outline.Dashed = !ready;
         ToolTip.SetTip(_timerGroup, _busy ? null : paused ? "已暂停" : _operation.Notice);
@@ -167,9 +168,10 @@ internal sealed class RecordingControlWindow : Window
             if (_closing) return;
             var workspace = _operation.TransferWorkspace();
             var duration = output.DurationSeconds > 0 ? TimeSpan.FromSeconds(output.DurationSeconds) : _operation.Timeline.Elapsed;
-            CloseControls(); await _operation.DisposeAsync(); NotifyReleased();
-            try { _controller.ShowRecordingReview(workspace, _area, output, duration); }
+            CloseControls(); await _operation.DisposeAsync();
+            try { _controller.ShowRecordingReview(workspace, _area, output, duration, _restoreForeground); }
             catch { workspace.Dispose(); throw; }
+            finally { NotifyReleased(); }
         }
         catch (OperationCanceledException) when (_closing) { }
         catch { await CancelAsync(); throw; }
@@ -181,6 +183,7 @@ internal sealed class RecordingControlWindow : Window
     {
         if (!_closing) CloseControls();
         await _operation.DisposeAsync(); NotifyReleased();
+        if (!_controller.IsQuitting) _restoreForeground?.Invoke();
     }
     private void CloseControls()
     {

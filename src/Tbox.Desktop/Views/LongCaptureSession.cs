@@ -16,6 +16,7 @@ internal sealed class LongCaptureSession
     private readonly DesktopController _controller;
     private readonly DesktopPlacement _region;
     private readonly Action _closed;
+    private readonly Action? _restoreForeground;
     private readonly CancellationTokenSource _stop = new();
     private readonly Window _border;
     private readonly Window _toolbar;
@@ -32,9 +33,9 @@ internal sealed class LongCaptureSession
     private PixelSize _previewLimit;
     private bool _finished;
 
-    public LongCaptureSession(DesktopController controller, DesktopPlacement region, Action closed)
+    public LongCaptureSession(DesktopController controller, DesktopPlacement region, Action closed, Action? restoreForeground = null)
     {
-        _controller = controller; _region = region; _closed = closed;
+        _controller = controller; _region = region; _closed = closed; _restoreForeground = restoreForeground;
         // Yellow selection; the area is fixed once scrolling starts, so no resize handles.
         _border = Floating("Tbox 长截图区域", new SelectionOutline(Ui.LongYellow, handles: false));
         _border.Background = Brushes.Transparent; _border.ShowActivated = false;
@@ -98,6 +99,7 @@ internal sealed class LongCaptureSession
         _previewLimit = new PixelSize(Math.Max(1, (int)Math.Ceiling(width * pixelScale)),
             Math.Max(1, (int)Math.Ceiling(height * pixelScale)));
         _loop = CaptureLoopAsync();
+        _restoreForeground?.Invoke();
     }
 
     private async Task CaptureLoopAsync()
@@ -165,7 +167,7 @@ internal sealed class LongCaptureSession
             : null;
         CloseWindows();
         var picture = Picture.FromPixels(_buffer.Complete(), _buffer.Width, _buffer.Height);
-        if (action is { } requested) await _controller.CompleteCaptureAsync(picture, _region, requested, pinPlacement: pinPlacement);
+        if (action is { } requested) await _controller.CompleteCaptureAsync(picture, _region, requested, pinPlacement: pinPlacement, restoreForeground: _restoreForeground);
         else
         {
             _controller.CaptureHistory.Remember(_region);
@@ -177,6 +179,7 @@ internal sealed class LongCaptureSession
     {
         if (_finished) return;
         _finished = true; _stop.Cancel(); CloseWindows();
+        if (!_controller.IsQuitting) _restoreForeground?.Invoke();
     }
 
     private void CloseWindows()

@@ -68,7 +68,7 @@ public sealed class App : Application
                 if (command == 3) return await PermissionDiagnostics.RunAsync(platform);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (command == 2) _controller.Quit(); else if (command == 1) _controller.ShowMain();
+                    if (command == 2) _controller.Quit(); else if (command == 1) _controller.ShowMainOnReopen();
                 });
                 return null;
             });

@@ -17,7 +17,7 @@ bash tests/macos/test-folder-panel-policy.sh
 "$DOTNET" test tests/Tbox.Core.Tests/Tbox.Core.Tests.csproj -c Release
 "$DOTNET" test tests/Tbox.Desktop.Tests/Tbox.Desktop.Tests.csproj -c Release
 bash scripts/build-macos.sh "$RID"
-APP="$ROOT/TEMP/build/$RID/Tbox.app"
+APP="$ROOT/TEMP/build.noindex/$RID/Tbox.app"
 ACTUAL_VERSION="$("$APP/Contents/MacOS/Tbox.Desktop" --version)"
 [[ "$ACTUAL_VERSION" == "$VERSION.0" ]] || { echo "Release 二进制版本过期" >&2; exit 1; }
 mkdir -p "$ROOT/TEMP/package-smoke"

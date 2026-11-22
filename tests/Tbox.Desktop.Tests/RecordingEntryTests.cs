@@ -17,7 +17,7 @@ public sealed class RecordingEntryTests
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task RecordingEntryShowsSelectionControlsAndPreservesMainWindowOnCancel(bool mainVisible)
+    public async Task RecordingEntryTucksAwayTheMainWindowThroughSelectionAndCancellation(bool mainVisible)
     {
         using var frame = DesktopController.RenderText("Recording selection");
         using var lifetime = new ClassicDesktopStyleApplicationLifetime { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -34,7 +34,7 @@ public sealed class RecordingEntryTests
         try
         {
             await controller.RecordRegionAsync();
-            Assert.Equal(mainVisible, main.IsVisible);
+            Assert.False(main.IsVisible);
             var selection = Assert.Single(lifetime.Windows.OfType<CaptureWindow>());
             selection.UpdateLayout();
             selection.MouseDown(new Point(12, 12), MouseButton.Left, RawInputModifiers.None);
@@ -46,7 +46,7 @@ public sealed class RecordingEntryTests
                 b.IsEffectivelyVisible && AutomationProperties.GetName(b) == "确认录屏区域 · Enter");
             selection.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null);
             Assert.Empty(lifetime.Windows.OfType<CaptureWindow>());
-            Assert.Equal(mainVisible, main.IsVisible);
+            Assert.False(main.IsVisible);
         }
         finally { controller.Dispose(); main.Close(); }
     }

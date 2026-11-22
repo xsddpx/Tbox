@@ -92,7 +92,7 @@ bash scripts/package-macos.sh osx-arm64
 bash scripts/install-macos.sh
 ```
 
-构建产物为 `TEMP/build/osx-arm64/Tbox.app`。打包脚本运行测试、构建、签名和验签，启动应用验证离线 OCR 与像素裁剪，再在 `artifacts/` 生成 ZIP 并登记哈希。安装脚本发现单份已有 Tbox 时沿用原路径，全新安装默认使用 `~/Applications/Tbox.app`。若系统和用户 Applications 目录各有一份，使用 `bash scripts/install-macos.sh --destination /Applications/Tbox.app`（或明确指定用户目录中的副本）选择要升级的实例。脚本先显示目标路径，覆盖前检查同一签名身份。升级后的权限检查见 [权限升级验证](macos-permission-upgrade-verification.md)。
+构建产物为 `TEMP/build.noindex/osx-arm64/Tbox.app`。打包脚本运行测试、构建、签名和验签，启动应用验证离线 OCR 与像素裁剪，再在 `artifacts/` 生成 ZIP 并登记哈希。安装脚本发现单份已有 Tbox 时沿用原路径，全新安装默认使用 `~/Applications/Tbox.app`。若系统和用户 Applications 目录各有一份，使用 `bash scripts/install-macos.sh --destination /Applications/Tbox.app`（或明确指定用户目录中的副本）选择要升级的实例。脚本先显示目标路径，覆盖前检查同一签名身份。升级后的权限检查见 [权限升级验证](macos-permission-upgrade-verification.md)。
 
 媒体检查使用合成视频。准备好媒体运行库后运行以下命令。
 

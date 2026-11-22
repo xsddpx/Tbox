@@ -17,7 +17,7 @@ bash scripts/prepare-macos-media.sh
 DOTNET="${TBOX_DOTNET:-$(command -v dotnet || true)}"
 if [[ -z "$DOTNET" && -x "$ROOT/TEMP/dotnet/dotnet" ]]; then DOTNET="$ROOT/TEMP/dotnet/dotnet"; fi
 if [[ ! -x "$DOTNET" ]]; then echo "请安装 global.json 指定的 .NET SDK，或设置 TBOX_DOTNET。" >&2; exit 1; fi
-BUILD="$ROOT/TEMP/build/$RID"
+BUILD="$ROOT/TEMP/build.noindex/$RID"
 APP="$BUILD/Tbox.app"
 NATIVE=src/Tbox.Desktop/Platform/macos
 MINIMUM_MACOS="$(/usr/libexec/PlistBuddy -c 'Print LSMinimumSystemVersion' "$NATIVE/Info.plist")"

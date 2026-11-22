@@ -37,7 +37,7 @@ public sealed class UnifiedDesignTests
             foreach (var (name, window, primary) in windows)
             {
                 window.RequestedThemeVariant = ThemeVariant.Light; window.Show(); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-                Assert.Equal(Color.Parse("#F4F3F8"), ((ISolidColorBrush)window.Background!).Color);
+                Assert.Equal(Color.Parse("#EDF0F4"), ((ISolidColorBrush)window.Background!).Color);
                 // 16 px app mark in the title strip, 40 px tool icon in the header.
                 Assert.Contains(window.GetVisualDescendants().OfType<Image>(), i => i.Width == 16);
                 Assert.Contains(window.GetVisualDescendants().OfType<Border>(), b => b.Width == 40 && b.Child is LineIcon);
@@ -109,14 +109,14 @@ public sealed class UnifiedDesignTests
         main.RequestedThemeVariant = ThemeVariant.Light; main.Show();
         try
         {
-            Assert.Equal(Color.Parse("#F4F3F8"), ((ISolidColorBrush)main.Background!).Color);
+            Assert.Equal(Color.Parse("#EDF0F4"), ((ISolidColorBrush)main.Background!).Color);
             foreach (var page in Enum.GetValues<MainPage>())
             {
                 main.Navigate(page); main.UpdateLayout(); Dispatcher.UIThread.RunJobs(); main.UpdateLayout();
                 var buttons = main.CurrentPageView.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible).ToArray();
                 Assert.True(buttons.Count(b => b.Classes.Contains("accent")) <= 1, page.ToString());
                 // Page titles are 20 px (spec ①).
-                Assert.Contains(main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>(), t => t.FontSize == 20);
+                Assert.Contains(main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>(), t => t.FontSize == DesignTokens.PageTitle);
                 Assert.All(buttons.Where(b => b.GetType() == typeof(Button)), b => Assert.True(b.MinHeight <= 36, AutomationProperties.GetName(b)));
                 Preview(main, $"main-{page}");
             }
@@ -139,7 +139,7 @@ public sealed class UnifiedDesignTests
             Assert.All(buttons, b => Assert.False(string.IsNullOrEmpty(AutomationProperties.GetName(b))));
             var rectangle = Assert.Single(buttons, b => AutomationProperties.GetName(b) == "矩形");
             editor.Select(AnnotationTool.Rectangle);
-            Assert.Equal(Color.Parse(DesignTokens.Accent), ((ISolidColorBrush)rectangle.Background!).Color);
+            Assert.Equal(Color.Parse(DesignTokens.TaskSelected), ((ISolidColorBrush)rectangle.Background!).Color);
             editor.Select(null);
             Assert.Equal(Colors.Transparent, ((ISolidColorBrush)rectangle.Background!).Color);
             Preview(window, "annotation-toolbar");

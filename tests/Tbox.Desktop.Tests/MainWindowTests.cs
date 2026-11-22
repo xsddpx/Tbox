@@ -262,9 +262,10 @@ public sealed class MainWindowTests
         scope.Controller.ShowMain(); Layout(main);
         Assert.Equal(MainPage.Capture, main.CurrentPage);
         Assert.Equal(MainWindow.MinimumWidth, main.MinWidth); Assert.Equal(MainWindow.MinimumHeight, main.MinHeight);
+        ExpandGroup(main, "截图设置");
         foreach (var tool in new[] { "截图", "贴出剪贴板", "长截图", "录屏", "识别文字", "更改保存位置" })
             Assert.True(Find(main, tool).IsEffectivelyEnabled, tool);
-        foreach (var (label, page) in new[] { ("文件夹跳转", MainPage.Folders), ("翻译", MainPage.Translation), ("保持唤醒", MainPage.KeepAwake), ("模型服务", MainPage.Models), ("通用", MainPage.General), ("关于", MainPage.About), ("截图", MainPage.Capture) })
+        foreach (var (label, page) in new[] { ("文件夹跳转", MainPage.Folders), ("翻译", MainPage.Translation), ("保持唤醒", MainPage.KeepAwake), ("设置", MainPage.Settings), ("截图", MainPage.Capture) })
         {
             Click(main, label, sidebar: true);
             Assert.Equal(page, main.CurrentPage);
@@ -346,7 +347,7 @@ public sealed class MainWindowTests
         using var scope = new Scope(platform);
         await scope.InitializeAsync();
         var main = scope.Controller.Main;
-        var page = useShortcut ? MainPage.About : MainPage.Capture;
+        var page = useShortcut ? MainPage.Settings : MainPage.Capture;
         if (mainVisible) { scope.Controller.ShowMain(page); Layout(main); }
 
         if (useShortcut) platform.HotkeyHandler!(HotkeyAction.Capture);
@@ -386,9 +387,9 @@ public sealed class MainWindowTests
     {
         using var scope = new Scope(new FakePlatform());
         var main = scope.Controller.Main;
-        scope.Controller.ShowMain(); main.Navigate(MainPage.About);
+        scope.Controller.ShowMain(); main.Navigate(MainPage.Settings);
         scope.Controller.ShowMain();
-        Assert.Equal(MainPage.About, main.CurrentPage); // Already open: stays where the user is.
+        Assert.Equal(MainPage.Settings, main.CurrentPage); // Already open: stays where the user is.
         main.Hide(); scope.Controller.ShowMain();
         Assert.Equal(MainPage.Capture, main.CurrentPage);
     }
@@ -538,6 +539,7 @@ public sealed class MainWindowTests
         var controller = scope.Controller;
         controller.ShowMain();
         Layout(controller.Main);
+        ExpandGroup(controller.Main, "快捷键");
         var option = Assert.Single(controller.Main.GetVisualDescendants().OfType<ToggleSwitch>(),
             t => Name(t) == "接管 macOS 全屏截图快捷键");
         Assert.False(option.IsChecked);
@@ -630,6 +632,7 @@ public sealed class MainWindowTests
         var controller = scope.Controller; var main = controller.Main;
         await scope.InitializeAsync();
         controller.ShowMain(); Layout(main);
+        ExpandGroup(main, "快捷键");
         var row = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>(), r => Name(r.Recorder) == "修改截图快捷键");
         var mac = OperatingSystem.IsMacOS();
         var captureDefault = ShortcutPolicy.Default(HotkeyAction.Capture, mac);
@@ -711,6 +714,7 @@ public sealed class MainWindowTests
         await scope.InitializeAsync();
         controller.ShowMain(); Layout(main);
         Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Capture)); Assert.True(platform.Hotkeys.ContainsKey(HotkeyAction.Folder));
+        ExpandGroup(main, "快捷键");
         var rows = main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>().ToDictionary(r => Name(r.Recorder)!);
         Assert.Equal("被其他应用占用，请换一个组合", rows["修改贴出剪贴板快捷键"].Description);
         Assert.Equal("框选区域后标注、贴图或识别文字", rows["修改截图快捷键"].Description);
@@ -817,6 +821,13 @@ public sealed class MainWindowTests
         Assert.Equal(expected, RecentCaptureLabel.Format(DateTime.Parse(captured), new DateTime(2026, 11, 8, 12, 14, 0)));
 
     private static void Layout(Window window) { window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout(); }
+
+    private static void ExpandGroup(MainWindow window, string title)
+    {
+        var expander = Assert.Single(window.CurrentPageView.GetVisualDescendants().OfType<Expander>(), e => Name(e) == title);
+        expander.IsExpanded = true;
+        Layout(window);
+    }
 
     private static Button Find(MainWindow window, string label, bool sidebar = false)
     {

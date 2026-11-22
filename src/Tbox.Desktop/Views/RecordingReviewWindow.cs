@@ -33,7 +33,7 @@ internal sealed class RecordingReviewWindow : Window
     private readonly TextBlock _range = new() { FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _status = Ui.Description("");
     private readonly ProgressBar _progress = new() { Minimum = 0, Maximum = 1, Height = 6, MinHeight = 6, Width = 140, CornerRadius = new CornerRadius(3), IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
-    // Format choice is a segmented control (spec ④); MP4 first because it is the default.
+    // Format choice is a segmented control (导出格式); MP4 first because it is the default.
     internal static readonly RecordingExportFormat[] Formats = [RecordingExportFormat.Mp4, RecordingExportFormat.Gif, RecordingExportFormat.WebP, RecordingExportFormat.ContactSheet];
     private static readonly string[] FormatNames = ["MP4", "GIF", "WebP", "六宫格"];
     private readonly Func<int> _formatIndex;
@@ -73,22 +73,22 @@ internal sealed class RecordingReviewWindow : Window
     public event Action? Released;
 
     internal RecordingTrimBar Track => _track;
-    internal ComboBox FrameRate { get; } = new() { MinWidth = 0, FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
+    internal ComboBox FrameRate { get; } = new() { MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 13, VerticalAlignment = VerticalAlignment.Center,
         ItemsSource = RecordingExportProfiles.FrameRates.Select(rate => rate + " FPS").ToArray() };
-    internal ComboBox Size { get; } = new() { MinWidth = 132, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+    internal ComboBox Size { get; } = new() { MinWidth = 132, HorizontalAlignment = HorizontalAlignment.Stretch, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
     internal TextBox CustomWidth { get; } = new() { Width = 64, MinWidth = 0, Height = 30, MinHeight = 30, FontSize = 13, MaxLength = 5,
         VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0) };
     internal RecordingExportFormat Format => Formats[_formatIndex()];
 
-    public RecordingReviewWindow(DesktopController controller, RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
+    public RecordingReviewWindow(DesktopController controller, RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration, Action? restoreForeground = null)
     {
         _controller = controller; _workspace = workspace; _output = output;
         _source = new VideoSize(area.PixelWidth, area.PixelHeight);
         AutomationProperties.SetName(_scrubImage, "录屏定位画面");
-        Ui.Configure(this, "录屏 · Tbox", 900, 680);
-        MinWidth = 760; MinHeight = 500;
+        Ui.Configure(this, "录屏预览", 940, 508);
+        MinWidth = 460; MinHeight = 380;
         Ui.ExtendIntoTitleBar(this);
-        var brand = Ui.Brand();
+        Closed += (_, _) => { if (!controller.IsQuitting) restoreForeground?.Invoke(); };
         // Only the video canvas stays dark; the frame is the light result-window frame.
         _play = Ui.IconButton(IconKind.Play, "播放 / 暂停 · Space", () => controller.Run(TogglePlaybackAsync));
         _play.Background = Brushes.White; _play.BorderBrush = Brush.Parse("#1F101220"); _play.BorderThickness = new Thickness(1);
@@ -96,7 +96,7 @@ internal sealed class RecordingReviewWindow : Window
         _cancelExport = Ui.Button("取消导出", () => _exportCancellation?.Cancel()); _cancelExport.IsVisible = false;
         _rerecord = Ui.Button("重新录制", () => controller.Run(async () =>
         {
-            if (await RequestCloseAsync()) await controller.StartRecordingAsync(area);
+            if (await RequestCloseAsync()) await controller.StartRecordingAsync(area, restoreForeground);
         }));
         foreach (var state in new[] { "", "PointerOver", "Pressed" })
         {
@@ -104,28 +104,20 @@ internal sealed class RecordingReviewWindow : Window
             _volume.Resources["SliderTrackFill" + state] = Brush.Parse("#E6E4EE");
         }
         _track.Duration = duration;
-        var playback = new Grid { ColumnDefinitions = new ColumnDefinitions(output.HasSystemAudio ? "Auto,*,Auto,Auto,Auto" : "Auto,*,Auto"),
-            ColumnSpacing = 12, Margin = new Thickness(20, 4, 20, 0), Children =
-        {
-            _play, Ui.Column(_track, 1), Ui.Column(_time, 2)
-        } };
+        _resetRange = Ui.Link("恢复全部", () => _track.Range = new(TimeSpan.Zero, _track.Duration));
+        var transport = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto,Auto"), ColumnSpacing = 8,
+            Children = { _play, Ui.Column(_time, 1), Ui.Column(_resetRange, 4) } };
         if (output.HasSystemAudio)
         {
-            var speaker = new LineIcon(IconKind.Speaker, brush: Brush.Parse("#5F6270")) { Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center };
-            playback.Children.Add(Ui.Column(speaker, 3));
-            playback.Children.Add(Ui.Column(_volume, 4));
+            transport.Children.Add(Ui.Column(new LineIcon(IconKind.Speaker) { Width = 16, Height = 16 }, 2));
+            transport.Children.Add(Ui.Column(_volume, 3));
         }
-        // Range line under the track (PixPin: drag the handles at both ends; only the part between them is exported).
-        _resetRange = Ui.Link("恢复全部", () => _track.Range = new(TimeSpan.Zero, _track.Duration));
-        var rangeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(64, 0, 20, 0), Height = 22,
-            Children = { _range, _resetRange } };
-
         var format = Ui.Segmented(FormatNames, 0, _ => { ApplyFormatDefaults(); UpdateRange(); }, out _formatIndex, out _enableFormat);
         var chips = format.GetLogicalDescendants().OfType<Button>().ToArray();
         for (var i = 0; i < chips.Length; i++) ToolTip.SetTip(chips[i], RecordingExportProfiles.Get(Formats[i]).Description);
         AutomationProperties.SetName(FrameRate, "导出帧率"); AutomationProperties.SetName(Size, "导出尺寸"); AutomationProperties.SetName(CustomWidth, "自定义宽度");
         _frameRateGroup = Group("帧率", FrameRate);
-        _customGroup = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, IsVisible = false,
+        _customGroup = new StackPanel { Orientation = Orientation.Vertical, Spacing = 6, VerticalAlignment = VerticalAlignment.Center, IsVisible = false,
             Children = { CustomWidth, _customHeight } };
         var sizeGroup = Group("尺寸", Size, _customGroup);
         Size.SelectionChanged += (_, _) => { _customGroup.IsVisible = Size.SelectedIndex == _sizes.Count; UpdateCustomHeight(); };
@@ -145,20 +137,36 @@ internal sealed class RecordingReviewWindow : Window
         _track.HotTickChanged += _ => ShowThumbnail();
         _track.Seeked += Seek;
         _status.FontSize = DesignTokens.Caption;
-        var left = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { format, _frameRateGroup, sizeGroup, _progress, _status } };
-        _status.VerticalAlignment = VerticalAlignment.Center; _status.TextWrapping = TextWrapping.NoWrap; _status.TextTrimming = TextTrimming.CharacterEllipsis;
-        var bar = Ui.ResultBar(left, _cancelExport, _save);
-        ApplyFormatDefaults(); UpdateRange();
-
-        var header = Ui.ResultHeader(IconKind.Record, ToolTone.Red, "录屏预览", _recordingDetails, _rerecord);
-        var strip = Ui.TitleStrip("录屏 · Tbox", brand);
-        var canvas = new Border { Background = Brush.Parse("#111217"), CornerRadius = new CornerRadius(12), Margin = new Thickness(12, 0),
+        _track.ThumbnailAt = at => _thumbnails.GetValueOrDefault(at)?.Bitmap;
+        var fields = new StackPanel { Spacing = 10, Children = { Ui.Text("导出设置", 16), Group("格式", format), _frameRateGroup, sizeGroup } };
+        var actions = new StackPanel { Spacing = 5, Children = { _status, _progress, _cancelExport, _save } };
+        _save.HorizontalAlignment = HorizontalAlignment.Stretch;
+        DockPanel.SetDock(actions, Dock.Bottom);
+        var export = Panel(new DockPanel { Children = { actions, fields } });
+        var timeline = Panel(new StackPanel { Spacing = 3, Children = { transport, _track, _range, ThumbnailPopup } });
+        var canvas = new Border { Background = Brush.Parse("#E4EAF0"), CornerRadius = new CornerRadius(8), MaxHeight = 270,
             ClipToBounds = true, Child = new Grid { Children = { _video, _scrubImage } } };
-        DockPanel.SetDock(strip, Dock.Top); DockPanel.SetDock(header, Dock.Top); DockPanel.SetDock(bar, Dock.Bottom);
-        DockPanel.SetDock(rangeRow, Dock.Bottom); DockPanel.SetDock(playback, Dock.Bottom);
-        playback.Children.Add(ThumbnailPopup);
-        Content = new DockPanel { Children = { strip, header, bar, rangeRow, playback, canvas } };
-        Closed += (_, _) => brand.Dispose();
+        var editor = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), RowSpacing = 8, Children = { canvas, timeline } };
+        Grid.SetRow(timeline, 1);
+        var workspaceGrid = new Grid { Margin = new Thickness(16, 0, 16, 14), ColumnSpacing = 12, RowSpacing = 8,
+            Children = { editor, export } };
+        void ArrangeWorkspace(double width)
+        {
+            var stacked = width < 576;
+            workspaceGrid.ColumnDefinitions = new ColumnDefinitions(stacked ? "*" : "*,238");
+            workspaceGrid.RowDefinitions = new RowDefinitions(stacked ? "Auto,Auto" : "*");
+            Grid.SetColumn(export, stacked ? 0 : 1);
+            Grid.SetRow(export, stacked ? 1 : 0);
+            canvas.Height = stacked ? 170 : Math.Clamp((width - 294) * 9 / 16, 170, 270);
+        }
+        ArrangeWorkspace(Width);
+        SizeChanged += (_, e) => { if (e.WidthChanged) ArrangeWorkspace(e.NewSize.Width); };
+        var header = Ui.ResultHeader(IconKind.Record, ToolTone.Red, "录屏预览", _recordingDetails, _rerecord);
+        header.Margin = new Thickness(16, 32, 16, 10);
+        DockPanel.SetDock(header, Dock.Top);
+        Content = new DockPanel { Children = { header, new ScrollViewer { Content = workspaceGrid,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } } };
+        ApplyFormatDefaults(); UpdateRange();
         _play.IsEnabled = false;
         Opened += (_, _) => _initialization = InitializePlaybackAsync();
         _timer.Tick += (_, _) => UpdatePlayback();
@@ -176,9 +184,14 @@ internal sealed class RecordingReviewWindow : Window
         Closed += (_, _) => _closed.TrySetResult();
     }
 
+    private static Border Panel(Control child) => new()
+    {
+        Background = Brush.Parse("#F0F3F6"), CornerRadius = new CornerRadius(10), Padding = new Thickness(10), Child = child
+    };
+
     private static StackPanel Group(string label, params Control[] items)
     {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+        var panel = new StackPanel { Spacing = 4 };
         panel.Children.Add(new TextBlock { Text = label, FontSize = DesignTokens.Caption, Foreground = Brush.Parse("#5F6270"), VerticalAlignment = VerticalAlignment.Center });
         panel.Children.AddRange(items);
         return panel;
@@ -246,12 +259,14 @@ internal sealed class RecordingReviewWindow : Window
     {
         var range = _track.Range; var full = range.IsFull(_track.Duration);
         _recordingDetails.Text = $"{_source.Width} × {_source.Height} · {RecordingTrimBar.FormatPrecise(_track.Duration)} · {RecordingFrameRatePolicy.RecordingFrameRate} FPS · {(_output.HasSystemAudio ? "系统声音" : "静音")}";
-        _range.Text = full ? $"导出全部 · {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)}　拖动两端红色手柄截取"
+        _range.Text = full ? $"导出全部 · {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)}"
             : $"截取 {RecordingTrimBar.FormatPrecise(range.Start)} – {RecordingTrimBar.FormatPrecise(range.End)} · 共 {RecordingTrimBar.FormatPrecise(range.Length)}";
         _resetRange.IsVisible = !full;
         var ticks = Format == RecordingExportFormat.ContactSheet ? ContactSheetPolicy.SampleTimes(range, RecordingFrameRatePolicy.RecordingFrameRate) : [];
         if (!ticks.SequenceEqual(_track.Ticks)) _track.Ticks = ticks;
-        LoadThumbnails(ticks);
+        var frames = ticks.Count > 0 ? ticks : ContactSheetPolicy.SampleTimes(new(TimeSpan.Zero, _track.Duration), RecordingFrameRatePolicy.RecordingFrameRate);
+        _track.FrameTimes = frames;
+        LoadThumbnails(frames);
         if (_track.Position < range.Start || _track.Position > range.End) Seek(range.Start);
         else UpdateTime(_track.Position);
     }
@@ -325,6 +340,10 @@ internal sealed class RecordingReviewWindow : Window
         _thumbnailLoad?.Cancel(); _thumbnailLoad = null;
         if (_closing || ticks.All(_thumbnails.ContainsKey) || !File.Exists(RecordingExporter.FfmpegPath)) return;
         var cancellation = _thumbnailLoad = new CancellationTokenSource(); _thumbnailTicks = ticks;
+        foreach (var stale in _thumbnails.Keys.Except(ticks).ToArray())
+        {
+            _thumbnails[stale].Dispose(); _thumbnails.Remove(stale);
+        }
         var size = RecordingSizePolicy.FitLongEdge(_source, 160, false);
         _controller.Run(async () =>
         {
@@ -335,6 +354,7 @@ internal sealed class RecordingReviewWindow : Window
                     var pixels = await RecordingExporter.ReadFrameAsync(_output.FilePath, time, size, cancellation.Token);
                     if (cancellation.IsCancellationRequested || _closing) return;
                     _thumbnails[time] = Picture.FromPixels(pixels, size.Width, size.Height);
+                    _track.InvalidateVisual();
                     if (_track.HotTick >= 0 && _track.Ticks[_track.HotTick] == time) ShowThumbnail();
                 }
             }

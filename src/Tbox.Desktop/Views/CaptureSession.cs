@@ -238,14 +238,14 @@ internal sealed class CaptureSession
             placement = new DesktopPlacement(display.Left + region.Left * display.Width / pixelWidth, display.Top + region.Top * display.Height / pixelHeight,
                 region.Width * display.Width / pixelWidth, region.Height * display.Height / pixelHeight);
             if (!State.TryComplete()) return;
-            _controller.Run(() => _controller.StartRecordingAsync(new RecordingArea(placement, region.Width, region.Height)));
+            _controller.Run(() => _controller.StartRecordingAsync(new RecordingArea(placement, region.Width, region.Height), _restoreForeground));
             Close();
             return;
         }
         if (!State.TryComplete()) return;
         if (action == CaptureAction.Long)
         {
-            _controller.Run(() => _controller.StartLongCaptureAsync(placement));
+            _controller.Run(() => _controller.StartLongCaptureAsync(placement, _restoreForeground));
             Close();
             return;
         }

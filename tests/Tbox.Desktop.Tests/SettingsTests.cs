@@ -37,9 +37,9 @@ public sealed class SettingsTests
                 window.Navigate(page); window.UpdateLayout(); Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
                 Assert.Empty(window.GetVisualDescendants().OfType<SplitView>());
                 // Model-service fields are intentional inputs, not the removed application-search box.
-                if (page is not (MainPage.Models or MainPage.Translation))
+                if (page is not (MainPage.Settings or MainPage.Translation))
                     Assert.DoesNotContain(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible);
-                else if (page == MainPage.Models)
+                else if (page == MainPage.Settings)
                     AssertModelPageOffersAKeyField(window);
                 else
                     Assert.Contains(window.GetVisualDescendants().OfType<TextBox>(), t => t.IsEffectivelyVisible && AutomationProperties.GetName(t) == "翻译原文");

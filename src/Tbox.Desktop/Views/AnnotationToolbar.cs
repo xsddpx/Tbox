@@ -15,7 +15,7 @@ namespace Tbox.Desktop.Views;
 // Shared B toolbar: ten tools | undo | outputs, more | finish. Properties are a temporary horizontal strip.
 public sealed class AnnotationToolbar : Border
 {
-    private static readonly uint[] Palette = [0xFFE5484D, 0xFFF5B400, 0xFF1F9D61, 0xFF3D7BFF, 0xFF6D4AE8, 0xFF1A1B22];
+    private static readonly uint[] Palette = [0xFFE5484D, 0xFFF5B400, 0xFF1F9D61, 0xFF3D7BFF, 0xFF6D4AE8];
     private const double PropertyControlHeight = 32;
     private static readonly (AnnotationTool Tool, IconKind Icon, string Name)[] Specs =
     [
@@ -33,9 +33,8 @@ public sealed class AnnotationToolbar : Border
     private readonly Button _undo, _redo, _more;
     private readonly List<(uint Color, Button Button, Border Ring)> _swatches = [];
     private AnnotationTool? _propertyTool;
-    private Slider? _size;
+    private Button? _decrease, _increase;
     private TextBlock? _value;
-    private bool _syncing;
     internal Popup PropertiesPopup { get; }
     internal Popup MorePopup { get; }
     internal Border PropertiesSurface { get; } = Ui.ToolbarSurface(new StackPanel(), 5);
@@ -119,7 +118,7 @@ public sealed class AnnotationToolbar : Border
     private void PopupKeys(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Escape) { DismissPopover(); e.Handled = true; }
-        // Enter on a slider or swatch adjusts properties; never finish the underlying screenshot.
+        // Enter on a step button or swatch adjusts properties; never finish the underlying screenshot.
         else if (e.Key == Key.Enter) e.Handled = true;
     }
 
@@ -187,20 +186,14 @@ public sealed class AnnotationToolbar : Border
         var sizeName = tool switch { AnnotationTool.Text => "字号", AnnotationTool.Number => "序号大小",
             AnnotationTool.Mosaic => "颗粒大小", AnnotationTool.Eraser => "擦除范围", _ => "线宽" };
         row.Children.Add(Label(sizeName));
-        var textSize = tool is AnnotationTool.Text or AnnotationTool.Number;
-        _size = new Slider { Minimum = textSize ? 10 : 1, Maximum = textSize ? 120 : 32,
-            TickFrequency = textSize ? 2 : 1, IsSnapToTickEnabled = true, Value = _editor.CurrentSize,
-            Width = 80, Height = PropertyControlHeight, MinHeight = PropertyControlHeight,
-            Padding = default, BorderThickness = default, VerticalAlignment = VerticalAlignment.Center };
-        // Fluent's default 15 + 20 + 15 layout overflows a 32-unit toolbar control.
-        const double thumbSize = 12;
-        var sliderInset = new GridLength((PropertyControlHeight - thumbSize) / 2);
-        _size.Resources["SliderPreContentMargin"] = _size.Resources["SliderPostContentMargin"] = sliderInset;
-        _size.Resources["SliderHorizontalThumbWidth"] = _size.Resources["SliderHorizontalThumbHeight"] = thumbSize;
-        AutomationProperties.SetName(_size, sizeName);
-        _size.ValueChanged += (_, _) => { if (!_syncing) _editor.SetSize(_size.Value); };
-        row.Children.Add(_size);
-        _value = Label(""); _value.MinWidth = 39; row.Children.Add(_value);
+        _decrease = IconButton(IconKind.Minus, "减小" + sizeName, () => _editor.ChangeSize(-1));
+        _increase = IconButton(IconKind.Plus, "增大" + sizeName, () => _editor.ChangeSize(1));
+        _value = Label("");
+        _value.MinWidth = 42;
+        _value.TextAlignment = TextAlignment.Center;
+        row.Children.Add(_decrease);
+        row.Children.Add(_value);
+        row.Children.Add(_increase);
         row.Children.Add(Ui.ToolbarDivider());
         row.Children.Add(IconButton(IconKind.Close, "收起属性 · Esc", () => DismissPopover()));
         PropertiesSurface.Child = row;
@@ -208,9 +201,9 @@ public sealed class AnnotationToolbar : Border
 
     private void UpdateProperties()
     {
-        if (_size is null || _value is null) return;
-        _syncing = true;
-        _size.Value = _editor.CurrentSize;
+        if (_decrease is null || _increase is null || _value is null) return;
+        _decrease.IsEnabled = _editor.CurrentSize > _editor.MinimumSize;
+        _increase.IsEnabled = _editor.CurrentSize < _editor.MaximumSize;
         var value = _editor.Tool switch { AnnotationTool.Mosaic => Math.Max(6, _editor.StrokeWidth * 2),
             AnnotationTool.Eraser => _editor.StrokeWidth * 3, AnnotationTool.Highlighter => _editor.StrokeWidth * 6, _ => _editor.CurrentSize };
         _value.Text = $"{value:0} px";
@@ -219,7 +212,6 @@ public sealed class AnnotationToolbar : Border
             ring.BorderBrush = color == _editor.Color ? Brushes.White : Brushes.Transparent;
             ((ToggleButton)button).IsChecked = color == _editor.Color;
         }
-        _syncing = false;
     }
 
     private static TextBlock Label(string text) => new() { Text = text, FontSize = 11, Foreground = Ui.ToolbarText, VerticalAlignment = VerticalAlignment.Center };

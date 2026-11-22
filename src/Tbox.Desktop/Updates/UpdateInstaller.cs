@@ -53,7 +53,7 @@ internal static class UpdateInstaller
         if (!Version.TryParse(installedVersion, out var current) || release.Version <= current)
             throw new InvalidOperationException("安装位置的版本已变化，请重新检查更新。");
         await Task.Run(() => UpdatePackagePolicy.ValidateMacArchive(file), token);
-        var stage = Path.Combine(Path.GetDirectoryName(installed)!, ".tbox-update-" + Guid.NewGuid().ToString("N"));
+        var stage = Path.Combine(Path.GetDirectoryName(installed)!, ".tbox-update-" + Guid.NewGuid().ToString("N") + ".noindex");
         try
         {
             Directory.CreateDirectory(stage); // Requires a writable destination before quitting.

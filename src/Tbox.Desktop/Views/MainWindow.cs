@@ -3,7 +3,6 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
@@ -85,7 +84,6 @@ public sealed class MainWindow : Window
     private readonly TextBlock _awakeTitle = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong };
     private readonly ContentControl _awakeStatus = new() { Margin = new Thickness(0, 4, 0, 0) };
     private readonly TextBlock _awakeHint = Ui.Description("");
-    private readonly Border _awakeScreen = new() { Width = 64, Height = 38, CornerRadius = new CornerRadius(3), Margin = new Thickness(4) };
     // 通用
     private readonly ToggleSwitch _startupToggle = Switch("开机时启动");
     private readonly ToggleSwitch _failureToggle = Switch("失败时提示");
@@ -142,7 +140,7 @@ public sealed class MainWindow : Window
         _translation = new TranslationPage(controller.Models, async () =>
         {
             await controller.Models.InitializeAsync(); return controller.Models.Configuration;
-        }, () => Navigate(MainPage.Models));
+        }, () => { Navigate(MainPage.Settings); _models.BringIntoView(); });
         _update.AvailabilityChanged += RefreshDots;
         Wire();
         BuildPages();
@@ -155,11 +153,10 @@ public sealed class MainWindow : Window
         DockPanel.SetDock(_status, Dock.Bottom);
         var card = new Border
         {
-            Background = Brushes.White, CornerRadius = new CornerRadius(DesignTokens.PanelRadius), Margin = new Thickness(0, 34, 10, 10), ClipToBounds = true,
-            BoxShadow = BoxShadows.Parse("0 0 0 1 #0D101220, 0 10 30 0 #0F101220"),
+            Background = Brush.Parse("#FCFDFE"), Margin = new Thickness(0, 34, 0, 0), ClipToBounds = true,
             Child = new DockPanel { Children = { _status, _body } }
         };
-        var root = new Grid { ColumnDefinitions = new ColumnDefinitions($"{208},*"), Children = { Sidebar(), Ui.Column(card, 1) } };
+        var root = new Grid { ColumnDefinitions = new ColumnDefinitions("172,*"), Children = { Sidebar(), Ui.Column(card, 1) } };
         Content = root;
         Navigate(MainPage.Capture);
         Refresh();
@@ -211,14 +208,14 @@ public sealed class MainWindow : Window
     internal void Navigate(MainPage page)
     {
         StopRecordingShortcut();
-        if (CurrentPage == MainPage.Models && page != MainPage.Models) _models.Leave();
+        if (CurrentPage == MainPage.Settings && page != MainPage.Settings) _models.Leave();
         if (CurrentPage == MainPage.Translation && page != MainPage.Translation) _translation.Leave();
         CurrentPage = page;
         _body.Content = _pages[page];
         foreach (var (key, item) in _nav) item.Selected = key == page;
         SetStatus("");
         if (page == MainPage.WindowTopmost) RefreshWindowTopmost();
-        if (page == MainPage.Models) _controller.Run(_models.OpenAsync);
+        if (page == MainPage.Settings) _controller.Run(_models.OpenAsync);
         if (page == MainPage.Translation) _controller.Run(_translation.OpenAsync);
     }
 
@@ -329,7 +326,6 @@ public sealed class MainWindow : Window
             : needsApproval ? Ui.Status("合盖唤醒待授权", DesignTokens.AttentionDot)
             : Ui.Status(applied.Summary, applied.System ? DesignTokens.Ready : DesignTokens.Hint);
         _awakeHint.Text = applied.System ? "关闭右上角开关即可恢复。" : "打开右上角开关后，电脑在你关闭之前一直保持唤醒。";
-        _awakeScreen.Background = Brush.Parse(applied.System && applied.Display ? "#EEEAFE" : "#FFFFFF");
     }
 
     internal void RefreshWindowTopmost()
@@ -363,7 +359,7 @@ public sealed class MainWindow : Window
         var folders = _controller.Settings.FolderJumpEnabled;
         _nav[MainPage.Folders].Dot = folders && _controller.HasConflictIn(capture: false) ? DesignTokens.Recording
             : folders && !_controller.HasFolderPermission ? DesignTokens.AttentionDot : null;
-        _nav[MainPage.About].Dot = _update.UpdateAvailable ? DesignTokens.AttentionDot : null;
+        _nav[MainPage.Settings].Dot = _update.UpdateAvailable ? DesignTokens.AttentionDot : null;
     }
 
     private void Wire()
@@ -416,8 +412,8 @@ public sealed class MainWindow : Window
         if (_controller.SupportsQuickLook) Item(MainPage.QuickLook, IconKind.QuickLook, "速览");
         if (_controller.WindowTopmost is not null) Item(MainPage.WindowTopmost, IconKind.Pin, "窗口置顶");
         Item(MainPage.Translation, IconKind.Translate, "翻译"); Item(MainPage.KeepAwake, IconKind.Awake, "保持唤醒");
-        Group("设置"); Item(MainPage.General, IconKind.Sliders, "通用"); Item(MainPage.Models, IconKind.Model, "模型服务"); Item(MainPage.About, IconKind.Update, "关于");
-        var version = new TextBlock { Text = $"Tbox {Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
+        Item(MainPage.Settings, IconKind.Sliders, "设置");
+        var version = new TextBlock { Text = $"v{Version}", FontSize = 12, Foreground = Brush.Parse(DesignTokens.Hint), Margin = new Thickness(10, 0, 0, 0) };
         DockPanel.SetDock(brand, Dock.Top); DockPanel.SetDock(version, Dock.Bottom);
         // macOS draws the traffic lights over the top-left corner, so the brand moves below them.
         return new DockPanel { Margin = new Thickness(12, OperatingSystem.IsMacOS() ? 40 : 14, 12, 14), Children = { brand, version, items } };
@@ -433,9 +429,8 @@ public sealed class MainWindow : Window
         if (_systemScreenshotShortcut.IsVisible) captureShortcuts.Add(_systemScreenshotShortcut);
         AddPage(MainPage.Capture, PageHeader(IconKind.Capture, "截图", "截图后可标注、贴图、识别文字", _captureToggle),
             Spaced(_capturePermission, 14), Spaced(_captureOff, 16), _captureTools,
-            Ui.GroupHeader("快捷键"), Ui.Rows([.. captureShortcuts]),
-            Ui.GroupHeader("设置"), Ui.Rows(_cache, history),
-            Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty);
+            Ui.GroupHeader("最近截图", openCache), _recent, _recentEmpty,
+            Disclosure("快捷键", Ui.Rows([.. captureShortcuts])), Disclosure("截图设置", Ui.Rows(_cache, history)));
 
         AddPage(MainPage.Folders, PageHeader(IconKind.Jump, "文件夹跳转", "打开或保存文件时，一键跳到正在用的文件夹", _folderToggle),
             Spaced(_folderPermission, 14), Spaced(_folderOff, 16), _folderHero,
@@ -461,12 +456,6 @@ public sealed class MainWindow : Window
             Ui.GroupHeader("行为"), Ui.Rows(new SettingsLine("保持屏幕常亮", "关闭后屏幕可按系统设置熄灭，电脑不睡眠", _awakeDisplayToggle), _awakeLid),
             Spaced(Ui.Note("开关状态会被记住，下次启动 Tbox 时自动恢复。退出 Tbox 后，电脑恢复系统原来的睡眠设置。"), 18));
 
-        AddPage(MainPage.General, PageHeader(IconKind.Sliders, "通用", "启动与提示", null),
-            Spaced(Ui.GroupHeader("启动"), 8), _startup,
-            Ui.GroupHeader("提示"), new SettingsLine("失败时提示", "截图或识别失败时，在屏幕角落说明原因", _failureToggle),
-            Spaced(Ui.Note("关闭窗口后 Tbox 继续在托盘运行，快捷键照常可用。右键托盘图标可退出。"), 18));
-
-        AddPage(MainPage.Models, _models);
         AddPage(MainPage.Translation, _translation);
 
         var feedback = new SurfaceButton("反馈问题", () => _controller.Run(async () =>
@@ -475,8 +464,17 @@ public sealed class MainWindow : Window
         }));
         feedback.Content = new SettingsLine("反馈问题", "在 GitHub 提交问题或建议", new LineIcon(IconKind.Chevron, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16 });
         Hover(feedback, "#F7F6FB", 8);
-        AddPage(MainPage.About, PageHeader(IconKind.Update, "关于", "版本、更新与反馈", null),
-            Spaced(_update, 16), Ui.GroupHeader("帮助"), feedback);
+        AddPage(MainPage.Settings, PageHeader(IconKind.Sliders, "设置", "应用行为、模型服务与版本", null),
+            Ui.GroupHeader("应用行为"), Ui.Rows(_startup, new SettingsLine("失败时提示", "操作失败时在屏幕角落说明原因", _failureToggle)),
+            Spaced(_models, 24), Ui.GroupHeader("版本与反馈"), _update, feedback);
+    }
+
+    private static Expander Disclosure(string name, Control content)
+    {
+        var group = new Expander { Header = name, Content = content, HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 10, 0, 0), Background = Brushes.Transparent };
+        AutomationProperties.SetName(group, name);
+        return group;
     }
 
     private void AddPage(MainPage key, params Control[] content)
@@ -506,18 +504,11 @@ public sealed class MainWindow : Window
 
     private Control CaptureTools()
     {
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
+        var hero = TaskPanel(IconKind.Capture, new StackPanel { Spacing = 3, Children =
         {
-            new TextBlock { Text = "开始截图", FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong },
-            Spaced(Ui.Description("单击窗口或拖动框选，按 R 回到上次区域"), 2),
-            Spaced(_captureButton, 14)
-        } };
-        _captureButton.HorizontalAlignment = HorizontalAlignment.Left;
-        var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children =
-        {
-            text, Ui.Column(CaptureIllustration(), 1)
-        } });
-        hero.Padding = new Thickness(20, 16, 16, 16);
+            Ui.Text("区域截图", DesignTokens.SectionTitle),
+            Ui.Description("拖动框选区域，或单击选中窗口。")
+        } }, _captureButton);
 
         var ocrMenu = new MenuFlyout { Placement = PlacementMode.BottomEdgeAlignedLeft };
         ocrMenu.Items.Add(MenuItem("识别剪贴板图片", () => _controller.Run(_controller.OcrClipboardAsync)));
@@ -538,7 +529,7 @@ public sealed class MainWindow : Window
         if (primary) _captureButton.Classes.Add("accent"); else _captureButton.Classes.Remove("accent");
         _captureButton.Content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children =
         {
-            new TextBlock { Text = "截图", VerticalAlignment = VerticalAlignment.Center }, Ui.Key(ShortcutLabels.Capture, onAccent: primary)
+            new TextBlock { Text = "开始截图", VerticalAlignment = VerticalAlignment.Center }, Ui.Key(ShortcutLabels.Capture, onAccent: primary)
         } };
     }
 
@@ -561,7 +552,7 @@ public sealed class MainWindow : Window
         } };
         ((Control)layout.Children[0]).HorizontalAlignment = HorizontalAlignment.Left;
         if (shortcut is not null) { var key = Ui.Key(shortcut); key.HorizontalAlignment = HorizontalAlignment.Right; key.VerticalAlignment = VerticalAlignment.Top; key.Margin = new Thickness(0, 2, 0, 0); layout.Children.Add(key); }
-        button.Content = new Border { CornerRadius = new CornerRadius(12), BorderBrush = Brush.Parse("#EEEDF3"), BorderThickness = new Thickness(1), Child = layout };
+        button.Content = new Border { CornerRadius = new CornerRadius(12), Background = Brush.Parse("#F0F3F6"), Child = layout };
         Hover(button, "#F7F6FB", 12);
         return button;
     }
@@ -622,84 +613,25 @@ public sealed class MainWindow : Window
         } };
     }
 
-    private Control FolderHero()
+    private static Border TaskPanel(IconKind icon, Control summary, Control? action = null)
     {
-        var mac = OperatingSystem.IsMacOS();
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
-        {
-            _folderTitle,
-            Spaced(Ui.Description($"在任意软件的打开 / 保存对话框里，直接跳到{(mac ? "访达" : "资源管理器")}里最近打开的文件夹。"), 2)
-        } };
-        var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children = { text, Ui.Column(FolderIllustration(), 1) } });
-        hero.Padding = new Thickness(20, 16, 16, 16); hero.Margin = new Thickness(0, 16, 0, 0);
-        return hero;
+        var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12,
+            Children = { Ui.IconChip(icon, ToolTone.Grey, 36, 20), Ui.Column(summary, 1) } };
+        summary.VerticalAlignment = VerticalAlignment.Center;
+        if (action is not null) row.Children.Add(Ui.Column(action, 2));
+        return Ui.Hero(row, 76);
     }
 
-    private Control KeepAwakeHero()
+    private Control FolderHero() => Spaced(TaskPanel(IconKind.Jump, new StackPanel { Spacing = 3, Children =
     {
-        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { _awakeTitle, _awakeStatus, Spaced(_awakeHint, 6) } };
-        _awakeStatus.HorizontalAlignment = HorizontalAlignment.Left;
-        var laptop = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Children =
-        {
-            new Border { CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(2), BorderBrush = Brush.Parse("#C9CDDB"), Background = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Center, Child = _awakeScreen },
-            new Border { Width = 96, Height = 6, CornerRadius = new CornerRadius(3), Background = Brush.Parse("#C9CDDB") }
-        } };
-        var hero = Ui.Hero(new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12, Children = { text, Ui.Column(Scene(laptop), 1) } });
-        hero.Padding = new Thickness(20, 16, 16, 16); hero.Margin = new Thickness(0, 16, 0, 0);
-        return hero;
-    }
+        _folderTitle, Ui.Description("在打开或保存对话框中，跳到最近使用的文件夹。")
+    } }), 16);
 
-    // Two small decorative scenes for the hero banners, drawn so they stay sharp at any scale.
-    private static Border Scene(Control content) => new()
+    private Control KeepAwakeHero() => Spaced(TaskPanel(IconKind.Awake, new StackPanel { Spacing = 3, Children =
     {
-        Width = 150, Height = 80, CornerRadius = new CornerRadius(8), ClipToBounds = true, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center,
-        BoxShadow = BoxShadows.Parse("0 6 18 0 #24503CA0"), Child = content,
-        Background = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(.4, 1, RelativeUnit.Relative),
-            GradientStops = { new GradientStop(Color.Parse("#EBEDF6"), 0), new GradientStop(Color.Parse("#DCE1EF"), 1) } }
-    };
-    private static Rectangle Box(double x, double y, double w, double h, string fill, double radius = 2) =>
-        new() { Width = w, Height = h, Fill = Brush.Parse(fill), RadiusX = radius, RadiusY = radius, [Canvas.LeftProperty] = x, [Canvas.TopProperty] = y };
+        _awakeTitle, _awakeStatus, _awakeHint
+    } }), 16);
 
-    private static Control CaptureIllustration()
-    {
-        var canvas = new Canvas { Children =
-        {
-            Box(13, 10, 124, 80, "#FFFFFF", 6), Box(13, 10, 124, 10, "#F3F4F8", 0), Box(22, 26, 50, 6, "#E6E8EF"), Box(22, 37, 76, 4, "#EEF0F5"),
-            Box(22, 50, 50, 26, "#EEEAFE", 3), Box(78, 50, 50, 26, "#E6F0FF", 3),
-            // Dim everything outside the selection.
-            Box(0, 0, 150, 34, "#4D1C1838", 0), Box(0, 66, 150, 14, "#4D1C1838", 0), Box(0, 34, 46, 32, "#4D1C1838", 0), Box(112, 34, 38, 32, "#4D1C1838", 0),
-            new Rectangle { Width = 66, Height = 32, Stroke = Brush.Parse(DesignTokens.Accent), StrokeThickness = 1.5, [Canvas.LeftProperty] = 46, [Canvas.TopProperty] = 34 },
-            new Border { Background = Brush.Parse(DesignTokens.Accent), CornerRadius = new CornerRadius(4), Padding = new Thickness(5, 0), [Canvas.LeftProperty] = 46, [Canvas.TopProperty] = 17,
-                Child = new TextBlock { Text = "430 × 250", FontSize = 9, FontWeight = FontWeight.SemiBold, Foreground = Brushes.White, LineHeight = 15 } }
-        } };
-        foreach (var (x, y) in new[] { (43.0, 31.0), (109.0, 31.0), (43.0, 63.0), (109.0, 63.0) })
-            canvas.Children.Add(new Rectangle { Width = 6, Height = 6, Fill = Brushes.White, Stroke = Brush.Parse(DesignTokens.Accent), StrokeThickness = 1.5,
-                [Canvas.LeftProperty] = x, [Canvas.TopProperty] = y });
-        return Scene(canvas);
-    }
-
-    private Control FolderIllustration()
-    {
-        var path = OperatingSystem.IsMacOS() ? "~/Projects/Tbox/docs" : @"D:\Projects\Tbox\docs";
-        var canvas = new Canvas { Children =
-        {
-            Box(13, 10, 124, 80, "#FFFFFF", 6),
-            new Border { Width = 110, Height = 14, CornerRadius = new CornerRadius(4), Background = Brush.Parse("#F1EDFF"), BorderBrush = Brush.Parse("#CDBFFA"),
-                BorderThickness = new Thickness(1), Padding = new Thickness(6, 0), [Canvas.LeftProperty] = 20, [Canvas.TopProperty] = 17,
-                Child = new TextBlock { Text = path, FontSize = 8.5, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#5A39D6"), VerticalAlignment = VerticalAlignment.Center } }
-        } };
-        for (var row = 0; row < 2; row++)
-        for (var column = 0; column < 4; column++)
-            canvas.Children.Add(Box(22 + column * 28, 38 + row * 20, 18, 14, (row + column) % 3 == 0 ? "#C9D3E6" : "#FFD27A"));
-        var caps = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3, [Canvas.LeftProperty] = 96, [Canvas.TopProperty] = 58 };
-        _folderCaps.Add(caps);
-        canvas.Children.Add(caps);
-        return Scene(canvas);
-    }
-
-    // Shortcut text shown outside the shortcut rows; rebuilt when a shortcut changes.
-    private readonly List<StackPanel> _folderCaps = [];
     private readonly TextBlock _folderTitle = new() { FontSize = DesignTokens.SectionTitle, FontWeight = FontWeight.SemiBold, LineHeight = 22, Foreground = Strong };
     private SurfaceButton? _pinFeature;
 
@@ -710,14 +642,6 @@ public sealed class MainWindow : Window
         if (_pinFeature is not null) SetFeatureShortcut(_pinFeature, "贴出剪贴板", ShortcutLabels.Pin);
         var folder = ShortcutLabels.Caps(HotkeyAction.Folder);
         _folderTitle.Text = $"按 {string.Join(" + ", folder)}";
-        foreach (var caps in _folderCaps)
-        {
-            caps.Children.Clear();
-            foreach (var key in folder)
-                caps.Children.Add(new Border { Height = 17, MinWidth = 17, Padding = new Thickness(4, 0), CornerRadius = new CornerRadius(4), Background = Brushes.White,
-                    BoxShadow = BoxShadows.Parse("0 1 0 0 #33000000, 0 0 0 1 #14000000"),
-                    Child = new TextBlock { Text = key, FontSize = 9, FontWeight = FontWeight.Bold, Foreground = Strong, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center } });
-        }
         foreach (var row in _shortcuts.Values) row.Refresh();
     }
 
@@ -860,8 +784,7 @@ public sealed class MainWindow : Window
         {
             set
             {
-                Background = value ? Brushes.White : Brushes.Transparent;
-                BoxShadow = value ? BoxShadows.Parse("0 1 2 0 #0F101220, 0 6 16 0 #0F101220") : default;
+                Background = value ? Brush.Parse("#DCE2E8") : Brushes.Transparent;
                 _icon.Stroke = value ? Brush.Parse(DesignTokens.Accent) : NavIcon;
                 _text.FontWeight = value ? FontWeight.SemiBold : FontWeight.Normal;
                 _text.Foreground = value ? Strong : NavText;

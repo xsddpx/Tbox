@@ -506,7 +506,14 @@ public sealed class DesktopController : IDisposable
         var timer = Stopwatch.StartNew();
         try
         {
-            var restoreForeground = preset is null ? Platform.SnapshotCaptureForeground() : null;
+            var restoreForeground = Platform.SnapshotCaptureForeground();
+            if (preset is not null && Main.IsVisible)
+            {
+                Main.Hide();
+                // Let the compositor remove the dashboard before freezing the screen for region selection.
+                await Task.Delay(150, _stop.Token);
+                restoreForeground ??= Platform.SnapshotCaptureForeground();
+            }
             // Snapshot external targets before overlays exist, alongside screen capture, not on the input thread.
             var targetsTask = Task.Run(Platform.CreateCaptureTargets, _stop.Token);
             var displaysTask = Platform.CaptureAsync(_stop.Token);
@@ -595,15 +602,16 @@ public sealed class DesktopController : IDisposable
         catch (FileNotFoundException) { Main.Refresh(); throw new InvalidOperationException("这张截图已被清理或移动。"); }
     }
 
-    internal async Task StartLongCaptureAsync(DesktopPlacement region)
+    internal async Task StartLongCaptureAsync(DesktopPlacement region, Action? restoreForeground = null)
     {
         _capturing = true;
         try
         {
+            if (Main.IsVisible) Main.Hide();
             await Task.Delay(150, _stop.Token);
             if (IsQuitting || _installingUpdate) return;
             _longCapture?.Stop();
-            var session = new LongCaptureSession(this, region, () => _longCapture = null);
+            var session = new LongCaptureSession(this, region, () => _longCapture = null, restoreForeground);
             _longCapture = session;
             try { session.Start(); }
             catch { session.Stop(); throw; }
@@ -618,15 +626,16 @@ public sealed class DesktopController : IDisposable
         catch { picture.Dispose(); throw; }
     }
 
-    internal async Task StartRecordingAsync(RecordingArea area)
+    internal async Task StartRecordingAsync(RecordingArea area, Action? restoreForeground = null)
     {
         if (_recording is not null || _quitRequested) return;
         _capturing = true;
         try
         {
+            if (Main.IsVisible) Main.Hide();
             await Task.Delay(150, _stop.Token);
             if (IsQuitting || _installingUpdate) return;
-            var session = new RecordingControlWindow(this, area);
+            var session = new RecordingControlWindow(this, area, restoreForeground);
             _recording = session;
             session.Released += () => { if (ReferenceEquals(_recording, session)) _recording = null; };
             session.Show(); CaptureHistory.Remember(area.Bounds);
@@ -634,10 +643,10 @@ public sealed class DesktopController : IDisposable
         finally { _capturing = false; }
     }
 
-    internal void ShowRecordingReview(RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration)
+    internal void ShowRecordingReview(RecordingWorkspace workspace, RecordingArea area, RecordingOutput output, TimeSpan duration, Action? restoreForeground = null)
     {
         if (IsQuitting || _installingUpdate) { workspace.Dispose(); return; }
-        var review = new RecordingReviewWindow(this, workspace, area, output, duration);
+        var review = new RecordingReviewWindow(this, workspace, area, output, duration, restoreForeground);
         _reviews.Add(review); review.Released += () => _reviews.Remove(review); review.Show();
     }
 
