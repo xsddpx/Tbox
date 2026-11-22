@@ -46,7 +46,7 @@ public static class RecordingExportProfiles
     public static RecordingExportProfile Get(RecordingExportFormat format) => format switch
     {
         RecordingExportFormat.Gif => new(format, "GIF", "图像，兼容性高，质量较低", ".gif", 10, 1280, null, false),
-        RecordingExportFormat.WebP => new(format, "WEBP", "图像，质量好，兼容性适中", ".webp", 25, null, 80, false),
+        RecordingExportFormat.WebP => new(format, "WEBP", "图像，质量好，兼容性适中", ".webp", 15, null, 80, false),
         RecordingExportFormat.Mp4 => new(format, "MP4", "视频，体积小，质量好", ".mp4", RecordingFrameRatePolicy.RecordingFrameRate, null, null, true),
         RecordingExportFormat.ContactSheet => new(format, "宫格图", "图片，在截取范围内均匀取帧", ".jpg", 0, null, 90, false),
         _ => throw new ArgumentOutOfRangeException(nameof(format))

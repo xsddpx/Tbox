@@ -16,9 +16,10 @@ internal sealed class VideoConverterView : UserControl
 {
     private readonly DesktopController _controller;
     private readonly Func<Task> _savedRecording;
-    private readonly ContentControl _body = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    private readonly ContentControl _body = new() { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
     private readonly TextBlock _status = Ui.Description("");
-    private readonly Button _headerAction, _choose;
+    private readonly Button? _restart;
+    private readonly Button _choose;
     private readonly Control _empty;
     private readonly Rectangle _dropSurface;
     private CancellationTokenSource? _importCancellation;
@@ -31,14 +32,17 @@ internal sealed class VideoConverterView : UserControl
     {
         _controller = controller;
         _savedRecording = savedRecording ?? (() => Task.CompletedTask);
-        var actionLabel = restartRecording is null ? "导入" : "重新录屏";
-        var actionIcon = restartRecording is null ? IconKind.Import : IconKind.Record;
-        _headerAction = Ui.Button(actionLabel, () => controller.Run(restartRecording ?? PickAsync));
-        _headerAction.Content = Ui.Row(new LineIcon(actionIcon) { Width = 16, Height = 16 }, new TextBlock { Text = actionLabel });
         _choose = Ui.Button("选择文件…", () => controller.Run(PickAsync));
         _choose.HorizontalAlignment = HorizontalAlignment.Center;
         var title = Ui.Text("视频转换", 25); title.FontWeight = FontWeight.SemiBold; title.VerticalAlignment = VerticalAlignment.Center;
-        var header = new Grid { ColumnDefinitions = new("*,Auto"), Margin = new Thickness(0, 0, 0, 13), Children = { title, Ui.Column(_headerAction, 1) } };
+        var header = new Grid { ColumnDefinitions = new("*,Auto"), MinHeight = 34,
+            Margin = new Thickness(0, 0, 0, 13), Children = { Ui.WindowDragRegion(title) } };
+        if (restartRecording is not null)
+        {
+            _restart = Ui.Button("重新录屏", () => controller.Run(restartRecording));
+            _restart.Content = Ui.Row(new LineIcon(IconKind.Record) { Width = 16, Height = 16 }, new TextBlock { Text = "重新录屏" });
+            header.Children.Add(Ui.Column(_restart, 1));
+        }
         var options = Ui.Text("导出设置", 16); options.FontWeight = FontWeight.SemiBold;
         var save = Ui.Primary("保存视频…", () => { }); save.IsEnabled = false;
         save.HorizontalAlignment = HorizontalAlignment.Stretch; save.HorizontalContentAlignment = HorizontalAlignment.Center;
@@ -50,36 +54,28 @@ internal sealed class VideoConverterView : UserControl
         var emptyTitle = Ui.Text("拖入视频或动图", 18); emptyTitle.FontWeight = FontWeight.SemiBold;
         var dropContent = new StackPanel { Spacing = 8, Margin = new Thickness(9),
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Children =
-            { Ui.IconChip(IconKind.Film, ToolTone.Grey, 50, 25), emptyTitle, Ui.Description("支持 MP4、MOV、WebM、GIF、WebP 等"), _choose } };
+            { Ui.IconChip(IconKind.Film, ToolTone.Grey, 50, 25), emptyTitle, new TextBlock { Text = "支持 MP4、MOV、WebM、GIF、WebP 等", TextWrapping = TextWrapping.Wrap,
+                TextAlignment = TextAlignment.Center, Foreground = Brush.Parse("#5F6270"), FontSize = 12 }, _choose } };
         foreach (var child in dropContent.Children) child.HorizontalAlignment = HorizontalAlignment.Center;
-        var formats = Ui.Segmented(["MP4", "GIF", "WebP", "宫格图"], 0, _ => { }, out _, out var enableFormats);
+        var formats = Ui.Segmented(["MP4", "GIF", "WebP", "宫格图"], 0, _ => { }, out _, out var enableFormats, equalWidth: true);
         enableFormats(false);
-        var rate = new ComboBox { ItemsSource = new[] { "30 FPS" }, SelectedIndex = 0, IsEnabled = false, Width = 132 };
-        var size = new ComboBox { ItemsSource = new[] { "100%" }, SelectedIndex = 0, IsEnabled = false, Width = 132 };
+        var rate = new ComboBox { ItemsSource = new[] { "30 FPS" }, SelectedIndex = 0, IsEnabled = false, MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var size = new ComboBox { ItemsSource = new[] { "100%" }, SelectedIndex = 0, IsEnabled = false, MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
         var emptySettings = new DockPanel { LastChildFill = true, Children =
         {
             new StackPanel { Spacing = 5, Children = { Ui.Description("等待导入素材"), save } },
             new StackPanel { Spacing = 8, Children = { options, Ui.Description("格式"), formats, Setting("帧率", rate), Setting("尺寸", size) } }
         } };
         DockPanel.SetDock(emptySettings.Children[0], Dock.Bottom);
-        var empty = new Grid { ColumnDefinitions = new("*,258"), ColumnSpacing = 12, RowSpacing = 9,
-            Children = { new Border { MinHeight = 330, Padding = new Thickness(10), Background = Brushes.White,
-                BorderBrush = Brush.Parse("#DCE4EC"), BorderThickness = new Thickness(1), CornerRadius = new(11),
-                Child = new Grid { Children = { _dropSurface, dropContent } } },
-                Ui.Column(new Border { Background = Brush.Parse("#F4F7FA"), Padding = new Thickness(13), CornerRadius = new(11),
-                    BorderBrush = Brush.Parse("#DCE4EC"), BorderThickness = new Thickness(1), Child = emptySettings }, 1) } };
-        var settings = empty.Children[1];
-        empty.SizeChanged += (_, e) =>
-        {
-            var stacked = e.NewSize.Width < 546;
-            empty.ColumnDefinitions = new(stacked ? "*" : "*,258");
-            empty.RowDefinitions = new(stacked ? "Auto,Auto" : "*");
-            Grid.SetColumn(settings, stacked ? 0 : 1); Grid.SetRow(settings, stacked ? 1 : 0);
-        };
-        _empty = empty;
+        _empty = Workspace(new Border { Padding = new Thickness(10), Background = Brushes.White,
+            BorderBrush = Brush.Parse("#DCE4EC"), BorderThickness = new Thickness(1), CornerRadius = new(11),
+            Child = new Grid { Children = { _dropSurface, dropContent } } },
+            new Border { Background = Brush.Parse("#F4F7FA"), Padding = new Thickness(13), CornerRadius = new(11),
+                BorderBrush = Brush.Parse("#DCE4EC"), BorderThickness = new Thickness(1), Child = emptySettings });
         _body.Content = _empty;
         _status.IsVisible = false;
-        var layout = new StackPanel { Children = { header, _body, _status } };
+        Grid.SetRow(_body, 1); Grid.SetRow(_status, 2);
+        var layout = new Grid { RowDefinitions = new("Auto,*,Auto"), Children = { header, _body, _status } };
         Content = layout;
         Loaded += (_, _) => Editor?.Start();
         DragDrop.SetAllowDrop(layout, true);
@@ -106,11 +102,22 @@ internal sealed class VideoConverterView : UserControl
     }
 #pragma warning restore CS0618
 
+    internal static Grid Workspace(Control media, Control export) => new()
+    {
+        ColumnDefinitions =
+        [
+            new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            new ColumnDefinition { Width = new GridLength(.61, GridUnitType.Star), MinWidth = 206, MaxWidth = 320 }
+        ],
+        ColumnSpacing = 12,
+        Children = { media, Ui.Column(export, 1) }
+    };
+
     private static Grid Setting(string name, Control control)
     {
         var label = Ui.Description(name);
         label.VerticalAlignment = VerticalAlignment.Center;
-        return new Grid { ColumnDefinitions = new("*,Auto"), Children = { label, Ui.Column(control, 1) } };
+        return new Grid { ColumnDefinitions = new("*,1.4*"), ColumnSpacing = 5, Children = { label, Ui.Column(control, 1) } };
     }
 
     private void Highlight(bool on) => _dropSurface.Stroke = Brush.Parse(on ? "#41678F" : "#AEBED0");
@@ -219,6 +226,7 @@ internal sealed class VideoConverterView : UserControl
     private void SetBusy(bool busy)
     {
         _busy = busy || _reading;
-        _headerAction.IsEnabled = _choose.IsEnabled = !_busy && !_closing;
+        _choose.IsEnabled = !_busy && !_closing;
+        if (_restart is not null) _restart.IsEnabled = _choose.IsEnabled;
     }
 }

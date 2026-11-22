@@ -2,11 +2,13 @@
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
+using Avalonia.VisualTree;
 
 namespace Tbox.Desktop.Views;
 
@@ -330,14 +332,14 @@ internal static class Ui
     public static T Column<T>(T control, int column) where T : Control { Grid.SetColumn(control, column); return control; }
 
     // Result windows (spec ④) share the main window's structure: tinted window → header → white sheet → bottom bar.
-    public static Grid ResultHeader(IconKind icon, ToolTone tone, string title, TextBlock subtitle, Control? trailing = null)
+    public static Grid ResultHeader(IconKind icon, ToolTone tone, string title, TextBlock subtitle, Control? trailing = null, bool trimTitle = false)
     {
         subtitle.FontSize = DesignTokens.Caption; subtitle.LineHeight = 16;
-        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children =
-        {
-            new TextBlock { Text = title, FontSize = DesignTokens.SectionTitle, LineHeight = 22, FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#1A1B22") },
-            subtitle
-        } };
+        var titleText = new TextBlock { Text = title, FontSize = DesignTokens.SectionTitle, LineHeight = 22,
+            FontWeight = FontWeight.SemiBold, Foreground = Brush.Parse("#1A1B22"),
+            TextTrimming = trimTitle ? TextTrimming.CharacterEllipsis : TextTrimming.None };
+        if (trimTitle) ToolTip.SetTip(titleText, title);
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Children = { titleText, subtitle } };
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12, Margin = new Thickness(20, 4, 20, 14),
             Children = { IconChip(icon, tone, 40, 20), Column(titles, 1) } };
         if (trailing is not null) { trailing.VerticalAlignment = VerticalAlignment.Center; header.Children.Add(Column(trailing, 2)); }
@@ -381,8 +383,49 @@ internal static class Ui
         window.ExtendClientAreaToDecorationsHint = true; window.ExtendClientAreaTitleBarHeightHint = 34;
     }
 
+    public static Border WindowDragRegion(Control? content = null)
+    {
+        var region = new Border { Background = Brushes.Transparent, Child = content };
+        (IPointer Pointer, Window Window, PixelPoint PointerOrigin, PixelPoint WindowOrigin)? drag = null;
+        region.PointerPressed += (_, e) =>
+        {
+            if (e.GetCurrentPoint(region).Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed ||
+                TopLevel.GetTopLevel(region) is not Window window || window.WindowState != WindowState.Normal) return;
+            drag = (e.Pointer, window, region.PointToScreen(e.GetPosition(region)), window.Position);
+            e.Pointer.Capture(region);
+            e.Handled = true;
+        };
+        region.PointerMoved += (_, e) =>
+        {
+            if (drag is not { } start || e.Pointer != start.Pointer) return;
+            var position = region.PointToScreen(e.GetPosition(region));
+            var offset = position - start.PointerOrigin;
+            start.Window.Position = start.WindowOrigin + offset;
+            e.Handled = true;
+        };
+        region.PointerReleased += (_, e) =>
+        {
+            if (drag is not { } start || e.Pointer != start.Pointer ||
+                e.InitialPressMouseButton != MouseButton.Left) return;
+            drag = null;
+            e.Pointer.Capture(null);
+            e.Handled = true;
+        };
+        region.PointerCaptureLost += (_, _) => drag = null;
+        return region;
+    }
+
+    public static Border TitleBarDragRegion()
+    {
+        var region = WindowDragRegion();
+        region.Height = 34;
+        region.VerticalAlignment = VerticalAlignment.Top;
+        region.Margin = OperatingSystem.IsMacOS() ? new Thickness(82, 0, 0, 0) : new Thickness(0, 0, 150, 0);
+        return region;
+    }
+
     // 2–4 mutually exclusive choices (spec ②). The selected segment is a raised white chip.
-    public static Border Segmented(IReadOnlyList<string> options, int selected, Action<int> changed, out Func<int> current, out Action<bool> enable)
+    public static Border Segmented(IReadOnlyList<string> options, int selected, Action<int> changed, out Func<int> current, out Action<bool> enable, bool equalWidth = false)
     {
         var buttons = new List<Button>();
         var chips = new List<Border>();
@@ -396,14 +439,19 @@ internal static class Ui
                 chips[i].BoxShadow = on ? BoxShadows.Parse("0 1 2 0 #1A101220, 0 0 0 1 #0A101220") : default;
                 buttons[i].FontWeight = on ? FontWeight.SemiBold : FontWeight.Normal;
                 buttons[i].Foreground = Brush.Parse(on ? "#1A1B22" : "#5F6270");
+                buttons[i].Resources["ButtonBackgroundDisabled"] = Brushes.Transparent;
                 buttons[i].Resources["ButtonBackgroundPointerOver"] = on ? Brushes.Transparent : new SolidColorBrush(Colors.White, .6);
             }
         }
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        Panel row = equalWidth
+            ? new UniformGrid { Rows = 1, Columns = options.Count }
+            : new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         for (var i = 0; i < options.Count; i++)
         {
             var position = i;
-            var button = new Button { Content = options[i], Height = 26, MinHeight = 26, Padding = new Thickness(8, 0), FontSize = 13,
+            var button = new Button { Content = options[i], Height = 26, MinHeight = 26, Padding = new Thickness(equalWidth ? 2 : 8, 0), FontSize = equalWidth ? 12 : 13,
+                MinWidth = 0, HorizontalAlignment = equalWidth ? HorizontalAlignment.Stretch : HorizontalAlignment.Left,
+                HorizontalContentAlignment = HorizontalAlignment.Center,
                 CornerRadius = new CornerRadius(7), BorderThickness = default, Background = Brushes.Transparent, VerticalContentAlignment = VerticalAlignment.Center };
             AutomationProperties.SetName(button, options[i]);
             button.Resources["ButtonBackgroundPressed"] = Brushes.Transparent;

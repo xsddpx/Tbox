@@ -21,7 +21,7 @@ public sealed class RecordingPoliciesTests
         Assert.Equal(30, mp4.DefaultFramesPerSecond);
         Assert.True(mp4.SupportsAudio);
         Assert.Equal((10, 1280), (RecordingExportProfiles.Get(RecordingExportFormat.Gif).DefaultFramesPerSecond, RecordingExportProfiles.Get(RecordingExportFormat.Gif).DefaultMaximumLongEdge!.Value));
-        Assert.Equal(25, RecordingExportProfiles.Get(RecordingExportFormat.WebP).DefaultFramesPerSecond);
+        Assert.Equal(15, RecordingExportProfiles.Get(RecordingExportFormat.WebP).DefaultFramesPerSecond);
         Assert.Equal(".jpg", RecordingExportProfiles.Get(RecordingExportFormat.ContactSheet).Extension);
         Assert.False(RecordingExportProfiles.Get(RecordingExportFormat.Gif).SupportsAudio);
         Assert.False(RecordingExportProfiles.Get(RecordingExportFormat.WebP).SupportsAudio);
