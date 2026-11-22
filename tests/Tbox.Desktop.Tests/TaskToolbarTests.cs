@@ -699,6 +699,23 @@ public sealed class TaskToolbarTests
         Assert.Equal(tool is AnnotationTool.Mosaic or AnnotationTool.Eraser ? 0 : 5, colors);
     }
 
+    [AvaloniaTheory]
+    [InlineData(210, 130, 180, 105, 190, 115, 570, 305)]
+    [InlineData(770, 130, 800, 105, 220, 115, 570, 305)]
+    [InlineData(210, 430, 180, 455, 190, 140, 570, 305)]
+    [InlineData(770, 430, 800, 455, 220, 140, 570, 305)]
+    public async Task QuickCornerDragKeepsOppositeCornerAndUsesTheReleasePosition(
+        int x, int y, int endX, int endY, int left, int top, int width, int height)
+    {
+        using var scope = await CaptureScope.StartAsync(null);
+        var window = scope.Window;
+        window.MouseDown(new Point(x, y), MouseButton.Left, RawInputModifiers.None);
+        window.MouseMove(new Point(x + 1, y + 1), RawInputModifiers.LeftMouseButton);
+        window.MouseUp(new Point(endX, endY), MouseButton.Left, RawInputModifiers.None);
+        Layout(window);
+        Assert.Equal(new CaptureSelectionBounds(left, top, width, height), window.Surface.Selection);
+    }
+
     [AvaloniaFact]
     public async Task EllipseWidthButtonsUpdateTheDrawingAndStopAtBothLimits()
     {

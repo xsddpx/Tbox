@@ -118,6 +118,14 @@ public sealed class SettingsTests
     }
 
     [Fact]
+    public void OverlappingCornerTargetsChooseTheNearestCornerOfASmallSelection()
+    {
+        var bounds = new CaptureSelectionBounds(100, 80, 8, 6);
+        Assert.Equal(CaptureSelectionHandle.BottomRight, CaptureSelectionAdjustmentPolicy.HitTest(bounds, 107, 85, 7, 12));
+        Assert.Equal(CaptureSelectionHandle.TopRight, CaptureSelectionAdjustmentPolicy.HitTest(bounds, 109, 78, 7, 12));
+    }
+
+    [Fact]
     public void CaptureSelectionResizeKeepsOppositeEdgesFixedAndClampsToSurface()
     {
         var bounds = new CaptureSelectionBounds(100, 80, 400, 300);

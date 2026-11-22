@@ -307,7 +307,11 @@ internal sealed class CaptureSurface : Control
         Focusable = true; Cursor = new Cursor(StandardCursorType.Cross);
     }
 
-    private CaptureSelectionBounds? Selection => _session.State.ActiveDisplay == _window.Display.Id ? _session.State.Selection : null;
+    private CaptureSelectionHandle HandleAt(Point point) => Selection is { } selection
+        ? CaptureSelectionAdjustmentPolicy.HitTest(selection, point.X, point.Y, tolerance: 7, cornerTolerance: 12)
+        : CaptureSelectionHandle.None;
+
+    internal CaptureSelectionBounds? Selection => _session.State.ActiveDisplay == _window.Display.Id ? _session.State.Selection : null;
 
     public override void Render(DrawingContext context)
     {
@@ -354,7 +358,7 @@ internal sealed class CaptureSurface : Control
         Focus(); _window.Activate();
         _start = Clamp(e.GetPosition(this));
         _clickTarget = Selection is null ? DetectedSelection : null;
-        _handle = Selection is { } old ? CaptureSelectionAdjustmentPolicy.HitTest(old, _start.X, _start.Y, 7) : CaptureSelectionHandle.None;
+        _handle = HandleAt(_start);
         _original = Selection ?? default;
         if (_handle == CaptureSelectionHandle.None && Selection is { } selected &&
             new Rect(selected.Left, selected.Top, selected.Width, selected.Height).Contains(_start) &&
@@ -382,19 +386,31 @@ internal sealed class CaptureSurface : Control
         if (!IsDragging)
         {
             _session.QueueDetection(_window, point);
-            var handle = Selection is { } bounds ? CaptureSelectionAdjustmentPolicy.HitTest(bounds, point.X, point.Y, 7) : CaptureSelectionHandle.None;
+            var handle = HandleAt(point);
             Cursor = new Cursor(handle switch
             {
                 CaptureSelectionHandle.Left or CaptureSelectionHandle.Right => StandardCursorType.SizeWestEast,
                 CaptureSelectionHandle.Top or CaptureSelectionHandle.Bottom => StandardCursorType.SizeNorthSouth,
-                CaptureSelectionHandle.TopLeft or CaptureSelectionHandle.BottomRight => StandardCursorType.TopLeftCorner,
-                CaptureSelectionHandle.TopRight or CaptureSelectionHandle.BottomLeft => StandardCursorType.TopRightCorner,
+                CaptureSelectionHandle.TopLeft => StandardCursorType.TopLeftCorner,
+                CaptureSelectionHandle.BottomRight => StandardCursorType.BottomRightCorner,
+                CaptureSelectionHandle.TopRight => StandardCursorType.TopRightCorner,
+                CaptureSelectionHandle.BottomLeft => StandardCursorType.BottomLeftCorner,
                 _ => StandardCursorType.Cross
             });
             return;
         }
+        UpdateSelection(point);
+    }
+
+    private void UpdateSelection(Point point)
+    {
+        var delta = point - _start;
+        var x = (_handle is CaptureSelectionHandle.Left or CaptureSelectionHandle.TopLeft or CaptureSelectionHandle.BottomLeft
+            ? _original.Left : _original.Right) + delta.X;
+        var y = (_handle is CaptureSelectionHandle.Top or CaptureSelectionHandle.TopLeft or CaptureSelectionHandle.TopRight
+            ? _original.Top : _original.Bottom) + delta.Y;
         var selection = _handle != CaptureSelectionHandle.None
-            ? CaptureSelectionAdjustmentPolicy.Resize(_original, _handle, point.X, point.Y, Bounds.Width, Bounds.Height, 1, 1)
+            ? CaptureSelectionAdjustmentPolicy.Resize(_original, _handle, x, y, Bounds.Width, Bounds.Height, 1, 1)
             : new CaptureSelectionBounds(Math.Min(_start.X, point.X), Math.Min(_start.Y, point.Y), Math.Abs(point.X - _start.X), Math.Abs(point.Y - _start.Y));
         _session.Select(_window.Display.Id, selection);
     }
@@ -411,6 +427,8 @@ internal sealed class CaptureSurface : Control
         var end = Clamp(e.GetPosition(this));
         if (_clickTarget is { } detected && Math.Abs(end.X - _start.X) < 3 && Math.Abs(end.Y - _start.Y) < 3)
             _session.Select(_window.Display.Id, detected, true);
+        else if (_handle != CaptureSelectionHandle.None || end != _start || Selection is not null)
+            UpdateSelection(end);
         _clickTarget = null;
         IsDragging = false; e.Pointer.Capture(null); _window.Refresh(); e.Handled = true;
     }

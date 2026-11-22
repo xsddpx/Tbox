@@ -266,8 +266,15 @@ public sealed class MainWindowTests
         Layout(main);
         var headings = main.CurrentPageView.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).ToArray();
         Assert.Equal(18, Assert.Single(headings, t => t.Text == "设置").FontSize);
-        foreach (var group in new[] { "应用行为", "模型服务", "版本与反馈" })
+        foreach (var group in new[] { "应用行为", "模型服务" })
             Assert.Equal(DesignTokens.Caption, Assert.Single(headings, t => t.Text == group).FontSize);
+        var card = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<UpdateCard>());
+        var behavior = Assert.Single(headings, t => t.Text == "应用行为");
+        Assert.True(card.TranslatePoint(new Point(0, card.Bounds.Height), main)!.Value.Y <= behavior.TranslatePoint(default, main)!.Value.Y);
+        var version = Assert.Single(main.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == $"v{MainWindow.Version}");
+        var brand = Assert.Single(main.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "Tbox");
+        Assert.Same(brand.Parent, version.Parent);
+        Assert.True(version.TranslatePoint(default, main)!.Value.Y >= brand.TranslatePoint(new Point(0, brand.Bounds.Height), main)!.Value.Y);
         main.Navigate(MainPage.Capture);
         Layout(main);
         var actions = new[] { "贴出剪贴板", "长截图", "录屏", "识别文字" }.Select(label => Find(main, label)).ToArray();
