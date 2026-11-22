@@ -107,7 +107,9 @@ public sealed class App : Application
     {
         // macOS reopens an existing process through the application lifetime,
         // without starting the second process handled by SingleInstance.
-        if (args.Kind == ActivationKind.Reopen)
+        // Reject events received during capture as well as those dispatched during capture.
+        // Closing the overlay can clear the session before the dispatcher runs this callback.
+        if (args.Kind == ActivationKind.Reopen && controller.CanRestoreMainOnReopen)
             Dispatcher.UIThread.Post(controller.ShowMainOnReopen);
     }
 }

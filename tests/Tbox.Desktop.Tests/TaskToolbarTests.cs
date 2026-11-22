@@ -6,6 +6,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -882,6 +883,27 @@ public sealed class TaskToolbarTests
     }
 
     [AvaloniaFact]
+    public async Task CopyingACaptureRestoresThePreviousAppAfterWritingTheClipboard()
+    {
+        var restored = new TaskCompletionSource();
+        using var scope = await CaptureScope.StartAsync(null, restoreForeground: () => restored.TrySetResult());
+        var cache = Directory.CreateTempSubdirectory("tbox-capture-focus-");
+        try
+        {
+            scope.Controller.UseCacheDirectoryForTests(cache.FullName);
+            scope.Window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, null);
+            await restored.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(scope.Controller.Main.IsVisible);
+            Assert.False(scope.Window.IsVisible);
+            using var copied = await scope.Controller.Main.Clipboard!.TryGetBitmapAsync();
+            Assert.NotNull(copied);
+            for (var attempt = 0; attempt < 100 && !cache.GetFiles("*.png").Any(); attempt++) await Task.Delay(10);
+            Assert.Single(cache.GetFiles("*.png"));
+        }
+        finally { cache.Delete(recursive: true); }
+    }
+
+    [AvaloniaFact]
     public async Task ContactSheetPlayheadSnapsToSamplesAndShowsTheirFrames()
     {
         if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
@@ -1104,7 +1126,8 @@ public sealed class TaskToolbarTests
             return null;
         }
 
-        public static async Task<CaptureScope> StartAsync(CaptureAction? preset, double topSafeInset = 0, bool mainVisible = false)
+        public static async Task<CaptureScope> StartAsync(CaptureAction? preset, double topSafeInset = 0, bool mainVisible = false,
+            Action? restoreForeground = null)
         {
             if (!Application.Current!.Styles.OfType<FluentTheme>().Any()) Application.Current.Styles.Add(DesignTokens.CreateTheme());
             var frame = Desktop(1200, 720);
@@ -1114,6 +1137,7 @@ public sealed class TaskToolbarTests
             var platform = new FakePlatform
             {
                 HasScreenPermission = true,
+                CaptureForegroundRestore = restoreForeground,
                 Displays = [new CapturedDisplay(1, 0, 0, 1200, 720, frame.Png)],
                 CaptureRegion = async token => { await Task.Delay(Timeout.Infinite, token); return frame.Png; },
                 Recorder = new FakeRecorder(),

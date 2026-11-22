@@ -258,6 +258,19 @@ public func captureOverlay(_ pointer: UnsafeRawPointer?, _ clickThrough: Int32) 
     // Region captures exclude this process via SCContentFilter, including controls and preview.
 }
 
+@_cdecl("tbox_capture_foreground")
+public func captureForeground() -> Int32 {
+    let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
+    return pid == ProcessInfo.processInfo.processIdentifier ? 0 : pid
+}
+
+@_cdecl("tbox_restore_capture_foreground")
+public func restoreCaptureForeground(_ pid: Int32) {
+    guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+          let application = NSRunningApplication(processIdentifier: pid), !application.isTerminated else { return }
+    _ = application.activate(options: [])
+}
+
 @_cdecl("tbox_move_to_pointer")
 public func moveToPointer(_ pointer: UnsafeRawPointer?) {
     guard let target = window(pointer) else { return }

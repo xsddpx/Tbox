@@ -441,9 +441,12 @@ public sealed class DesktopController : IDisposable
     // Tray click, app reopen and a second launch all bring the main window to the front.
     // A hidden window reopens on 截图; one that is already open keeps its page unless a page is requested.
     public void ShowMain() => ShowMain(null);
+    internal bool CanRestoreMainOnReopen =>
+        !IsQuitting && !_capturing && _capture is null && _longCapture is null && _recording is null && _reviews.Count == 0;
+
     internal void ShowMainOnReopen()
     {
-        if (!_capturing && _capture is null && _longCapture is null && _recording is null && _reviews.Count == 0) ShowMain();
+        if (CanRestoreMainOnReopen) ShowMain();
     }
 
     internal void ShowMain(MainPage? page)
@@ -503,6 +506,7 @@ public sealed class DesktopController : IDisposable
         var timer = Stopwatch.StartNew();
         try
         {
+            var restoreForeground = preset is null ? Platform.SnapshotCaptureForeground() : null;
             // Snapshot external targets before overlays exist, alongside screen capture, not on the input thread.
             var targetsTask = Task.Run(Platform.CreateCaptureTargets, _stop.Token);
             var displaysTask = Platform.CaptureAsync(_stop.Token);
@@ -510,7 +514,7 @@ public sealed class DesktopController : IDisposable
             var displays = await displaysTask;
             var capturedMs = timer.Elapsed.TotalMilliseconds;
             if (IsQuitting || _installingUpdate) return;
-            _capture = new CaptureSession(this, displays, () => _capture = null, preset, await targetsTask);
+            _capture = new CaptureSession(this, displays, () => _capture = null, preset, await targetsTask, restoreForeground);
             _capture.Show();
             AppLog.Write($"Capture ready: acquisition={capturedMs:F1}ms, overlay-shown={timer.Elapsed.TotalMilliseconds:F1}ms, displays={displays.Count}");
         }
@@ -518,14 +522,19 @@ public sealed class DesktopController : IDisposable
     }
 
     internal async Task CompleteCaptureAsync(Picture picture, DesktopPlacement placement, CaptureAction action,
-        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null, CaptureFrame? frame = null)
+        IReadOnlyList<AnnotationCommand>? annotations = null, DesktopPlacement? pinPlacement = null, CaptureFrame? frame = null,
+        Action? restoreForeground = null)
     {
         using (picture)
         {
             if (action == CaptureAction.Save && !await SaveAsync(picture, Main)) return;
             Picture? pinned = null;
             if (action == CaptureAction.Pin) { pinned = picture.Clone(); Pin(pinned, pinPlacement ?? placement, annotations); }
-            if (action == CaptureAction.Copy) await CopyAsync(picture);
+            if (action == CaptureAction.Copy)
+            {
+                try { await CopyAsync(picture); }
+                finally { if (!IsQuitting) restoreForeground?.Invoke(); }
+            }
             if (action == CaptureAction.Ocr) ShowOcr(picture, false);
             await CacheAsync(picture, pinned);
             CaptureHistory.Remember(placement);

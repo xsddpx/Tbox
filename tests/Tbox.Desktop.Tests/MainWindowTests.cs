@@ -334,11 +334,13 @@ public sealed class MainWindowTests
     [InlineData(true, false)]
     public async Task NormalCaptureKeepsTheMainWindowInItsCurrentState(bool useShortcut, bool mainVisible)
     {
+        var restores = 0;
         using var frame = DesktopController.RenderText("Screen capture");
         var size = frame.Bitmap.PixelSize;
         var platform = new FakePlatform
         {
             HasScreenPermission = true,
+            CaptureForegroundRestore = () => restores++,
             Displays = [new(1, 0, 0, size.Width, size.Height, frame.Png)]
         };
         using var scope = new Scope(platform);
@@ -356,8 +358,12 @@ public sealed class MainWindowTests
         Assert.Equal(1, platform.CaptureRequests);
         var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
         Assert.Equal(mainVisible, main.IsVisible);
+        // A reopen request arrives while the overlay is showing, then the capture ends before it is dispatched.
+        App.RestoreOnReopen(scope.Controller, new ActivatedEventArgs(ActivationKind.Reopen));
         overlay.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+        Dispatcher.UIThread.RunJobs();
         Assert.Empty(scope.Lifetime.Windows.OfType<CaptureWindow>());
+        Assert.Equal(1, restores);
         Assert.Equal(mainVisible, main.IsVisible);
         if (mainVisible) Assert.Equal(page, main.CurrentPage);
     }
