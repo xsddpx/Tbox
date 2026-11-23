@@ -485,7 +485,8 @@ public sealed class MainWindow : Window
         feedback.Content = new SettingsLine("反馈问题", "在 GitHub 提交问题或建议", new LineIcon(IconKind.Chevron, brush: Brush.Parse(DesignTokens.Hint)) { Width = 16, Height = 16 });
         Hover(feedback, "#F7F6FB", 8);
         AddPage(MainPage.Settings, PageHeader("设置", null), Spaced(_update, 10),
-            Ui.GroupHeader("应用行为"), Ui.Rows(_startup, new SettingsLine("失败时提示", "操作失败时在屏幕角落说明原因", _failureToggle)),
+            Ui.GroupHeader("应用行为"), Ui.Rows(_startup, _shortcuts[HotkeyAction.OpenMain],
+                new SettingsLine("失败时提示", "操作失败时在屏幕角落说明原因", _failureToggle)),
             Spaced(_models, 24), Spaced(feedback, 20));
     }
 

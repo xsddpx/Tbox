@@ -71,10 +71,10 @@ internal sealed class ShortcutRecorder : Button
         if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None) { Stop(); return; }
         if (e.Key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt
             or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin) return;
-        if (KeyName(e.Key) is not { } key)
+        if (KeyName(e.Key, e.PhysicalKey) is not { } key)
         {
             Stop();
-            Finished?.Invoke("不支持这个按键，请使用字母、主键区数字、空格或 F1–F12。");
+            Finished?.Invoke("不支持这个按键，请使用字母、主键区数字、反引号、空格或 F1–F12。");
             return;
         }
         var shortcut = new Shortcut((e.KeyModifiers & KeyModifiers.Control) != 0, (e.KeyModifiers & KeyModifiers.Alt) != 0,
@@ -101,13 +101,14 @@ internal sealed class ShortcutRecorder : Button
 
     public Task ResetAsync() => SaveAsync(null);
     // Keys a global shortcut may use; null for modifiers and anything the platforms cannot register.
-    internal static string? KeyName(Key key) => key switch
+    internal static string? KeyName(Key key, PhysicalKey physicalKey) => physicalKey == PhysicalKey.Backquote ? "`" : key switch
     {
         >= Key.A and <= Key.Z => ((char)('A' + (key - Key.A))).ToString(),
         >= Key.D0 and <= Key.D9 => ((char)('0' + (key - Key.D0))).ToString(),
         >= Key.F1 and <= Key.F12 => $"F{1 + (key - Key.F1)}",
         Key.PrintScreen => "PrintScreen",
         Key.Space => "Space",
+        Key.OemTilde => "`",
         _ => null
     };
 }
@@ -142,6 +143,7 @@ internal sealed class ShortcutRow : SettingsLine
         {
             HotkeyAction.Folder => _controller.Settings.FolderJumpEnabled, HotkeyAction.QuickLook => _controller.Settings.QuickLook.Enabled,
             HotkeyAction.WindowTopmost => _controller.Settings.WindowTopmostEnabled,
+            HotkeyAction.OpenMain => true,
             _ => _controller.Settings.ScreenPasteEnabled
         };
         if (InBanner(_action)) IsEnabled = enabled;
@@ -160,6 +162,7 @@ internal sealed class ShortcutRow : SettingsLine
             HotkeyAction.Capture => "框选区域后标注、贴图或识别文字",
             HotkeyAction.Pin => "把剪贴板里的图片或文字贴到屏幕",
             HotkeyAction.Toggle => "隐藏或重新显示所有贴图",
+            HotkeyAction.OpenMain => "从其他应用呼出 Tbox",
             HotkeyAction.QuickLook => "自定义激活此模块的快捷键",
             HotkeyAction.WindowTopmost => "对当前窗口按一次置顶，再按一次解除",
             _ => "只在打开 / 保存对话框里生效"

@@ -17,6 +17,8 @@ public sealed class ShortcutPolicyTests
     [InlineData(HotkeyAction.Folder, true, "⌃G")]
     [InlineData(HotkeyAction.WindowTopmost, false, "Ctrl+Win+T")]
     [InlineData(HotkeyAction.WindowTopmost, true, "⌃⇧T")]
+    [InlineData(HotkeyAction.OpenMain, false, "Ctrl+Shift+~")]
+    [InlineData(HotkeyAction.OpenMain, true, "⇧⌘~")]
     public void DefaultsUseThePlatformModifiersAndCanBeRecorded(HotkeyAction action, bool mac, string expected)
     {
         var shortcut = ShortcutPolicy.Default(action, mac);
@@ -42,6 +44,7 @@ public sealed class ShortcutPolicyTests
     [InlineData(false, false, false, false, "PrintScreen", true)]
     [InlineData(true, false, false, false, "Tab", false)]
     [InlineData(false, true, false, false, "1", true)]
+    [InlineData(false, false, true, false, "`", false)]
     public void WindowsValidationRejectsTypingAndEditingKeys(bool control, bool alt, bool shift, bool meta, string key, bool valid) =>
         Assert.Equal(valid, ShortcutPolicy.Validate(new Shortcut(control, alt, shift, meta, key), mac: false) is null);
 
@@ -50,6 +53,7 @@ public sealed class ShortcutPolicyTests
     [InlineData(true, false, false, true, "C", true)]
     [InlineData(false, false, false, false, "PrintScreen", false)]
     [InlineData(true, false, true, false, "4", true)]
+    [InlineData(false, false, false, true, "`", false)]
     public void MacValidationKeepsCommandShortcutsForApplications(bool control, bool alt, bool shift, bool meta, string key, bool valid) =>
         Assert.Equal(valid, ShortcutPolicy.Validate(new Shortcut(control, alt, shift, meta, key), mac: true) is null);
 
@@ -61,6 +65,7 @@ public sealed class ShortcutPolicyTests
     [InlineData("M", 0x4D, 0x2E)]
     [InlineData("F6", 0x75, 0x61)]
     [InlineData("F12", 0x7B, 0x6F)]
+    [InlineData("`", 0xC0, 0x32)]
     public void KeysMapToNativeCodes(string key, int windows, int mac)
     {
         Assert.Equal(windows, ShortcutPolicy.WindowsKeyCode(key));
@@ -86,7 +91,7 @@ public sealed class ShortcutPolicyTests
         Assert.True(older.WindowTopmostBorder);
         var settings = new AppSettings { WindowTopmostEnabled = true, WindowTopmostBorder = false,
             Hotkeys = new HotkeyBindings(Folder: new Shortcut(true, false, true, false, "J"),
-                WindowTopmost: new Shortcut(true, true, false, false, "T")) };
+                WindowTopmost: new Shortcut(true, true, false, false, "T"), OpenMain: new Shortcut(true, true, false, false, "`")) };
         Assert.Equal(settings, JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(settings)));
     }
 }

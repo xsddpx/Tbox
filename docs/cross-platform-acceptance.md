@@ -2,6 +2,12 @@
 
 最新公开安装包见 [GitHub Releases](https://github.com/xsddpx/Tbox/releases/latest)。
 
+## 在 Mac 上用 UTM 验证 Windows
+
+在 Mac 上可启动 UTM 中的 Windows 11 测试虚拟机，安装对应版本的签名 MSIX，在虚拟机桌面验证 Tbox 的实际交互。测试快捷键时先让虚拟机接收键盘输入，再把另一个 Windows 应用切到前台，按实际组合键，观察 Tbox 选区或主窗口是否出现。需要验证全屏时，在虚拟机内让目标应用进入全屏，然后重复操作。
+
+记录安装版本、Windows 版本和架构、测试组合键以及实际结果。分别记录 UTM 安装版验收与 GitHub Windows CI 的结果。
+
 ## 2026-11-10 Tbox 1.1.42 B 单排与横向下置属性
 
 - 用户确认 B 紧凑单排及属性横向下置后，共用应用已接入截图与贴图。更多菜单按场景区分，属性优先下置、底部上移，间隔 6 个逻辑单位。

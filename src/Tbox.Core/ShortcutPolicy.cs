@@ -1,10 +1,10 @@
 namespace Tbox.Core;
 
 // Global hotkeys Tbox registers. The values are the ids the native hotkey callbacks report.
-public enum HotkeyAction { Capture = 1, Pin = 2, Toggle = 3, Folder = 4, QuickLook = 5, WindowTopmost = 6 }
+public enum HotkeyAction { Capture = 1, Pin = 2, Toggle = 3, Folder = 4, QuickLook = 5, WindowTopmost = 6, OpenMain = 7 }
 
 // A key combination. Meta is the Windows key on Windows and Command on macOS. Key is a
-// platform-neutral name: "A"–"Z", "0"–"9", "F1"–"F12", "PrintScreen" or "Space".
+// platform-neutral name: "A"–"Z", "0"–"9", "F1"–"F12", "`", "PrintScreen" or "Space".
 public sealed record Shortcut(bool Control, bool Alt, bool Shift, bool Meta, string Key)
 {
     public string[] Caps(bool mac)
@@ -14,7 +14,7 @@ public sealed record Shortcut(bool Control, bool Alt, bool Shift, bool Meta, str
         if (Alt) caps.Add(mac ? "⌥" : "Alt");
         if (Shift) caps.Add(mac ? "⇧" : "Shift");
         if (Meta) caps.Add(mac ? "⌘" : "Win");
-        caps.Add(Key switch { "PrintScreen" => "PrtSc", "Space" => "Space", _ => Key });
+        caps.Add(Key switch { "PrintScreen" => "PrtSc", "`" when Shift => "~", _ => Key });
         return [.. caps];
     }
 
@@ -26,12 +26,13 @@ public sealed record HotkeyBinding(HotkeyAction Action, Shortcut Shortcut);
 
 // Saved choices; a null entry means the platform default.
 public sealed record HotkeyBindings(Shortcut? Capture = null, Shortcut? Pin = null, Shortcut? Toggle = null, Shortcut? Folder = null,
-    Shortcut? QuickLook = null, Shortcut? WindowTopmost = null)
+    Shortcut? QuickLook = null, Shortcut? WindowTopmost = null, Shortcut? OpenMain = null)
 {
     public Shortcut? Get(HotkeyAction action) => action switch
     {
         HotkeyAction.Capture => Capture, HotkeyAction.Pin => Pin, HotkeyAction.Toggle => Toggle,
-        HotkeyAction.QuickLook => QuickLook, HotkeyAction.WindowTopmost => WindowTopmost, _ => Folder
+        HotkeyAction.QuickLook => QuickLook, HotkeyAction.WindowTopmost => WindowTopmost,
+        HotkeyAction.OpenMain => OpenMain, _ => Folder
     };
 
     public HotkeyBindings With(HotkeyAction action, Shortcut? shortcut) => action switch
@@ -39,6 +40,7 @@ public sealed record HotkeyBindings(Shortcut? Capture = null, Shortcut? Pin = nu
         HotkeyAction.Capture => this with { Capture = shortcut }, HotkeyAction.Pin => this with { Pin = shortcut },
         HotkeyAction.Toggle => this with { Toggle = shortcut }, HotkeyAction.QuickLook => this with { QuickLook = shortcut },
         HotkeyAction.WindowTopmost => this with { WindowTopmost = shortcut },
+        HotkeyAction.OpenMain => this with { OpenMain = shortcut },
         _ => this with { Folder = shortcut }
     };
 }
@@ -48,12 +50,13 @@ public static class ShortcutPolicy
     // Shortcuts registered with the system. 速览 is not among them: like PowerToys Peek it is read by a keyboard hook
     // only while Explorer or the desktop is in front, so Ctrl+Space keeps switching input methods everywhere else.
     public static readonly HotkeyAction[] Actions =
-        [HotkeyAction.Capture, HotkeyAction.Pin, HotkeyAction.Toggle, HotkeyAction.Folder, HotkeyAction.WindowTopmost];
+        [HotkeyAction.Capture, HotkeyAction.Pin, HotkeyAction.Toggle, HotkeyAction.Folder, HotkeyAction.WindowTopmost, HotkeyAction.OpenMain];
 
     public static string Name(HotkeyAction action) => action switch
     {
         HotkeyAction.Capture => "截图", HotkeyAction.Pin => "贴出剪贴板", HotkeyAction.Toggle => "显隐贴图",
-        HotkeyAction.QuickLook => "速览", HotkeyAction.WindowTopmost => "置顶 / 取消置顶", _ => "文件夹跳转"
+        HotkeyAction.QuickLook => "速览", HotkeyAction.WindowTopmost => "置顶 / 取消置顶",
+        HotkeyAction.OpenMain => "打开主界面", _ => "文件夹跳转"
     };
 
     // 速览 keeps PowerToys Peek's Ctrl+Space.
@@ -62,6 +65,7 @@ public static class ShortcutPolicy
         HotkeyAction.Folder => new(true, false, false, false, "G"),
         HotkeyAction.QuickLook => new(true, false, false, false, "Space"),
         HotkeyAction.WindowTopmost => new(true, false, mac, !mac, "T"),
+        HotkeyAction.OpenMain => new(!mac, false, true, mac, "`"),
         _ => new(!mac, false, true, mac, ((int)action).ToString())
     };
 
@@ -72,16 +76,16 @@ public static class ShortcutPolicy
     public static string? Validate(Shortcut shortcut, bool mac)
     {
         if (WindowsKeyCode(shortcut.Key) is null || mac && MacKeyCode(shortcut.Key) is null)
-            return mac ? "不支持这个按键，请使用字母、数字或 F1–F12。" : "不支持这个按键，请使用字母、数字、F1–F12 或 PrtSc。";
+            return mac ? "不支持这个按键，请使用字母、数字、反引号或 F1–F12。" : "不支持这个按键，请使用字母、数字、反引号、F1–F12 或 PrtSc。";
         var typed = shortcut.Key.Length == 1 || shortcut.Key == "Space";
         if (typed && !shortcut.Control && !shortcut.Alt && !shortcut.Meta)
-            return mac ? "字母和数字需要搭配 ⌃、⌥ 或 ⌘。" : "字母、数字和空格需要搭配 Ctrl、Alt 或 Win。";
+            return mac ? "字符键需要搭配 ⌃、⌥ 或 ⌘。" : "字符键和空格需要搭配 Ctrl、Alt 或 Win。";
         // A global hotkey would take these editing shortcuts away from every application.
         if (shortcut.Key.Length == 1 && !mac && shortcut is { Control: true, Alt: false, Shift: false, Meta: false } && "ACVXYZS".Contains(shortcut.Key[0]))
             return "这是常用的编辑快捷键，请换一个组合。";
         if (shortcut.Key.Length == 1 && mac && shortcut is { Meta: true, Control: false, Alt: false } &&
-            shortcut is not { Shift: true, Key: "1" or "2" or "3" })
-            return "⌘ 加字母或数字是应用常用的快捷键，请再加上 ⌃ 或 ⌥。";
+            shortcut is not { Shift: true, Key: "1" or "2" or "3" or "`" })
+            return "这是系统或应用常用的快捷键，请再加上 ⌃ 或 ⌥。";
         return null;
     }
 
@@ -91,6 +95,7 @@ public static class ShortcutPolicy
         [var c] when c is >= 'A' and <= 'Z' || c is >= '0' and <= '9' => c,
         "PrintScreen" => 0x2C,
         "Space" => 0x20,
+        "`" => 0xC0,
         _ when FunctionNumber(key) is { } n => 0x6F + n,
         _ => null
     };
@@ -98,6 +103,7 @@ public static class ShortcutPolicy
     // Carbon virtual key codes (kVK_*) for RegisterEventHotKey; they follow the ANSI key positions.
     public static int? MacKeyCode(string key)
     {
+        if (key == "`") return 0x32;
         if (FunctionNumber(key) is { } n) return MacFunctionKeys[n - 1];
         var index = key.Length == 1 ? MacKeys.IndexOf(key[0]) : -1;
         return index < 0 ? null : MacKeyCodes[index];
