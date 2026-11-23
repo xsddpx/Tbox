@@ -387,6 +387,9 @@ public sealed class MainWindowTests
         Assert.Equal(mainVisible, main.IsVisible);
         // A reopen request arrives while the overlay is showing, then the capture ends before it is dispatched.
         App.RestoreOnReopen(scope.Controller, new ActivatedEventArgs(ActivationKind.Reopen));
+        platform.HotkeyHandler!(HotkeyAction.OpenMain);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(mainVisible, main.IsVisible);
         overlay.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
         Dispatcher.UIThread.RunJobs();
         Assert.Empty(scope.Lifetime.Windows.OfType<CaptureWindow>());
@@ -439,6 +442,34 @@ public sealed class MainWindowTests
         Assert.Equal(MainPage.Settings, main.CurrentPage); // Already open: stays where the user is.
         main.Hide(); scope.Controller.ShowMain();
         Assert.Equal(MainPage.Capture, main.CurrentPage);
+    }
+
+    [AvaloniaFact]
+    public async Task OpenMainShortcutRemainsAvailableWithBothModulesDisabled()
+    {
+        var platform = new FakePlatform();
+        using var scope = new Scope(platform);
+        await scope.InitializeAsync();
+        var controller = scope.Controller;
+        var main = controller.Main;
+        await controller.SetModulesAsync(false, false);
+        Assert.Equal(ShortcutPolicy.Default(HotkeyAction.OpenMain, OperatingSystem.IsMacOS()), platform.Hotkeys[HotkeyAction.OpenMain]);
+
+        platform.HotkeyHandler!(HotkeyAction.OpenMain);
+        Layout(main);
+        Assert.True(main.IsVisible);
+        Assert.Equal(MainPage.Capture, main.CurrentPage);
+
+        main.Navigate(MainPage.Settings);
+        main.WindowState = WindowState.Minimized;
+        platform.HotkeyHandler(HotkeyAction.OpenMain);
+        Layout(main);
+        Assert.Equal(WindowState.Normal, main.WindowState);
+        Assert.Equal(MainPage.Settings, main.CurrentPage);
+        var row = Assert.Single(main.CurrentPageView.GetVisualDescendants().OfType<ShortcutRow>());
+        Assert.Equal("修改打开主界面快捷键", Name(row.Recorder));
+        Assert.Equal("`", ShortcutRecorder.KeyName(Key.None, PhysicalKey.Backquote));
+        Assert.Equal("`", ShortcutRecorder.KeyName(Key.OemTilde, PhysicalKey.None));
     }
 
     [AvaloniaFact]
@@ -696,7 +727,7 @@ public sealed class MainWindowTests
         Layout(main); TaskToolbarTests.Preview(main, "main-shortcut-recording");
         row.Recorder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
         Assert.False(row.Recorder.IsRecording);
-        Assert.Equal(4, platform.Hotkeys.Count);
+        Assert.Equal(5, platform.Hotkeys.Count);
         Assert.Equal(captureDefault, platform.Hotkeys[HotkeyAction.Capture]);
 
         // A combination already used by another Tbox shortcut is refused and the old one stays.
@@ -772,7 +803,7 @@ public sealed class MainWindowTests
         // The module switch is no longer blocked by the conflict.
         await controller.SetModulesAsync(false, null);
         Assert.False(controller.Settings.ScreenPasteEnabled);
-        Assert.Equal([HotkeyAction.Folder], platform.Hotkeys.Keys);
+        Assert.Equal([HotkeyAction.Folder, HotkeyAction.OpenMain], platform.Hotkeys.Keys);
         Assert.Null(Dot(main, "截图"));
     }
 

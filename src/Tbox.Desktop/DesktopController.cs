@@ -171,6 +171,7 @@ public sealed class DesktopController : IDisposable
         if (action == HotkeyAction.Pin) Run(PinClipboardAsync);
         if (action == HotkeyAction.Toggle) TogglePins();
         if (action == HotkeyAction.Folder) Run(JumpFolderAsync);
+        if (action == HotkeyAction.OpenMain) ShowMainOnReopen();
         if (action == HotkeyAction.WindowTopmost && _settings.WindowTopmostEnabled && !IsQuitting && !_quitRequested && !_installingUpdate)
             WindowTopmost?.ToggleForeground();
     }, DispatcherPriority.Send);
@@ -180,6 +181,7 @@ public sealed class DesktopController : IDisposable
         HotkeyAction.Folder => settings.FolderJumpEnabled,
         HotkeyAction.QuickLook => settings.QuickLook.Enabled,
         HotkeyAction.WindowTopmost => WindowTopmost is not null && settings.WindowTopmostEnabled,
+        HotkeyAction.OpenMain => true,
         _ => settings.ScreenPasteEnabled
     };
 
