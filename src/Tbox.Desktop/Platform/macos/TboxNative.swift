@@ -237,11 +237,21 @@ public func elementBounds(_ processId: Int32, _ x: Double, _ y: Double) -> Unsaf
                      "width": Int(ceil(size.width)), "height": Int(ceil(size.height))])
 }
 
+@_cdecl("tbox_prepare_capture_selection_window")
+public func prepareCaptureSelectionWindow(_ pointer: UnsafeRawPointer?) {
+    guard let target = window(pointer) else { return }
+    target.collectionBehavior = [.canJoinAllSpaces, .canJoinAllApplications]
+    target.level = .screenSaver
+    target.hasShadow = false
+}
+
 @_cdecl("tbox_place_window")
 public func placeWindow(_ pointer: UnsafeRawPointer?, _ left: Double, _ top: Double,
                         _ width: Double, _ height: Double, _ overlay: Int32) {
     guard let target = window(pointer) else { return }
-    target.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    if !target.collectionBehavior.contains(.canJoinAllApplications) {
+        target.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+    }
     target.level = overlay != 0 ? .screenSaver : .floating
     target.hasShadow = overlay == 0
     target.setFrame(NSRect(x: left, y: primaryHeight() - top - height, width: width, height: height), display: true)

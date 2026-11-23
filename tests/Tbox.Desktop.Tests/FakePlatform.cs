@@ -1,4 +1,5 @@
-﻿using Tbox.Core;
+﻿using Avalonia.Controls;
+using Tbox.Core;
 using Tbox.Desktop.Platform;
 
 namespace Tbox.Desktop.Tests;
@@ -57,9 +58,11 @@ internal sealed class FakePlatform : IPlatformServices
     public Action? SnapshotCaptureForeground(bool dashboardHidden = false) =>
         dashboardHidden ? UncoveredWindowRestore ?? CaptureForegroundRestore : CaptureForegroundRestore;
     public Action<DesktopPlacement, bool>? WindowPlaced { get; set; }
+    public Action<Window>? CaptureSelectionWindowPreparing { get; set; }
     public DesktopPlacement? WindowPlacementOverride { get; set; }
     // Optional second display to the right of the primary one; window handles are not tracked, so only regions can reach it.
     public DesktopPlacement? SecondaryWorkArea { get; set; }
+    public void PrepareCaptureSelectionWindow(Window window) => CaptureSelectionWindowPreparing?.Invoke(window);
     public void PlaceWindow(nint handle, DesktopPlacement placement, bool overlay) => WindowPlaced?.Invoke(placement, false);
     public void MoveWindow(nint handle, DesktopPlacement placement) => WindowPlaced?.Invoke(placement, true);
     public void MoveToPointer(nint handle) { }

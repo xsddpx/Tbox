@@ -368,6 +368,12 @@ public sealed class MainWindowTests
         var main = scope.Controller.Main;
         var page = useShortcut ? MainPage.Settings : MainPage.Capture;
         if (mainVisible) { scope.Controller.ShowMain(page); Layout(main); }
+        Window? prepared = null;
+        platform.CaptureSelectionWindowPreparing = window =>
+        {
+            Assert.False(window.IsVisible);
+            prepared = window;
+        };
 
         if (useShortcut) platform.HotkeyHandler!(HotkeyAction.Capture);
         else Click(main, "截图");
@@ -377,6 +383,7 @@ public sealed class MainWindowTests
         for (var attempt = 0; attempt < 100 && !scope.Lifetime.Windows.OfType<CaptureWindow>().Any(); attempt++) await Task.Delay(10);
         Assert.Equal(1, platform.CaptureRequests);
         var overlay = Assert.Single(scope.Lifetime.Windows.OfType<CaptureWindow>());
+        Assert.Same(overlay, prepared);
         Assert.Equal(mainVisible, main.IsVisible);
         // A reopen request arrives while the overlay is showing, then the capture ends before it is dispatched.
         App.RestoreOnReopen(scope.Controller, new ActivatedEventArgs(ActivationKind.Reopen));

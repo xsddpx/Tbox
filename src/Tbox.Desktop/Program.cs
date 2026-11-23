@@ -37,5 +37,9 @@ internal static class Program
         }
     }
 
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
+    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
+        .UsePlatformDetect()
+        // Preserve the bundle's menu-bar agent policy so screenshot windows can join other apps' full-screen Spaces.
+        .With(new MacOSPlatformOptions { ShowInDock = false })
+        .LogToTrace();
 }
