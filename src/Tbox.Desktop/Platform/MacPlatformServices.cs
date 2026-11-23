@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Avalonia.Controls;
 using Tbox.Core;
 
 namespace Tbox.Desktop.Platform;
@@ -125,6 +126,12 @@ public sealed class MacPlatformServices : IPlatformServices
         _screenshotShortcutCallback = null;
     }
 
+    public void PrepareCaptureSelectionWindow(Window window)
+    {
+        // Join the active full-screen Space before Avalonia first orders the window in.
+        window.ShowActivated = false;
+        if (window.TryGetPlatformHandle() is { } handle) NativePrepareCaptureSelectionWindow(handle.Handle);
+    }
     public void PlaceWindow(nint handle, DesktopPlacement p, bool overlay) =>
         NativePlaceWindow(handle, p.Left, p.Top, p.Width, p.Height, overlay ? 1 : 0);
     public void MoveToPointer(nint handle) => NativeMoveToPointer(handle);
@@ -188,6 +195,7 @@ public sealed class MacPlatformServices : IPlatformServices
     [DllImport(Library, EntryPoint = "tbox_register_hotkey")] private static extern int NativeRegisterHotkey(HotkeyCallback callback, int id, int keyCode, int modifiers);
     [DllImport(Library, EntryPoint = "tbox_unregister_hotkey")] private static extern void NativeUnregisterHotkey(int id);
     [DllImport(Library, EntryPoint = "tbox_unregister_hotkeys")] private static extern void NativeUnregisterHotkeys();
+    [DllImport(Library, EntryPoint = "tbox_prepare_capture_selection_window")] private static extern void NativePrepareCaptureSelectionWindow(nint handle);
     [DllImport(Library, EntryPoint = "tbox_place_window")] private static extern void NativePlaceWindow(nint handle, double left, double top, double width, double height, int overlay);
     [DllImport(Library, EntryPoint = "tbox_move_to_pointer")] private static extern void NativeMoveToPointer(nint handle);
     [DllImport(Library, EntryPoint = "tbox_window_placement")] private static extern nint NativeWindowPlacement(nint handle);

@@ -128,12 +128,14 @@ internal sealed class CaptureSession
 
     public void Show()
     {
-        var pointer = _controller.Platform.GetPointerPosition();
+        var platform = _controller.Platform;
+        var pointer = platform.GetPointerPosition();
         foreach (var window in _windows)
         {
+            platform.PrepareCaptureSelectionWindow(window);
             window.Show();
             var d = window.Display;
-            _controller.Platform.PlaceWindow(window.TryGetPlatformHandle()!.Handle,
+            platform.PlaceWindow(window.TryGetPlatformHandle()!.Handle,
                 new DesktopPlacement(d.Left, d.Top, d.Width, d.Height), true);
         }
         var active = _windows.FirstOrDefault(window => CaptureHistory.ContainsPointer(window.Display, pointer)) ?? _windows.FirstOrDefault();
