@@ -10,7 +10,9 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
     private const uint PreservePlacement = 0x0001 | 0x0002 | 0x0010;
     private const int ManagedWindow = 1;
     private const int OriginallyTopmostOwnedWindow = 2;
-    private readonly string _property = $"Tbox.WindowTopmost.{Guid.NewGuid():N}";
+    // A fixed name lets the next run find pins left behind by a process that did not exit cleanly.
+    internal const string PropertyName = "Tbox.WindowTopmost";
+    private readonly string _property = PropertyName;
     private readonly Dictionary<nint, Entry> _windows = [];
     private readonly DispatcherTimer _timer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(33) };
     private WindowTopmostBorder? _border;
@@ -25,7 +27,11 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
         public bool BorderVisible { get; set; }
     }
 
-    public WindowsWindowTopmost() => _timer.Tick += (_, _) => Refresh();
+    public WindowsWindowTopmost()
+    {
+        _timer.Tick += (_, _) => Refresh();
+        ReleaseLeftoverWindows();
+    }
     public IReadOnlyList<TopmostWindow> Windows => _windows.Select(pair => new TopmostWindow(pair.Key, pair.Value.Title)).ToArray();
     public event Action<string?>? Changed;
 
@@ -46,7 +52,8 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
             Changed?.Invoke("请先选中要置顶的应用主窗口。");
             return;
         }
-        if (IsTopmost(window)) { Changed?.Invoke("当前窗口已经置顶。"); return; }
+        // Only Tbox's own pins can be undone; an app that keeps its window topmost outlives SetWindowPos.
+        if (IsTopmost(window)) { Changed?.Invoke("该窗口已被其他程序置顶，请先解除后再试。"); return; }
         Drop(window);
         // The property is deleted by Windows when the HWND dies, even if the same process reuses its handle.
         if (!SetProp(window, _property, ManagedWindow)) { Changed?.Invoke("系统拒绝置顶当前窗口。"); return; }
@@ -92,6 +99,21 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
         var failed = false;
         foreach (var window in _windows.Keys.ToArray()) failed |= !TryRemove(window);
         Changed?.Invoke(failed ? "部分窗口的原始置顶状态未能恢复。" : null);
+    }
+
+    // A pin lives in the target window, so a killed instance would leave it topmost forever.
+    // Every start undoes those leftovers; the in-memory list always starts empty.
+    private void ReleaseLeftoverWindows()
+    {
+        NativeMethods.EnumWindows((window, _) =>
+        {
+            var property = GetProp(window, _property);
+            if (property == 0) return true;
+            // Keep the property when Windows refuses, so the next start can try again.
+            if (property == ManagedWindow && IsTopmost(window) && !SetWindowPos(window, -2, 0, 0, 0, 0, PreservePlacement)) return true;
+            RemoveProp(window, _property);
+            return true;
+        }, 0);
     }
 
     private bool TryRemove(nint window)
@@ -193,9 +215,10 @@ internal sealed class WindowsWindowTopmost : IWindowTopmost
 
     public void Dispose()
     {
-        Clear();
-        foreach (var window in _windows.Keys.ToArray()) { RemoveProp(window, _property); Drop(window); }
         _timer.Stop();
+        // TryRemove keeps the property when Windows refuses the demotion, so a later start finishes the cleanup.
+        foreach (var window in _windows.Keys.ToArray())
+            if (!TryRemove(window)) Drop(window);
         _border?.Dispose();
     }
 

@@ -45,9 +45,54 @@ public sealed class WindowsWindowTopmostTests
         }
     }
 
+    [AvaloniaFact]
+    public void AWindowPinnedByItsOwnApplicationIsReportedButNotAdopted()
+    {
+        var window = CreateWindowEx(8, "Static", "应用自身置顶", 0x90000000, 0, 0, 320, 180, 0, 0, 0, 0);
+        try
+        {
+            Assert.NotEqual(nint.Zero, window);
+            Assert.True(IsTopmost(window));
+            using var topmost = new WindowsWindowTopmost();
+            topmost.SetBorderVisible(false);
+            string? error = null;
+            topmost.Changed += message => error = message;
+            topmost.ToggleWindow(window);
+            Assert.Equal("该窗口已被其他程序置顶，请先解除后再试。", error);
+            Assert.Empty(topmost.Windows);
+            Assert.True(IsTopmost(window));
+        }
+        finally
+        {
+            DestroyWindow(window);
+        }
+    }
+
+    [AvaloniaFact]
+    public void APinLeftByAKilledInstanceIsReleasedOnStartup()
+    {
+        var window = CreateWindowEx(8, "Static", "遗留置顶窗口", 0x90000000, 0, 0, 320, 180, 0, 0, 0, 0);
+        try
+        {
+            Assert.NotEqual(nint.Zero, window);
+            Assert.True(SetProp(window, WindowsWindowTopmost.PropertyName, 1));
+            Assert.True(IsTopmost(window));
+            using var topmost = new WindowsWindowTopmost();
+            Assert.False(IsTopmost(window));
+            Assert.Equal(nint.Zero, GetProp(window, WindowsWindowTopmost.PropertyName));
+            Assert.Empty(topmost.Windows);
+        }
+        finally
+        {
+            DestroyWindow(window);
+        }
+    }
+
     private static bool IsTopmost(nint window) => (GetWindowLongPtr(window, -20) & 8) != 0;
     [DllImport("user32.dll", EntryPoint = "CreateWindowExW", CharSet = CharSet.Unicode)] private static extern nint CreateWindowEx(uint exStyle, string name, string title, uint style, int x, int y, int width, int height, nint owner, nint menu, nint instance, nint parameter);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint window, int index);
+    [DllImport("user32.dll", EntryPoint = "SetPropW", CharSet = CharSet.Unicode)] private static extern bool SetProp(nint window, string name, nint value);
+    [DllImport("user32.dll", EntryPoint = "GetPropW", CharSet = CharSet.Unicode)] private static extern nint GetProp(nint window, string name);
     [DllImport("user32.dll")] private static extern bool DestroyWindow(nint window);
 }
 #endif
