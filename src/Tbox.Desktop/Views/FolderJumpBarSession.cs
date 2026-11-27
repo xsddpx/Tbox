@@ -24,6 +24,9 @@ internal sealed class FolderJumpBarSession : IDisposable
     private bool _refreshing;
     private bool _navigating;
     private long _refreshAfter;
+    // WinEvent callbacks are delivered on a non-UI thread.  Coalesce their
+    // high-frequency location notifications before touching Avalonia state.
+    private int _positionUpdateQueued;
 
     public FolderJumpBarSession(DesktopController controller, IFolderNavigation navigation, CancellationToken shutdown)
     {
@@ -95,10 +98,17 @@ internal sealed class FolderJumpBarSession : IDisposable
 
     private void OnDialogChange(FolderDialogChange change, int revision)
     {
-        if (revision != _watchRevision) return;
         if (change == FolderDialogChange.Position)
         {
-            if (!_followTimer.IsEnabled) _followTimer.Start();
+            if (Interlocked.Exchange(ref _positionUpdateQueued, 1) != 0) return;
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    if (revision == _watchRevision && !_followTimer.IsEnabled) _followTimer.Start();
+                }
+                finally { Volatile.Write(ref _positionUpdateQueued, 0); }
+            }, DispatcherPriority.Input);
             return;
         }
 

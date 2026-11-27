@@ -26,8 +26,7 @@ internal sealed class WindowsDialogObservation : IDisposable
         var observation = new WindowsDialogObservation(window, changed);
         if (observation.Hook(ObjectLocationChange, process, thread) &&
             observation.Hook(MoveSizeEnd, process, thread) &&
-            observation.Hook(ObjectDestroy, process, thread) &&
-            observation.Hook(NativeMethods.EventSystemForeground, 0, 0)) return observation;
+            observation.Hook(ObjectDestroy, process, thread)) return observation;
         observation.Dispose();
         return null;
     }
@@ -44,8 +43,7 @@ internal sealed class WindowsDialogObservation : IDisposable
     private void OnEvent(nint hook, uint type, nint window, int objectId, int childId, uint thread, uint time)
     {
         if (_disposed || objectId != 0 || childId != 0) return;
-        if (type == NativeMethods.EventSystemForeground) _changed(FolderDialogChange.Foreground);
-        else if (window == _window)
+        if (window == _window)
         {
             _changed(type switch
             {
