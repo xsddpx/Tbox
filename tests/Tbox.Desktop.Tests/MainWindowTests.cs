@@ -183,14 +183,16 @@ public sealed class MainWindowTests
 
         var notify = Assert.IsType<Action<FolderDialogChange>>(navigation.Notify);
         var original = navigation.Target!;
+        var notifications = new List<Task>();
         for (var x = 220; x <= 260; x += 10)
         {
             navigation.Target = original with { Bounds = original.Bounds with { Left = x } };
-            notify(FolderDialogChange.Position);
+            notifications.Add(Task.Run(() => notify(FolderDialogChange.Position)));
         }
-        Assert.Empty(placements.Skip(1));
+        await Task.WhenAll(notifications);
         await navigation.FirstGeometryRead.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, navigation.GeometryReads);
+        Assert.True(navigation.GeometryReadOnUiThread);
         Assert.True(placements[^1].MoveOnly);
         Assert.Equal(386, placements[^1].Placement.Left);
 
@@ -223,6 +225,7 @@ public sealed class MainWindowTests
         public FolderDialogTarget? Target { get; set; } = new(1, new(200, 80, 840, 500), new(0, 0, 1600, 1000), 1);
         public Action<FolderDialogChange>? Notify { get; private set; }
         public int GeometryReads { get; private set; }
+        public bool GeometryReadOnUiThread { get; private set; }
         public TaskCompletionSource FirstGeometryRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool HasPermission => true;
         public string CurrentDirectory => "";
@@ -239,6 +242,7 @@ public sealed class MainWindowTests
         public FolderDialogTarget? ReadTrackedDialog(long target, nint activeBar)
         {
             GeometryReads++;
+            GeometryReadOnUiThread = Dispatcher.UIThread.CheckAccess();
             FirstGeometryRead.TrySetResult();
             return Target;
         }
